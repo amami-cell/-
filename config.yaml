@@ -2,6 +2,17 @@
 # 発注インフォマート 棚卸自動化 設定ファイル
 # ============================================================
 
+foodist_journal:
+  base_url: "https://www2.pros-asp.net/corp/hassin"
+  login_url: "https://www2.pros-asp.net/corp/hassin/index"
+  timeout_ms: 30000
+  wait_after_select_ms: 3000
+  spreadsheet_id: "18Fq_mpEweHOFTlF4ntmwJzDsJNSt-DOq7wQYy8E0iLc"
+  sheet_name: "Foodist Journal"
+  # ログイン情報は環境変数 FOODIST_JOURNAL_USER_ID / FOODIST_JOURNAL_PASSWORD で上書き可
+  user_id: ""
+  password: ""
+
 infomart:
   base_url: "https://www.infomart.co.jp"
   login_url: "https://www.infomart.co.jp/scripts/logon.asp?CS=1&URL=http%3A%2F%2Fwww2%2Einfomart%2Eco%2Ejp%2Fmypage%2Fmypage%5Ffb%2Epage"

@@ -31,6 +31,7 @@ from loguru import logger
 
 from config_loader import AppConfig, StoreConfig
 from downloader import InfomartDownloader, DownloadResult
+from foodist_journal import FoodistJournalScraper
 from google_drive import GoogleDriveUploader
 from spreadsheet import SpreadsheetAggregator
 
@@ -130,6 +131,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="集計のみ実行（./downloads 内の既存ファイルを使用）",
     )
     parser.add_argument(
+        "--foodist",
+        action="store_true",
+        help="Foodist Journal からのデータ取得も実行する",
+    )
+    parser.add_argument(
+        "--foodist-only",
+        action="store_true",
+        help="Foodist Journal のデータ取得のみ実行（インフォマート処理をスキップ）",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default=None,
@@ -158,6 +169,7 @@ class AutomationPipeline:
         self.downloader = InfomartDownloader(config)
         self.uploader = GoogleDriveUploader(config)
         self.aggregator = SpreadsheetAggregator(config)
+        self.fj_scraper = FoodistJournalScraper(config)
 
     def run(
         self,
@@ -166,6 +178,7 @@ class AutomationPipeline:
         skip_download: bool = False,
         skip_upload: bool = False,
         skip_aggregate: bool = False,
+        run_foodist: bool = False,
     ) -> None:
         """
         パイプラインを実行する。
@@ -176,6 +189,7 @@ class AutomationPipeline:
             skip_download: True の場合ダウンロードをスキップ
             skip_upload: True の場合 Drive アップロードをスキップ
             skip_aggregate: True の場合スプレッドシート集計をスキップ
+            run_foodist: True の場合 Foodist Journal データ取得を実行
         """
         if stores is None:
             stores = self.config.stores
@@ -224,6 +238,20 @@ class AutomationPipeline:
             logger.info(f"集計先: {spreadsheet_url}")
         else:
             logger.info("[STEP 3/3] 集計をスキップ")
+
+        # ──────────────────────────────────────────
+        # STEP 4: Foodist Journal データ取得
+        # ──────────────────────────────────────────
+        if run_foodist:
+            logger.info("[STEP 4/4] Foodist Journal からデータ取得開始")
+            try:
+                fj_results = self.fj_scraper.run_all(target_month, stores)
+                success_count = sum(1 for r in fj_results if r.success)
+                logger.info(f"Foodist Journal 取得完了: {success_count}/{len(fj_results)} 件成功")
+            except Exception as e:
+                logger.error(f"Foodist Journal 取得エラー: {e}")
+        else:
+            logger.info("[STEP 4/4] Foodist Journal 取得をスキップ (--foodist または --foodist-only で有効化)")
 
         logger.info("=" * 60)
         logger.info("棚卸自動化 完了")
@@ -310,13 +338,17 @@ def main() -> int:
                 return 1
 
         # パイプライン実行
+        run_foodist = args.foodist or args.foodist_only
+        skip_infomart = args.foodist_only
+
         pipeline = AutomationPipeline(config)
         pipeline.run(
             target_month=target_month,
             stores=stores,
-            skip_download=args.aggregate_only,
-            skip_upload=args.download_only or args.aggregate_only,
-            skip_aggregate=args.download_only,
+            skip_download=args.aggregate_only or skip_infomart,
+            skip_upload=args.download_only or args.aggregate_only or skip_infomart,
+            skip_aggregate=args.download_only or skip_infomart,
+            run_foodist=run_foodist,
         )
 
         return 0

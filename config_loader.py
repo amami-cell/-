@@ -3,10 +3,22 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import yaml
 from dotenv import load_dotenv
+
+
+@dataclass
+class FoodistJournalConfig:
+    base_url: str = "https://www2.pros-asp.net/corp/hassin"
+    login_url: str = "https://www2.pros-asp.net/corp/hassin/index"
+    timeout_ms: int = 30000
+    wait_after_select_ms: int = 3000
+    spreadsheet_id: str = "18Fq_mpEweHOFTlF4ntmwJzDsJNSt-DOq7wQYy8E0iLc"
+    sheet_name: str = "Foodist Journal"
+    user_id: str = ""
+    password: str = ""
 
 
 @dataclass
@@ -51,6 +63,7 @@ class AppConfig:
     infomart: InfomartConfig
     download: DownloadConfig
     google: GoogleConfig
+    foodist_journal: FoodistJournalConfig = field(default_factory=FoodistJournalConfig)
     stores: list[StoreConfig] = field(default_factory=list)
 
     @classmethod
@@ -62,6 +75,7 @@ class AppConfig:
         infomart = InfomartConfig(**data.get("infomart", {}))
         download = DownloadConfig(**data.get("download", {}))
         google = GoogleConfig(**data.get("google", {}))
+        foodist_journal = FoodistJournalConfig(**data.get("foodist_journal", {}))
 
         stores = []
         for s in data.get("stores", []):
@@ -71,4 +85,16 @@ class AppConfig:
                 file_prefix=str(s.get("file_prefix", "")),
             ))
 
-        return cls(infomart=infomart, download=download, google=google, stores=stores)
+        return cls(
+            infomart=infomart,
+            download=download,
+            google=google,
+            foodist_journal=foodist_journal,
+            stores=stores,
+        )
+
+    def get_store_by_id(self, store_id: str) -> Optional[StoreConfig]:
+        for store in self.stores:
+            if store.store_id == store_id or store.store_name == store_id or store.file_prefix == store_id:
+                return store
+        return None
