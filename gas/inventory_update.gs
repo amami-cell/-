@@ -55,46 +55,97 @@ function onOpen() {
 }
 
 /**
- * コピーボタン付き HTML ダイアログで再取得コマンドを表示する
+ * 3コマンド対応のコピーボタン付き HTML ダイアログを表示する
+ *
+ * ① 当月取得         : py main.py --foodist-only
+ * ② 月指定取得       : py main.py --foodist-only --month YYYY-MM
+ * ③ 全月一括取得     : py main.py --foodist-all   --from  YYYY-MM
  */
 function showUpdateCommand_() {
-  const command =
-    'cd C:\\Users\\Owner\\OneDrive\\デスクトップ\\infomart_automation && ' +
-    'py main.py --foodist-only';
+  const BASE = 'cd C:\\\\Users\\\\Owner\\\\OneDrive\\\\デスクトップ\\\\infomart_automation && ';
 
-  const html = HtmlService.createHtmlOutput(
-    '<!DOCTYPE html>' +
-    '<html><head><style>' +
-    'body{font-family:"Google Sans",Arial,sans-serif;padding:20px;margin:0;color:#202124}' +
-    'p{margin:0 0 12px;font-size:14px}' +
-    '.row{display:flex;align-items:flex-start;gap:8px;background:#f1f3f4;border-radius:6px;padding:12px 14px}' +
-    '#cmd{flex:1;font-family:"Roboto Mono",monospace;font-size:12px;color:#1a73e8;' +
-    '     background:transparent;border:none;outline:none;resize:none;cursor:text;line-height:1.5}' +
-    '#copyBtn{flex-shrink:0;padding:6px 16px;background:#1a73e8;color:#fff;border:none;' +
-    '         border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap}' +
-    '#copyBtn:hover{background:#1557b0}' +
-    '#msg{margin-top:8px;font-size:12px;color:#188038;min-height:16px}' +
-    '</style></head><body>' +
-    '<p>以下のコマンドをターミナルで実行してください:</p>' +
-    '<div class="row">' +
-    '  <textarea id="cmd" rows="2" readonly>' + command + '</textarea>' +
-    '  <button id="copyBtn" onclick="copyCmd()">📋 コピー</button>' +
-    '</div>' +
-    '<div id="msg"></div>' +
-    '<script>' +
-    'function copyCmd(){' +
-    '  var el=document.getElementById("cmd");' +
-    '  el.select();' +
-    '  try{' +
-    '    document.execCommand("copy");' +
-    '    document.getElementById("msg").textContent="✅ コピーしました";' +
-    '  }catch(e){' +
-    '    document.getElementById("msg").textContent="❌ コピーに失敗しました（手動でコピーしてください）";' +
-    '  }' +
-    '}' +
-    '<\/script>' +
-    '</body></html>'
-  ).setWidth(560).setHeight(160);
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<head>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Google Sans",Arial,sans-serif;padding:18px 20px;color:#202124;font-size:13px}
+  h3{font-size:14px;font-weight:600;margin-bottom:14px}
+  .section{margin-bottom:14px}
+  .label{font-weight:500;margin-bottom:6px;color:#444}
+  .row{display:flex;align-items:center;gap:6px;background:#f1f3f4;border-radius:6px;padding:8px 10px}
+  .cmd{flex:1;font-family:"Roboto Mono",monospace;font-size:11px;color:#1a73e8;
+       background:transparent;border:none;outline:none;resize:none;cursor:text;line-height:1.4}
+  input[type=text]{font-family:"Roboto Mono",monospace;font-size:12px;border:1px solid #ccc;
+                   border-radius:4px;padding:4px 7px;width:100px;outline:none}
+  input[type=text]:focus{border-color:#1a73e8}
+  .copy-btn{flex-shrink:0;padding:5px 12px;background:#1a73e8;color:#fff;border:none;
+            border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .copy-btn:hover{background:#1557b0}
+  .msg{font-size:11px;color:#188038;min-height:14px;margin-top:4px;padding-left:2px}
+</style>
+</head>
+<body>
+<h3>📊 FWシート 再取得 — コマンド一覧</h3>
+
+<!-- ① 当月取得 -->
+<div class="section">
+  <div class="label">① 当月取得</div>
+  <div class="row">
+    <textarea class="cmd" id="cmd1" rows="1" readonly>${BASE}py main.py --foodist-only</textarea>
+    <button class="copy-btn" onclick="copy('cmd1','msg1')">📋 コピー</button>
+  </div>
+  <div class="msg" id="msg1"></div>
+</div>
+
+<!-- ② 月指定取得 -->
+<div class="section">
+  <div class="label">② 月指定取得</div>
+  <div class="row">
+    <textarea class="cmd" id="cmd2" rows="1" readonly>${BASE}py main.py --foodist-only --month 2026-01</textarea>
+    <input type="text" id="month2" value="2026-01" placeholder="YYYY-MM" oninput="update2()">
+    <button class="copy-btn" onclick="copy('cmd2','msg2')">📋 コピー</button>
+  </div>
+  <div class="msg" id="msg2"></div>
+</div>
+
+<!-- ③ 全月一括取得 -->
+<div class="section">
+  <div class="label">③ 全月一括取得（開始月〜当月）</div>
+  <div class="row">
+    <textarea class="cmd" id="cmd3" rows="1" readonly>${BASE}py main.py --foodist-all --from 2026-01</textarea>
+    <input type="text" id="month3" value="2026-01" placeholder="YYYY-MM" oninput="update3()">
+    <button class="copy-btn" onclick="copy('cmd3','msg3')">📋 コピー</button>
+  </div>
+  <div class="msg" id="msg3"></div>
+</div>
+
+<script>
+  var BASE = "${BASE}";
+
+  function update2(){
+    var m = document.getElementById('month2').value.trim() || 'YYYY-MM';
+    document.getElementById('cmd2').value = BASE + 'py main.py --foodist-only --month ' + m;
+  }
+  function update3(){
+    var m = document.getElementById('month3').value.trim() || 'YYYY-MM';
+    document.getElementById('cmd3').value = BASE + 'py main.py --foodist-all --from ' + m;
+  }
+  function copy(cmdId, msgId){
+    var el = document.getElementById(cmdId);
+    el.select();
+    var ok = false;
+    try{ ok = document.execCommand('copy'); }catch(e){}
+    document.getElementById(msgId).textContent = ok ? '✅ コピーしました！' : '❌ コピー失敗（手動でコピーしてください）';
+    setTimeout(function(){ document.getElementById(msgId).textContent=''; }, 3000);
+  }
+<\/script>
+</body>
+</html>`;
+
+  const html = HtmlService.createHtmlOutput(htmlBody)
+    .setWidth(620)
+    .setHeight(310);
 
   SpreadsheetApp.getUi().showModalDialog(html, '📊 FWシート 再取得');
 }
