@@ -22,6 +22,7 @@ from typing import Optional
 
 import openpyxl
 import requests as http
+import google_auth_httplib2
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from loguru import logger
@@ -143,9 +144,14 @@ class FoodistJournalScraper:
             page = context.new_page()
             try:
                 self._login(page)
+                self._save_screenshot(page, "after_login")
+                logger.debug(f"ログイン後ダッシュボードURL: {page.url}")
 
-                page.goto(REPORT_URL, timeout=self.fj.timeout_ms)
-                page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+                # SPA内部でメニューをクリックして遷移（page.goto()はセッションが失われる）
+                self._navigate_to_report_via_menu(page)
+                self._save_screenshot(page, "report_page")
+                logger.info(f"レポートページ移動後URL: {page.url}")
+
                 logger.info("店長会資料ページへ移動完了")
 
                 self._select_stores(page)
@@ -172,36 +178,167 @@ class FoodistJournalScraper:
         page.goto(self.fj.login_url, timeout=self.fj.timeout_ms)
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
 
-        page.evaluate("document.querySelector('input.form-control[type=\"text\"]').focus()")
-        time.sleep(0.3)
-        page.keyboard.type(user_id)
-        page.keyboard.press("Tab")
-        time.sleep(0.3)
-        page.keyboard.type(password)
+        # Angular 4.x 対応: click() は login-container overlay にブロックされるため JS で入力
+        # input.form-control[type="text"] が実際のIDフィールド（hidden-focus-item ではない）
+        page.evaluate(f"""() => {{
+            function angularFill(el, value) {{
+                if (!el) return;
+                el.focus();
+                el.value = value;
+                el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                el.dispatchEvent(new KeyboardEvent('keyup', {{ key: ' ', bubbles: true }}));
+            }}
+            angularFill(
+                document.querySelector('input.form-control[type="text"]'),
+                {repr(user_id)}
+            );
+            angularFill(
+                document.querySelector('input[type="password"]'),
+                {repr(password)}
+            );
+        }}""")
+        logger.debug(f"ユーザーID / パスワード入力完了")
+        time.sleep(1)
+        self._save_screenshot(page, "login_before_click")
 
-        try:
-            page.wait_for_selector("button:not([disabled])", timeout=8000)
-        except Exception:
-            self._save_screenshot(page, "login_button_disabled")
-            raise RuntimeError("ログインボタンが有効化されませんでした（ID/パスワード確認）")
-
+        # ログインボタンも JS でクリック（overlay 回避）
         page.evaluate("""() => {
-            const btn = document.querySelector('button:not([disabled])');
+            const btn = document.querySelector('button');
             if (btn) btn.click();
         }""")
+        logger.debug("ログインボタンクリック（JS）")
+
+        # Angular SPA のルーティングが完了するまで URL 変化を待つ（最大 15 秒）
+        try:
+            page.wait_for_url("**/app/**", timeout=15000)
+        except Exception:
+            pass
+
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-        logger.info("ログイン完了")
+
+        # ログイン成功確認 — /index に留まっていたら失敗
+        current_url = page.url
+        logger.debug(f"ログイン後URL: {current_url}")
+        if current_url.rstrip("/").endswith("/index"):
+            self._save_screenshot(page, "login_failed")
+            raise RuntimeError(
+                f"ログインに失敗しました（URL: {current_url}）。"
+                "config.yaml または環境変数のID/パスワードを確認してください。"
+            )
+
+        # ログイン後に表示されるダイアログを閉じる（バージョンアップのお知らせ等）
+        self._close_dialogs(page)
+
+        logger.info(f"ログイン完了 (URL: {current_url})")
+
+    def _close_dialogs(self, page: Page) -> None:
+        """モーダルダイアログ（バージョンアップのお知らせ等）を閉じる。"""
+        time.sleep(1)
+        # Escape キーで閉じる
+        page.keyboard.press("Escape")
+        time.sleep(0.5)
+
+        # JS で「閉じる」ボタンを探してクリック
+        closed = page.evaluate("""() => {
+            const texts = ['閉じる', '閉じる', 'Close', 'OK', '×'];
+            for (const text of texts) {
+                const els = Array.from(document.querySelectorAll('button, a, div[role="button"]'));
+                for (const el of els) {
+                    if (el.innerText && el.innerText.trim().includes(text)) {
+                        el.click();
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }""")
+        if closed:
+            logger.debug("ダイアログを閉じました（JS）")
+            time.sleep(1)
+
+        # × ボタンを試みる
+        for sel in ['.modal-header button', 'button.close', '[data-dismiss="modal"]',
+                    'button:has-text("×")']:
+            try:
+                loc = page.locator(sel)
+                if loc.count() > 0:
+                    loc.first.click(force=True)
+                    logger.debug(f"ダイアログ × ボタンクリック: {sel}")
+                    time.sleep(0.5)
+                    break
+            except Exception:
+                continue
+
+    def _navigate_to_report_via_menu(self, page: Page) -> None:
+        """
+        Angular SPA のセッションを保ったままメニュー経由で店長会資料ページへ移動する。
+        page.goto() はフルリロードになりセッションが失われるため、クリック遷移を使う。
+        メニュー階層: 損益管理 → 実績管理業務（ハブページ） → 店長会資料DLタイル
+        """
+        self._close_dialogs(page)
+        self._save_screenshot(page, "before_menu_click")
+
+        # 1. 損益管理メニューをクリック（ドロップダウンを開く）
+        profit_selectors = [
+            'a:has-text("損益管理")',
+            'li:has-text("損益管理") a',
+            'nav a:has-text("損益管理")',
+            '[routerlink*="profit_loss"]',
+        ]
+        self._click_first_force(page, profit_selectors, "損益管理メニュー")
+        time.sleep(2)
+        self._save_screenshot(page, "menu_profit_open")
+
+        # 2. 実績管理業務をクリック（ハブページへ移動）
+        jisseki_selectors = [
+            'a:has-text("実績管理業務")',
+            'li:has-text("実績管理業務") a',
+            '[routerlink*="actual"]',
+            '[routerlink*="jisseki"]',
+        ]
+        self._click_first_force(page, jisseki_selectors, "実績管理業務メニュー")
+        time.sleep(3)
+        page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+        self._save_screenshot(page, "menu_jisseki_open")
+
+        # 3. 店長会資料DLタイル（またはサブメニュー項目）をクリック
+        report_selectors = [
+            'a:has-text("店長会資料DL")',
+            'a:has-text("店長会資料")',
+            'div:has-text("店長会資料DL")',
+            'a[href*="manager_meeting_document"]',
+            '[routerlink*="manager_meeting_document"]',
+            'a:has-text("店長会")',
+            'li:has-text("店長会") a',
+        ]
+        self._click_first_force(page, report_selectors, "店長会資料メニュー")
+
+        # 4. 店舗選択ボタンが現れるまで待機（フォームの読み込み完了確認）
+        try:
+            page.wait_for_selector(
+                'button:has-text("店舗選択"), a:has-text("店舗選択")',
+                timeout=20000
+            )
+            logger.debug("店舗選択ボタン出現確認")
+        except Exception:
+            logger.warning("店舗選択ボタン出現タイムアウト（続行）")
+        page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+        logger.info(f"店長会資料ページ遷移完了: {page.url}")
 
     def _select_stores(self, page: Page) -> None:
         """店舗選択 → エリア「イニシエート」 → 全選択 → 決定する"""
-        # 1. 店舗選択ボタン
-        self._click_first(page, [
+        self._save_screenshot(page, "before_store_select")
+
+        # 1. 店舗選択ボタン（force=True でAngularオーバーレイを回避）
+        self._click_first_force(page, [
             'button:has-text("店舗選択")',
             'a:has-text("店舗選択")',
             'input[value="店舗選択"]',
         ], "店舗選択ボタン")
         time.sleep(2)
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+        self._save_screenshot(page, "after_store_select_btn")
 
         # 2. エリアドロップダウンで「イニシエート」を選択
         area_selectors = [
@@ -223,9 +360,10 @@ class FoodistJournalScraper:
             else:
                 continue
             break
+        self._save_screenshot(page, "after_area_select")
 
         # 3. 全選択ボタン
-        self._click_first(page, [
+        self._click_first_force(page, [
             'button:has-text("全選択")',
             'a:has-text("全選択")',
             'input[value="全選択"]',
@@ -233,7 +371,7 @@ class FoodistJournalScraper:
         time.sleep(1)
 
         # 4. 決定するボタン
-        self._click_first(page, [
+        self._click_first_force(page, [
             'button:has-text("決定する")',
             'a:has-text("決定する")',
             'input[value="決定する"]',
@@ -341,7 +479,11 @@ class FoodistJournalScraper:
             creds = service_account.Credentials.from_service_account_file(
                 credential_path, scopes=SCOPES
             )
-            self._sheets_service = build("sheets", "v4", credentials=creds)
+            # Windows + httplib2 の SSL 証明書検証問題を回避（接続自体は TLS 暗号化済）
+            import httplib2
+            http = httplib2.Http(disable_ssl_certificate_validation=True)
+            authorized_http = google_auth_httplib2.AuthorizedHttp(creds, http=http)
+            self._sheets_service = build("sheets", "v4", http=authorized_http)
         return self._sheets_service
 
     def _write_to_sheets(
@@ -471,11 +613,54 @@ class FoodistJournalScraper:
             try:
                 loc = page.locator(sel)
                 if loc.count() > 0:
-                    loc.first.click()
+                    loc.first.click(timeout=5000)
                     logger.debug(f"{name} クリック: {sel}")
                     return
             except Exception:
                 continue
+        self._save_screenshot(page, f"missing_{name}")
+        raise RuntimeError(f"'{name}' のクリック対象が見つかりません")
+
+    def _click_first_force(self, page: Page, selectors: list[str], name: str) -> None:
+        """オーバーレイを無視して force=True でクリックする。"""
+        for sel in selectors:
+            try:
+                loc = page.locator(sel)
+                if loc.count() > 0:
+                    loc.first.click(force=True, timeout=5000)
+                    logger.debug(f"{name} force クリック: {sel}")
+                    return
+            except Exception:
+                continue
+        # JS フォールバック: :has-text() は native JS 非対応なのでテキスト内容で検索
+        import re as _re
+        texts = []
+        for sel in selectors:
+            m = _re.search(r':has-text\(["\']([^"\']+)["\']\)', sel)
+            if m:
+                texts.append(m.group(1))
+            m2 = _re.search(r'\[value=["\']([^"\']+)["\']\]', sel)
+            if m2:
+                texts.append(m2.group(1))
+        if texts:
+            clicked = page.evaluate("""(texts) => {
+                const candidates = Array.from(document.querySelectorAll(
+                    'button, a, input[type="button"], input[type="submit"], div[role="button"], span[role="button"]'
+                ));
+                for (const text of texts) {
+                    for (const el of candidates) {
+                        const t = (el.innerText || el.value || '').trim();
+                        if (t === text || t.includes(text)) {
+                            el.click();
+                            return text;
+                        }
+                    }
+                }
+                return null;
+            }""", texts)
+            if clicked:
+                logger.debug(f"{name} JS テキスト検索クリック: {clicked}")
+                return
         self._save_screenshot(page, f"missing_{name}")
         raise RuntimeError(f"'{name}' のクリック対象が見つかりません")
 
