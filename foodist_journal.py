@@ -100,8 +100,13 @@ class FoodistJournalScraper:
     def run_all(self, target_month: date = None, stores=None) -> None:
         """
         Excel ダウンロード → 解析 → Google Sheets 書き込みを実行する。
-        target_month / stores は互換性のために受け付けるが使用しない（全店舗を対象とする）。
+        target_month が指定された場合はその月を確定として取得する。
+        未指定の場合は実行日に基づいて当月の中間または確定を取得する。
         """
+        if target_month is not None:
+            self.run_for_month(target_month, kind="確定")
+            return
+
         today = date.today()
 
         if today.day <= 17:
