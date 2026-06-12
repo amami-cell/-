@@ -53,11 +53,11 @@ METRICS: list[tuple[str, str]] = [
 
 # Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり
 CELL_MAP: dict[str, tuple[int, int]] = {
-    "sales":          (13,  21),
-    "food_purchase":  (160, 12),
-    "drink_purchase": (160, 19),
-    "food_theory":    (163, 12),
-    "drink_theory":   (163, 19),
+    "sales":          (14,  22),   # 売上実績
+    "food_purchase":  (161, 13),   # 食材仕入高(F)
+    "drink_purchase": (161, 20),   # 食材仕入高(D)
+    "food_theory":    (164, 13),   # 理論原価(F)
+    "drink_theory":   (164, 20),   # 理論原価(D)
 }
 
 
@@ -327,7 +327,7 @@ class FoodistJournalScraper:
         logger.info(f"店長会資料ページ遷移完了: {page.url}")
 
     def _select_stores(self, page: Page) -> None:
-        """店舗選択 → エリア「イニシエート」 → 全選択 → 決定する"""
+        """店舗選択 → エリア「イニシエート」 → 全選択 → 追加 → 決定する"""
         self._save_screenshot(page, "before_store_select")
 
         # 1. 店舗選択ボタン（force=True でAngularオーバーレイを回避）
@@ -341,28 +341,104 @@ class FoodistJournalScraper:
         self._save_screenshot(page, "after_store_select_btn")
 
         # 2. エリアドロップダウンで「イニシエート」を選択
-        area_selectors = [
-            'select[name*="area"]', 'select[id*="area"]',
-            'select[name*="Area"]', 'select[name*="エリア"]', 'select',
-        ]
-        for sel in area_selectors:
-            loc = page.locator(sel)
-            if loc.count() == 0:
-                continue
-            for label in ["イニシエート"]:
-                try:
-                    loc.first.select_option(label=label)
-                    time.sleep(1)
-                    logger.debug(f"エリア「{label}」選択完了")
-                    break
-                except Exception:
-                    continue
-            else:
-                continue
-            break
+        # ng-selectコンポーネント: オプションは開いたときだけDOM上に存在するが
+        # CSSで非表示なためPlaywright click(force=True)不可。JS dispatchEventを使う。
+        area_selected = False
+
+        result = page.evaluate("""async () => {
+            // エリアラベル（<span>inside div.formItem form-inline）を探す
+            const areaLabel = [...document.querySelectorAll('*')]
+                .find(el => el.children.length === 0 &&
+                            el.textContent.trim() === 'エリア' &&
+                            el.offsetParent !== null);
+            if (!areaLabel) return {ok: false, msg: 'no-label'};
+
+            // ラベルの親div内のng-selectトリガーを探す
+            let container = areaLabel.parentElement;
+            let trigger = null;
+            for (let i = 0; i < 8; i++) {
+                if (!container) break;
+                trigger = container.querySelector(
+                    'ng-select, .ng-select, [class*="ng-select-container"], ' +
+                    '.ng-arrow-wrapper, .ng-value-container, .ng-input'
+                );
+                if (trigger) break;
+                container = container.parentElement;
+            }
+            if (!trigger) {
+                // フォールバック: ラベルの兄弟要素をトリガーとして使う
+                const siblings = [...(areaLabel.parentElement?.children || [])];
+                trigger = siblings.find(s => s !== areaLabel);
+            }
+            if (!trigger) return {ok: false, msg: 'no-trigger'};
+
+            // ドロップダウンを開く
+            trigger.click();
+            await new Promise(r => setTimeout(r, 600));
+
+            // オプションをdispatchEventでクリック（CSS visibility不問）
+            const opts = [...document.querySelectorAll(
+                'li.option, [class*="ng-option"], mat-option'
+            )];
+            const target = opts.find(o =>
+                o.textContent.trim() === 'イニシエート' ||
+                o.getAttribute('title') === 'イニシエート'
+            );
+            if (!target) {
+                document.body.click();
+                return {ok: false, msg: 'no-option', optCount: opts.length,
+                        triggerCls: trigger.className};
+            }
+            target.dispatchEvent(new MouseEvent('click', {bubbles: true, cancelable: true}));
+            await new Promise(r => setTimeout(r, 300));
+            return {ok: true, text: target.textContent.trim()};
+        }""")
+
+        logger.debug(f"エリア選択JS結果: {result}")
+        if isinstance(result, dict) and result.get('ok'):
+            area_selected = True
+            logger.info(f"エリア「イニシエート」選択成功: {result.get('text')}")
+
+        # フォールバック: 座標クリック + JS dispatchEvent（ドロップダウンが閉じる前にJS実行）
+        if not area_selected:
+            try:
+                area_rect = page.evaluate("""() => {
+                    for (const el of document.querySelectorAll('*')) {
+                        if (el.children.length === 0 &&
+                            el.textContent.trim() === 'エリア' &&
+                            el.offsetParent) {
+                            const r = el.getBoundingClientRect();
+                            return {right: r.right, cy: r.y + r.height / 2};
+                        }
+                    }
+                    return null;
+                }""")
+                if area_rect:
+                    page.mouse.click(area_rect['right'] + 150, area_rect['cy'])
+                    time.sleep(0.5)
+                    opt_text = page.evaluate("""() => {
+                        const target = [...document.querySelectorAll(
+                            'li.option, [class*="ng-option"]'
+                        )].find(o => o.textContent.trim() === 'イニシエート' ||
+                                     o.getAttribute('title') === 'イニシエート');
+                        if (!target) return null;
+                        target.dispatchEvent(
+                            new MouseEvent('click', {bubbles: true, cancelable: true})
+                        );
+                        return target.textContent.trim();
+                    }""")
+                    if opt_text:
+                        area_selected = True
+                        logger.info(f"エリア 座標→JSクリック 成功: {opt_text}")
+            except Exception as e:
+                logger.debug(f"座標クリックフォールバック失敗: {e}")
+
+        if not area_selected:
+            logger.warning("エリア「イニシエート」の選択に失敗しました")
+        time.sleep(1)
         self._save_screenshot(page, "after_area_select")
 
-        # 3. 全選択ボタン
+        # 3. 全選択ボタン（左パネル = 最初の全選択）
         self._click_first_force(page, [
             'button:has-text("全選択")',
             'a:has-text("全選択")',
@@ -370,14 +446,23 @@ class FoodistJournalScraper:
         ], "全選択ボタン")
         time.sleep(1)
 
-        # 4. 決定するボタン
+        # 4. 追加ボタン（→ で右パネルへ移動）
+        self._click_first_force(page, [
+            'button:has-text("追加")',
+            'a:has-text("追加")',
+            'input[value="追加"]',
+        ], "追加ボタン")
+        time.sleep(1)
+        self._save_screenshot(page, "after_add_stores")
+
+        # 5. 決定するボタン
         self._click_first_force(page, [
             'button:has-text("決定する")',
             'a:has-text("決定する")',
             'input[value="決定する"]',
         ], "決定するボタン")
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-        logger.info("店舗選択完了（イニシエート/全選択/決定）")
+        logger.info("店舗選択完了（イニシエート/全選択/追加/決定）")
 
     def _set_period(self, page: Page, start: date, end: date) -> None:
         """期間の開始日・終了日を入力する。"""
@@ -501,18 +586,25 @@ class FoodistJournalScraper:
                 existing = self._get_values(f"'{sheet_name}'!A:E")
 
             rows_to_append: list[list] = []
+            update_data: list[dict] = []
             for store_name, data in store_data.items():
                 new_row = [year_month, store_name, data.get(metric_key, 0.0), kind, timestamp]
                 dup_idx = self._find_dup(existing, year_month, store_name, kind)
                 if dup_idx is not None:
-                    self.sheets_service.spreadsheets().values().update(
-                        spreadsheetId=SPREADSHEET_ID,
-                        range=f"'{sheet_name}'!A{dup_idx}:E{dup_idx}",
-                        valueInputOption="RAW",
-                        body={"values": [new_row]},
-                    ).execute()
+                    update_data.append({
+                        "range": f"'{sheet_name}'!A{dup_idx}:E{dup_idx}",
+                        "values": [new_row],
+                    })
                 else:
                     rows_to_append.append(new_row)
+
+            # 1回のbatchUpdateで全上書き（レート制限対策）
+            if update_data:
+                self.sheets_service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=SPREADSHEET_ID,
+                    body={"valueInputOption": "RAW", "data": update_data},
+                ).execute()
+                time.sleep(1)
 
             if rows_to_append:
                 self.sheets_service.spreadsheets().values().append(
@@ -522,6 +614,7 @@ class FoodistJournalScraper:
                     insertDataOption="INSERT_ROWS",
                     body={"values": rows_to_append},
                 ).execute()
+                time.sleep(1)
 
             logger.info(f"[{sheet_name}] 書き込み完了: {len(store_data)} 店舗")
 
