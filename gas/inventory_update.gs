@@ -55,17 +55,48 @@ function onOpen() {
 }
 
 /**
- * 再取得コマンドをダイアログで表示する
+ * コピーボタン付き HTML ダイアログで再取得コマンドを表示する
  */
 function showUpdateCommand_() {
   const command =
     'cd C:\\Users\\Owner\\OneDrive\\デスクトップ\\infomart_automation && ' +
     'py main.py --foodist-only';
-  SpreadsheetApp.getUi().alert(
-    '📊 FWシート 再取得',
-    '以下のコマンドをターミナルで実行してください:\n\n' + command,
-    SpreadsheetApp.getUi().ButtonSet.OK
-  );
+
+  const html = HtmlService.createHtmlOutput(
+    '<!DOCTYPE html>' +
+    '<html><head><style>' +
+    'body{font-family:"Google Sans",Arial,sans-serif;padding:20px;margin:0;color:#202124}' +
+    'p{margin:0 0 12px;font-size:14px}' +
+    '.row{display:flex;align-items:flex-start;gap:8px;background:#f1f3f4;border-radius:6px;padding:12px 14px}' +
+    '#cmd{flex:1;font-family:"Roboto Mono",monospace;font-size:12px;color:#1a73e8;' +
+    '     background:transparent;border:none;outline:none;resize:none;cursor:text;line-height:1.5}' +
+    '#copyBtn{flex-shrink:0;padding:6px 16px;background:#1a73e8;color:#fff;border:none;' +
+    '         border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap}' +
+    '#copyBtn:hover{background:#1557b0}' +
+    '#msg{margin-top:8px;font-size:12px;color:#188038;min-height:16px}' +
+    '</style></head><body>' +
+    '<p>以下のコマンドをターミナルで実行してください:</p>' +
+    '<div class="row">' +
+    '  <textarea id="cmd" rows="2" readonly>' + command + '</textarea>' +
+    '  <button id="copyBtn" onclick="copyCmd()">📋 コピー</button>' +
+    '</div>' +
+    '<div id="msg"></div>' +
+    '<script>' +
+    'function copyCmd(){' +
+    '  var el=document.getElementById("cmd");' +
+    '  el.select();' +
+    '  try{' +
+    '    document.execCommand("copy");' +
+    '    document.getElementById("msg").textContent="✅ コピーしました";' +
+    '  }catch(e){' +
+    '    document.getElementById("msg").textContent="❌ コピーに失敗しました（手動でコピーしてください）";' +
+    '  }' +
+    '}' +
+    '<\/script>' +
+    '</body></html>'
+  ).setWidth(560).setHeight(160);
+
+  SpreadsheetApp.getUi().showModalDialog(html, '📊 FWシート 再取得');
 }
 
 // ─── トリガー ──────────────────────────────────────────────────────────────────
