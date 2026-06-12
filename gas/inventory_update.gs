@@ -42,6 +42,36 @@ const ROWS = {
 /** セル列番号（FD合計=C:3, FD売上比=D:4, 食材F=E:5, F売上比=F:6, 飲料D=G:7, D売上比=H:8） */
 const COLS = { fdTotal: 3, fdRatio: 4, foodVal: 5, foodRatio: 6, drinkVal: 7, drinkRatio: 8 };
 
+/**
+ * インフォマート店舗名（C1）→ Foodist Journal 店舗名（各シートB列）の対応表
+ * C1 の値をキーにして、シート上の B列値を引く。
+ */
+const STORE_MAP = {
+  'すさび湯　歌舞伎町（ＨＡＳＳＩＮ）':             '0001015_すさび湯 歌舞伎町',
+  'Ｉｔａｌｉａｎ　Ｂａｒ　ＮａｇａＧｕｔｓｕ（ＨＡＳＳＩＮ）': '0001151_NagaGutsu',
+  'パフェ＆ジェラート　ＬＡＲＧＯ　ルクア店（ＨＡＳＳＩＮ）': '0001160_ルクアLargo',
+  'フレンチ酒場ＧＯＬＤ（ＨＡＳＳＩＮ）':           '0001163_フレンチ酒場GOLD',
+  'フレンチ酒場ＧＯＬＤ　京都ポルタ店（ＨＡＳＳＩＮ）': '0001168_GOLD京都ポルタ店',
+  'すさび湯　三宮店（ＨＡＳＳＩＮ）':               '0001169_すさび湯三宮店',
+  'すさび湯　京都烏丸（ＨＡＳＳＩＮ）':             '0001712_すさび湯京都烏丸',
+  '喫茶Ｌａｒｇｏ　門真（ＨＡＳＳＩＮ）':           '0001713_門真Largo',
+  'すさび湯パナンテ京阪天満橋店（ＨＡＳＳＩＮ）':   '0001728_すさび湯 天満橋店',
+  'フレンチ酒場ＧＯＬＤ　お初天神店（ＨＡＳＳＩＮ）': '0001729_フレンチ酒場GOLDお初',
+  'ぎふやパナンテ天満橋（ＨＡＳＳＩＮ）':           '0001739_ぎふや 天満橋店',
+  'すさび湯　三条店（ＨＡＳＳＩＮ）':               '0001742_すさび湯 京都三条店',
+  'すさび湯　新宿東口店（ＨＡＳＳＩＮ）':           '0001743_すさび湯 新宿東口店',
+  '熊の鳥焼（ＨＡＳＳＩＮ）':                       '0001154_熊の鳥焼',
+  'ちゃーちゃん（ＨＡＳＳＩＮ）':                   '0001111_ちゃーちゃん',
+  '料理と酒　たいだい（旧　にと）（ＨＡＳＳＩＮ）': '0001137_料理と酒 たいだい',
+  '曲ル角ニハ泡喰ライ（ＨＡＳＳＩＮ）':             '0001115_大衆酒場 曲ル角ニハ泡喰ライ',
+  'ひよこ飯店（ＨＡＳＳＩＮ）':                     '0001069_ひよこ飯店',
+  'んだんだ新宿三丁目店（ＨＡＳＳＩＮ）':           '0002004_んだんだ',
+  'すさび湯（ＨＡＳＳＩＮ）':                       '0001006_大衆寿司酒場すさび湯',
+  'ＵＭＡＭＩ（ＨＡＳＳＩＮ）':                     '0001131_CRAFTMAN UMAMI',
+  'ＡＲＡＴＡ（ＨＡＳＳＩＮ）':                     '0001097_ARATA',
+  '味のたぬきや（ＨＡＳＳＩＮ）':                   '0001162_味のたぬきや',
+};
+
 // ─── メニュー ──────────────────────────────────────────────────────────────────
 
 /**
@@ -219,6 +249,14 @@ function updateInventorySheet_(targetSheet) {
  * @returns {{ sales, foodPurchase, drinkPurchase, foodTheory, drinkTheory }}
  */
 function fetchMetrics_(ss, storeName, monthStr) {
+  // インフォマート店舗名 → Foodist Journal 店舗名に変換（対応表にあれば）
+  const fjStoreName = STORE_MAP[storeName] || storeName;
+  if (fjStoreName !== storeName) {
+    Logger.log('店舗名変換: "' + storeName + '" → "' + fjStoreName + '"');
+  } else {
+    Logger.log('店舗名変換なし（対応表に未登録）: "' + storeName + '"');
+  }
+
   const result = {
     sales: 0, foodPurchase: 0, drinkPurchase: 0, foodTheory: 0, drinkTheory: 0
   };
@@ -245,7 +283,7 @@ function fetchMetrics_(ss, storeName, monthStr) {
     for (let r = 0; r < data.length; r++) {
       const rowMonth = toYYYYMM_(data[r][0]);
       const rowStore = String(data[r][1]).trim();
-      if (rowMonth !== monthStr || rowStore !== storeName) continue;
+      if (rowMonth !== monthStr || rowStore !== fjStoreName) continue;
 
       const kind = String(data[r][3]).trim();
       const val  = Number(data[r][2]) || 0;
