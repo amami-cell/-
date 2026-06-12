@@ -1,0 +1,36 @@
+# 認証情報・機密情報（絶対にコミットしない）
+.env
+credentials/
+*.json
+
+# ダウンロードファイル（一時ファイル）
+downloads/
+screenshots/
+
+# ログ
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
