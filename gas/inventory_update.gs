@@ -229,9 +229,10 @@ function updateInventorySheet_(targetSheet) {
   Logger.log('当月: ' + JSON.stringify(curData));
   Logger.log('前月: ' + JSON.stringify(prevData));
 
-  // 書き込み
-  writeSection_(sheet, curData,  ROWS.current.purchase, ROWS.current.theory);
-  writeSection_(sheet, prevData, ROWS.prev.purchase,    ROWS.prev.theory);
+  // 書き込み（当月・前月それぞれの売上を明示的に渡す）
+  Logger.log('当月売上: ' + curData.sales + ' / 前月売上: ' + prevData.sales);
+  writeSection_(sheet, curData,  curData.sales,  ROWS.current.purchase, ROWS.current.theory);
+  writeSection_(sheet, prevData, prevData.sales, ROWS.prev.purchase,    ROWS.prev.theory);
 
   SpreadsheetApp.flush();
   Logger.log('更新完了');
@@ -280,10 +281,14 @@ function fetchMetrics_(ss, storeName, monthStr) {
     let amount     = 0;
     let hasKakutei = false;
 
+    // 比較用に全角・半角スペースを統一して正規化する
+    const normalize_ = function(s) { return s.replace(/[\s　]+/g, ' ').trim(); };
+    const targetStore = normalize_(fjStoreName);
+
     for (let r = 0; r < data.length; r++) {
       const rowMonth = toYYYYMM_(data[r][0]);
-      const rowStore = String(data[r][1]).trim();
-      if (rowMonth !== monthStr || rowStore !== fjStoreName) continue;
+      const rowStore = normalize_(String(data[r][1]));
+      if (rowMonth !== monthStr || rowStore !== targetStore) continue;
 
       const kind = String(data[r][3]).trim();
       const val  = Number(data[r][2]) || 0;
@@ -311,20 +316,24 @@ function fetchMetrics_(ss, storeName, monthStr) {
  * 書き込み先: C=FD合計, D=FD売上比, E=食材F, F=F売上比, G=飲料D, H=D売上比
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {{ sales, foodPurchase, drinkPurchase, foodTheory, drinkTheory }} data
- * @param {number} purchaseRow  仕入金額の行番号
- * @param {number} theoryRow    理論原価の行番号
+ * @param {{ foodPurchase, drinkPurchase, foodTheory, drinkTheory }} data
+ * @param {number} sales       売上金額（当月/前月それぞれを呼び出し側で明示して渡す）
+ * @param {number} purchaseRow 仕入金額の行番号
+ * @param {number} theoryRow   理論原価の行番号
  */
-function writeSection_(sheet, data, purchaseRow, theoryRow) {
-  const sales = data.sales;
+function writeSection_(sheet, data, sales, purchaseRow, theoryRow) {
+  Logger.log(
+    'writeSection_: 仕入行=' + purchaseRow + ' 理論行=' + theoryRow +
+    ' 売上=' + sales
+  );
 
   // ── 仕入金額行 ──────────────────────────
   const fdP = data.foodPurchase + data.drinkPurchase;
   sheet.getRange(purchaseRow, COLS.fdTotal  ).setValue(fdP);
   sheet.getRange(purchaseRow, COLS.foodVal  ).setValue(data.foodPurchase);
   sheet.getRange(purchaseRow, COLS.drinkVal ).setValue(data.drinkPurchase);
-  setRatio_(sheet, purchaseRow, COLS.fdRatio,    fdP,               sales);
-  setRatio_(sheet, purchaseRow, COLS.foodRatio,  data.foodPurchase, sales);
+  setRatio_(sheet, purchaseRow, COLS.fdRatio,    fdP,                sales);
+  setRatio_(sheet, purchaseRow, COLS.foodRatio,  data.foodPurchase,  sales);
   setRatio_(sheet, purchaseRow, COLS.drinkRatio, data.drinkPurchase, sales);
 
   // ── 理論原価行 ──────────────────────────
@@ -332,16 +341,17 @@ function writeSection_(sheet, data, purchaseRow, theoryRow) {
   sheet.getRange(theoryRow, COLS.fdTotal  ).setValue(fdT);
   sheet.getRange(theoryRow, COLS.foodVal  ).setValue(data.foodTheory);
   sheet.getRange(theoryRow, COLS.drinkVal ).setValue(data.drinkTheory);
-  setRatio_(sheet, theoryRow, COLS.fdRatio,    fdT,              sales);
-  setRatio_(sheet, theoryRow, COLS.foodRatio,  data.foodTheory,  sales);
+  setRatio_(sheet, theoryRow, COLS.fdRatio,    fdT,             sales);
+  setRatio_(sheet, theoryRow, COLS.foodRatio,  data.foodTheory, sales);
   setRatio_(sheet, theoryRow, COLS.drinkRatio, data.drinkTheory, sales);
 }
 
 /**
  * 売上比を計算してセルに書き込む。売上が 0 の場合は空文字。
+ * 負値の売上（一部会計システム）にも対応するため !== 0 で判定する。
  */
 function setRatio_(sheet, row, col, numerator, denominator) {
-  sheet.getRange(row, col).setValue(denominator > 0 ? numerator / denominator : '');
+  sheet.getRange(row, col).setValue(denominator !== 0 ? numerator / denominator : '');
 }
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────────
