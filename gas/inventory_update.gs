@@ -42,6 +42,32 @@ const ROWS = {
 /** セル列番号（FD合計=C:3, FD売上比=D:4, 食材F=E:5, F売上比=F:6, 飲料D=G:7, D売上比=H:8） */
 const COLS = { fdTotal: 3, fdRatio: 4, foodVal: 5, foodRatio: 6, drinkVal: 7, drinkRatio: 8 };
 
+// ─── メニュー ──────────────────────────────────────────────────────────────────
+
+/**
+ * スプレッドシートを開いたときにカスタムメニューを追加する
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('📊 FWシート 再取得')
+    .addItem('コマンドを表示', 'showUpdateCommand_')
+    .addToUi();
+}
+
+/**
+ * 再取得コマンドをダイアログで表示する
+ */
+function showUpdateCommand_() {
+  const command =
+    'cd C:\\Users\\Owner\\OneDrive\\デスクトップ\\infomart_automation && ' +
+    'py main.py --foodist-only';
+  SpreadsheetApp.getUi().alert(
+    '📊 FWシート 再取得',
+    '以下のコマンドをターミナルで実行してください:\n\n' + command,
+    SpreadsheetApp.getUi().ButtonSet.OK
+  );
+}
+
 // ─── トリガー ──────────────────────────────────────────────────────────────────
 
 /**

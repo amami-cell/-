@@ -17,6 +17,12 @@ main.py
 
     # 集計のみ（既存のダウンロードファイルを使用）
     python main.py --aggregate-only
+
+    # Foodist Journal 当月分のみ取得
+    python main.py --foodist-only
+
+    # Foodist Journal 指定月〜当月を一括取得（全月確定として書き込み）
+    python main.py --foodist-all --from 2026-01
 """
 
 from __future__ import annotations
@@ -139,6 +145,19 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--foodist-only",
         action="store_true",
         help="Foodist Journal のデータ取得のみ実行（インフォマート処理をスキップ）",
+    )
+    parser.add_argument(
+        "--foodist-all",
+        action="store_true",
+        help="Foodist Journal の指定月〜当月を一括取得（確定として書き込み）。--from と併用。",
+    )
+    parser.add_argument(
+        "--from",
+        dest="from_month",
+        type=str,
+        default=None,
+        metavar="YYYY-MM",
+        help="--foodist-all の開始月 (YYYY-MM形式)。例: 2026-01",
     )
     parser.add_argument(
         "--log-level",
@@ -335,6 +354,43 @@ def main() -> int:
             if not stores:
                 logger.error("有効な店舗が1件もありません")
                 return 1
+
+        # --foodist-all: 指定月〜当月を一括取得
+        if args.foodist_all:
+            if not args.from_month:
+                logger.error("--foodist-all には --from YYYY-MM が必要です")
+                return 1
+            from_month = parse_month(args.from_month)
+            current_month = date.today().replace(day=1)
+
+            months: list[date] = []
+            m = from_month
+            while m <= current_month:
+                months.append(m)
+                next_month_num = m.month + 1
+                next_year = m.year + (1 if next_month_num > 12 else 0)
+                m = date(next_year, next_month_num % 12 or 12, 1)
+
+            logger.info(f"Foodist Journal 一括取得: {from_month.strftime('%Y-%m')} 〜 {current_month.strftime('%Y-%m')} ({len(months)} ヶ月)")
+
+            pipeline = AutomationPipeline(config)
+            errors: list[str] = []
+            for month in months:
+                month_str = month.strftime("%Y-%m")
+                logger.info(f"{'=' * 40}")
+                logger.info(f"[{month_str}] 取得開始")
+                try:
+                    pipeline.fj_scraper.run_for_month(month, kind="確定")
+                except Exception as e:
+                    logger.error(f"[{month_str}] 失敗: {e}")
+                    errors.append(month_str)
+
+            logger.info(f"{'=' * 40}")
+            if errors:
+                logger.warning(f"一括取得完了（失敗月: {', '.join(errors)}）")
+                return 1
+            logger.info(f"一括取得完了（全{len(months)}ヶ月）")
+            return 0
 
         # パイプライン実行
         run_foodist = args.foodist or args.foodist_only

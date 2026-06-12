@@ -131,6 +131,32 @@ class FoodistJournalScraper:
             notify_line(msg)
             raise
 
+    def run_for_month(self, target_month: date, kind: str = "確定") -> None:
+        """
+        指定月の全期間（1日〜末日）でデータを取得して Sheets へ書き込む。
+        --foodist-all による過去月一括取得で使用する。
+        """
+        last_day = calendar.monthrange(target_month.year, target_month.month)[1]
+        period_start = target_month.replace(day=1)
+        period_end = target_month.replace(day=last_day)
+        year_month = target_month.strftime("%Y-%m")
+
+        logger.info(
+            f"Foodist Journal 開始: 種別={kind}, "
+            f"期間={period_start.strftime('%Y/%m/%d')}〜{period_end.strftime('%Y/%m/%d')}"
+        )
+
+        try:
+            excel_path = self._download_excel(period_start, period_end)
+            store_data = self._parse_excel(excel_path)
+            self._write_to_sheets(store_data, year_month, kind)
+            logger.info(f"Foodist Journal 完了: {year_month}")
+        except Exception as e:
+            msg = f"[Foodist Journal] {year_month} エラー: {e}"
+            logger.exception(msg)
+            notify_line(msg)
+            raise
+
     # ── ダウンロード ─────────────────────────────────────────────────────────
 
     def _download_excel(self, period_start: date, period_end: date) -> Path:
