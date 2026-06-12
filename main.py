@@ -245,9 +245,8 @@ class AutomationPipeline:
         if run_foodist:
             logger.info("[STEP 4/4] Foodist Journal からデータ取得開始")
             try:
-                fj_results = self.fj_scraper.run_all(target_month, stores)
-                success_count = sum(1 for r in fj_results if r.success)
-                logger.info(f"Foodist Journal 取得完了: {success_count}/{len(fj_results)} 件成功")
+                self.fj_scraper.run_all(target_month, stores)
+                logger.info("Foodist Journal 取得完了")
             except Exception as e:
                 logger.error(f"Foodist Journal 取得エラー: {e}")
         else:

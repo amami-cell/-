@@ -1,77 +1,91 @@
 """
 foodist_journal.py
-Foodist Journal（pros-asp.net/corp/hassin）から当月仕入金額・当月理論原価・売上データを
-取得し、Google Sheets へ書き込むモジュール。
-"""
+Foodist Journal 店長会資料ページから Excel をダウンロードし、
+Google Sheets の各指標シートへ書き込む。
 
+シート構成:
+  A列: 年月(YYYY-MM)  B列: 店舗名  C列: 金額
+  D列: 種別(中間/確定)  E列: 取込日時
+
+実行日判定:
+  1〜17日 → 種別=中間, 期間=当月1日〜15日
+  18日以降 → 種別=確定, 期間=当月1日〜末日
+"""
 from __future__ import annotations
 
+import calendar
 import os
-import re
 import time
-from datetime import datetime, date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
-from loguru import logger
-from playwright.sync_api import sync_playwright, Page, BrowserContext
-from googleapiclient.discovery import build
+import openpyxl
+import requests as http
 from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from loguru import logger
+from playwright.sync_api import Download, Page, sync_playwright
 
-from config_loader import AppConfig, StoreConfig
+from config_loader import AppConfig
 
+# ──────────────────────────────────────────────────────────────────────────────
+# 定数
+# ──────────────────────────────────────────────────────────────────────────────
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SPREADSHEET_ID = "18Fq_mpEweHOFTlF4ntmwJzDsJNSt-DOq7wQYy8E0iLc"
 
-SHEET_HEADERS = [
-    "年月", "店舗ID", "店舗名",
-    "当月仕入金額", "当月理論原価", "売上高",
-    "取込日時",
+REPORT_URL = (
+    "https://www2.pros-asp.net/corp/hassin"
+    "/app/profit_loss/pl-menu-actual-result/manager_meeting_document"
+)
+
+# (metric_key, Googleシート名) の順序リスト
+METRICS: list[tuple[str, str]] = [
+    ("sales",          "売上"),
+    ("food_purchase",  "F食材費仕入"),
+    ("drink_purchase", "D飲料費仕入"),
+    ("food_theory",    "フード理論原価"),
+    ("drink_theory",   "ドリンク理論原価"),
 ]
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# データクラス
-# ──────────────────────────────────────────────────────────────────────────────
-
-class FoodistJournalResult:
-    def __init__(
-        self,
-        store: StoreConfig,
-        success: bool,
-        purchase_amount: float = 0.0,
-        theoretical_cost: float = 0.0,
-        sales_amount: float = 0.0,
-        error: Optional[str] = None,
-    ):
-        self.store = store
-        self.success = success
-        self.purchase_amount = purchase_amount
-        self.theoretical_cost = theoretical_cost
-        self.sales_amount = sales_amount
-        self.error = error
-        self.timestamp = datetime.now()
-
-    def to_row(self, target_month: date) -> list:
-        month_str = target_month.strftime("%Y-%m")
-        store_label = self.store.store_name or self.store.store_id
-        return [
-            month_str,
-            self.store.store_id,
-            store_label,
-            self.purchase_amount,
-            self.theoretical_cost,
-            self.sales_amount,
-            self.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-        ]
+# Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり
+CELL_MAP: dict[str, tuple[int, int]] = {
+    "sales":          (13,  21),
+    "food_purchase":  (160, 12),
+    "drink_purchase": (160, 19),
+    "food_theory":    (163, 12),
+    "drink_theory":   (163, 19),
+}
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# スクレイパー
+# LINE Notify
+# ──────────────────────────────────────────────────────────────────────────────
+
+def notify_line(message: str) -> None:
+    """LINE Notify でメッセージを送信する。トークン未設定時はスキップ。"""
+    token = os.environ.get("LINE_NOTIFY_TOKEN", "")
+    if not token:
+        return
+    try:
+        http.post(
+            "https://notify-api.line.me/api/notify",
+            headers={"Authorization": f"Bearer {token}"},
+            data={"message": f"\n{message}"},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.warning(f"LINE Notify 送信失敗: {e}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# スクレイパー本体
 # ──────────────────────────────────────────────────────────────────────────────
 
 class FoodistJournalScraper:
-    """Foodist Journal（pros-asp.net）から店舗別原価・売上データを取得するクラス。"""
+    """Foodist Journal 店長会資料 Excel を取得し Google Sheets へ書き込む。"""
 
     def __init__(self, config: AppConfig):
         self.config = config
@@ -80,389 +94,243 @@ class FoodistJournalScraper:
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
         self._sheets_service = None
 
-    # ──────────────────────────────────────────────────────────────
-    # パブリックエントリポイント
-    # ──────────────────────────────────────────────────────────────
+    # ── エントリポイント ──────────────────────────────────────────────────────
 
-    def run_all(
-        self, target_month: date, stores=None
-    ) -> list[FoodistJournalResult]:
-        """全店舗のデータを取得して Google Sheets へ書き込む。"""
-        if stores is None:
-            stores = self.config.stores
+    def run_all(self, target_month: date = None, stores=None) -> None:
+        """
+        Excel ダウンロード → 解析 → Google Sheets 書き込みを実行する。
+        target_month / stores は互換性のために受け付けるが使用しない（全店舗を対象とする）。
+        """
+        today = date.today()
 
-        logger.info(f"Foodist Journal データ取得開始: {len(stores)} 店舗, 対象月={target_month.strftime('%Y-%m')}")
-        results: list[FoodistJournalResult] = []
+        if today.day <= 17:
+            kind = "中間"
+            period_end = today.replace(day=15)
+        else:
+            kind = "確定"
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            period_end = today.replace(day=last_day)
+
+        period_start = today.replace(day=1)
+        year_month = today.strftime("%Y-%m")
+
+        logger.info(
+            f"Foodist Journal 開始: 種別={kind}, "
+            f"期間={period_start.strftime('%Y/%m/%d')}〜{period_end.strftime('%Y/%m/%d')}"
+        )
+
+        try:
+            excel_path = self._download_excel(period_start, period_end)
+            store_data = self._parse_excel(excel_path)
+            self._write_to_sheets(store_data, year_month, kind)
+            logger.info("Foodist Journal 完了")
+        except Exception as e:
+            msg = f"[Foodist Journal] エラー: {e}"
+            logger.exception(msg)
+            notify_line(msg)
+            raise
+
+    # ── ダウンロード ─────────────────────────────────────────────────────────
+
+    def _download_excel(self, period_start: date, period_end: date) -> Path:
+        """Playwright でブラウザ操作し Excel をダウンロードして Path を返す。"""
+        download_dir = Path(self.config.download.output_dir)
+        download_dir.mkdir(parents=True, exist_ok=True)
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            context = browser.new_context()
+            browser = p.chromium.launch(headless=False, slow_mo=500)
+            context = browser.new_context(accept_downloads=True)
             page = context.new_page()
             try:
-                self._login(context, page)
-                for store in stores:
-                    result = self._fetch_with_retry(page, store, target_month)
-                    results.append(result)
+                self._login(page)
+
+                page.goto(REPORT_URL, timeout=self.fj.timeout_ms)
+                page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+                logger.info("店長会資料ページへ移動完了")
+
+                self._select_stores(page)
+                self._set_period(page, period_start, period_end)
+                excel_path = self._click_output(page, download_dir)
             finally:
                 try:
                     browser.close()
                 except Exception:
                     pass
 
-        self._write_to_sheets(results, target_month)
-        self._log_summary(results)
-        return results
+        logger.info(f"Excel ダウンロード完了: {excel_path}")
+        return excel_path
 
-    # ──────────────────────────────────────────────────────────────
-    # ログイン
-    # ──────────────────────────────────────────────────────────────
-
-    def _login(self, context: BrowserContext, page: Page) -> None:
-        logger.info("Foodist Journal へログイン中...")
-
+    def _login(self, page: Page) -> None:
         user_id = os.environ.get("FOODIST_JOURNAL_USER_ID") or self.fj.user_id
         password = os.environ.get("FOODIST_JOURNAL_PASSWORD") or self.fj.password
 
         if not user_id or not password:
             raise EnvironmentError(
-                "Foodist Journal のログイン情報が未設定です。"
-                "環境変数 FOODIST_JOURNAL_USER_ID / FOODIST_JOURNAL_PASSWORD を設定するか、"
-                "config.yaml の foodist_journal.user_id / password を設定してください。"
+                "FOODIST_JOURNAL_USER_ID / FOODIST_JOURNAL_PASSWORD が未設定です"
             )
 
         page.goto(self.fj.login_url, timeout=self.fj.timeout_ms)
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-        logger.debug(f"ログインページURL: {page.url}")
 
-        # ユーザーID入力 — 複数のセレクタを順に試みる
-        id_selectors = [
-            'input[name="user_id"]',
-            'input[name="userid"]',
-            'input[name="UserID"]',
-            'input[name="login_id"]',
-            'input[name="loginid"]',
-            'input[id="user_id"]',
-            'input[id="userid"]',
-            'input[type="text"]:first-of-type',
-        ]
-        self._fill_field(page, id_selectors, user_id, "ユーザーID")
+        page.evaluate("document.querySelector('input.form-control[type=\"text\"]').focus()")
+        time.sleep(0.3)
+        page.keyboard.type(user_id)
+        page.keyboard.press("Tab")
+        time.sleep(0.3)
+        page.keyboard.type(password)
 
-        # パスワード入力
-        pwd_selectors = [
-            'input[type="password"]',
-            'input[name="password"]',
-            'input[name="Password"]',
-            'input[name="passwd"]',
-            'input[id="password"]',
-        ]
-        self._fill_field(page, pwd_selectors, password, "パスワード")
+        try:
+            page.wait_for_selector("button:not([disabled])", timeout=8000)
+        except Exception:
+            self._save_screenshot(page, "login_button_disabled")
+            raise RuntimeError("ログインボタンが有効化されませんでした（ID/パスワード確認）")
 
-        # ログインボタンをクリック
-        submit_selectors = [
-            'input[type="submit"]',
-            'button[type="submit"]',
-            'button:has-text("ログイン")',
-            'input[value="ログイン"]',
-            'a:has-text("ログイン")',
-            'button:has-text("Login")',
-            'input[value="Login"]',
-        ]
-        clicked = False
-        for sel in submit_selectors:
-            try:
-                btn = page.locator(sel)
-                if btn.count() > 0:
-                    btn.first.click()
-                    clicked = True
-                    logger.debug(f"ログインボタンクリック: {sel}")
-                    break
-            except Exception:
-                continue
-
-        if not clicked:
-            self._save_screenshot(page, "login_failed_no_submit")
-            raise RuntimeError("ログインボタンが見つかりませんでした")
-
+        page.evaluate("""() => {
+            const btn = document.querySelector('button:not([disabled])');
+            if (btn) btn.click();
+        }""")
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-        logger.info(f"Foodist Journal ログイン完了 (URL: {page.url})")
+        logger.info("ログイン完了")
 
-    # ──────────────────────────────────────────────────────────────
-    # リトライ付きデータ取得
-    # ──────────────────────────────────────────────────────────────
-
-    def _fetch_with_retry(
-        self, page: Page, store: StoreConfig, target_month: date
-    ) -> FoodistJournalResult:
-        retry_count = self.config.download.retry_count
-        for attempt in range(1, retry_count + 1):
-            try:
-                logger.info(f"[{store.store_id}] データ取得試行 {attempt}/{retry_count}")
-                result = self._fetch_store_data(page, store, target_month)
-                logger.info(
-                    f"[{store.store_id}] 取得成功: "
-                    f"仕入={result.purchase_amount:,.0f}円 "
-                    f"理論原価={result.theoretical_cost:,.0f}円 "
-                    f"売上={result.sales_amount:,.0f}円"
-                )
-                return result
-            except Exception as e:
-                logger.warning(f"[{store.store_id}] 試行 {attempt} 失敗: {e}")
-                self._save_screenshot(page, f"fj_{store.store_id}_attempt{attempt}")
-                if attempt < retry_count:
-                    time.sleep(self.config.download.retry_wait_seconds)
-
-        logger.error(f"[{store.store_id}] データ取得失敗（最大リトライ超過）")
-        return FoodistJournalResult(store=store, success=False, error="最大リトライ回数超過")
-
-    # ──────────────────────────────────────────────────────────────
-    # 店舗データ取得（本体）
-    # ──────────────────────────────────────────────────────────────
-
-    def _fetch_store_data(
-        self, page: Page, store: StoreConfig, target_month: date
-    ) -> FoodistJournalResult:
-        year_str = str(target_month.year)
-        month_str = target_month.strftime("%m")
-
-        # ── STEP1: トップ（またはレポート一覧）ページへ移動 ──
-        page.goto(self.fj.base_url, timeout=self.fj.timeout_ms)
+    def _select_stores(self, page: Page) -> None:
+        """店舗選択 → エリア「イニシエート」 → 全選択 → 決定する"""
+        # 1. 店舗選択ボタン
+        self._click_first(page, [
+            'button:has-text("店舗選択")',
+            'a:has-text("店舗選択")',
+            'input[value="店舗選択"]',
+        ], "店舗選択ボタン")
+        time.sleep(2)
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
 
-        # ── STEP2: 店舗選択 ──
-        self._select_store(page, store)
-        time.sleep(self.fj.wait_after_select_ms / 1000)
-
-        # ── STEP3: 対象年月選択 ──
-        self._select_year_month(page, year_str, month_str, store)
-
-        # ── STEP4: 検索 or ページ更新 ──
-        self._submit_search(page, store)
-        page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-
-        # ── STEP5: データ抽出 ──
-        purchase_amount = self._extract_value(page, store, "当月仕入金額", [
-            "当月仕入金額", "仕入金額", "当月仕入", "仕入高", "当月仕入高",
-        ])
-        theoretical_cost = self._extract_value(page, store, "当月理論原価", [
-            "当月理論原価", "理論原価", "理論原価合計", "理論食材費",
-        ])
-        sales_amount = self._extract_value(page, store, "売上高", [
-            "売上高", "当月売上", "当月売上高", "売上金額", "純売上",
-        ])
-
-        return FoodistJournalResult(
-            store=store,
-            success=True,
-            purchase_amount=purchase_amount,
-            theoretical_cost=theoretical_cost,
-            sales_amount=sales_amount,
-        )
-
-    # ──────────────────────────────────────────────────────────────
-    # 店舗選択ヘルパー
-    # ──────────────────────────────────────────────────────────────
-
-    def _select_store(self, page: Page, store: StoreConfig) -> None:
-        """ページ上の店舗選択UI（セレクトボックス or テーブル行）で店舗を選択する。"""
-
-        # パターンA: select/option で店舗コードを選択
-        for sel_selector in [
-            'select[name="shop_id"]', 'select[name="shopId"]', 'select[name="store_id"]',
-            'select[name="tenpo_cd"]', 'select[name="tenpocd"]', 'select[id="shop_id"]',
-            'select[id="store"]', 'select[name="shop"]', 'select',
-        ]:
-            loc = page.locator(sel_selector)
-            if loc.count() > 0:
-                try:
-                    # store_id で選択を試みる
-                    loc.first.select_option(value=store.store_id)
-                    logger.debug(f"[{store.store_id}] セレクトボックスで店舗選択: {sel_selector}")
-                    page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-                    return
-                except Exception:
-                    try:
-                        # store_name で選択を試みる
-                        loc.first.select_option(label=store.store_name)
-                        logger.debug(f"[{store.store_id}] セレクトボックス(名前)で店舗選択")
-                        page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-                        return
-                    except Exception:
-                        continue
-
-        # パターンB: テーブル行から店舗コードを探してクリック
-        for frame in [page] + [f for f in page.frames if f != page.main_frame]:
-            try:
-                rows = frame.locator("tr")
-                for i in range(rows.count()):
-                    row = rows.nth(i)
-                    try:
-                        row_text = row.inner_text(timeout=1000)
-                    except Exception:
-                        continue
-                    if store.store_id in row_text or store.store_name in row_text:
-                        for btn_sel in [
-                            'a:has-text("選択")', 'button:has-text("選択")',
-                            'input[value="選択"]', 'a', 'button',
-                        ]:
-                            btn = row.locator(btn_sel)
-                            if btn.count() > 0:
-                                btn.first.click()
-                                logger.debug(f"[{store.store_id}] テーブル行から店舗選択")
-                                page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-                                return
-            except Exception as e:
-                logger.debug(f"テーブル選択試行エラー: {e}")
-
-        # パターンC: リンクやナビゲーションから店舗名で移動
-        for link_sel in [
-            f'a:has-text("{store.store_id}")',
-            f'a:has-text("{store.store_name[:8]}")',
-            f'td:has-text("{store.store_id}")',
-        ]:
-            try:
-                loc = page.locator(link_sel)
-                if loc.count() > 0:
-                    loc.first.click()
-                    logger.debug(f"[{store.store_id}] リンクから店舗選択: {link_sel}")
-                    page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-                    return
-            except Exception:
-                continue
-
-        self._save_screenshot(page, f"fj_store_select_fail_{store.store_id}")
-        raise RuntimeError(f"店舗コード {store.store_id} の選択UIが見つかりません")
-
-    def _select_year_month(
-        self, page: Page, year_str: str, month_str: str, store: StoreConfig
-    ) -> None:
-        """年・月のセレクトボックスまたは入力欄を操作する。"""
-        year_selectors = [
-            '#cmbYear', 'select[name="year"]', 'select[name="Year"]',
-            'select[name="nenx"]', 'select[id="year"]',
+        # 2. エリアドロップダウンで「イニシエート」を選択
+        area_selectors = [
+            'select[name*="area"]', 'select[id*="area"]',
+            'select[name*="Area"]', 'select[name*="エリア"]', 'select',
         ]
-        for sel in year_selectors:
+        for sel in area_selectors:
             loc = page.locator(sel)
-            if loc.count() > 0:
+            if loc.count() == 0:
+                continue
+            for label in ["イニシエート"]:
                 try:
-                    loc.first.select_option(value=year_str)
-                    loc.first.dispatch_event("change")
-                    logger.debug(f"[{store.store_id}] 年選択: {year_str}")
+                    loc.first.select_option(label=label)
+                    time.sleep(1)
+                    logger.debug(f"エリア「{label}」選択完了")
                     break
                 except Exception:
                     continue
-
-        month_selectors = [
-            '#cmbMonth', 'select[name="month"]', 'select[name="Month"]',
-            'select[name="tukix"]', 'select[id="month"]',
-        ]
-        for sel in month_selectors:
-            loc = page.locator(sel)
-            if loc.count() > 0:
-                try:
-                    loc.first.select_option(value=month_str)
-                    loc.first.dispatch_event("change")
-                    logger.debug(f"[{store.store_id}] 月選択: {month_str}")
-                    break
-                except Exception:
-                    # ゼロなしで再試行
-                    try:
-                        loc.first.select_option(value=str(int(month_str)))
-                        loc.first.dispatch_event("change")
-                        break
-                    except Exception:
-                        continue
-
-    def _submit_search(self, page: Page, store: StoreConfig) -> None:
-        """検索ボタンをクリックする（見つからない場合はスキップ）。"""
-        search_selectors = [
-            'a:has-text("検索")', 'button:has-text("検索")',
-            'input[value="検索"]', 'input[value="検索する"]',
-            'a:has-text("表示")', 'button:has-text("表示")',
-            'input[type="submit"]', 'button[type="submit"]',
-        ]
-        for sel in search_selectors:
-            try:
-                loc = page.locator(sel)
-                if loc.count() > 0:
-                    loc.first.click()
-                    logger.debug(f"[{store.store_id}] 検索ボタンクリック: {sel}")
-                    return
-            except Exception:
+            else:
                 continue
-        logger.debug(f"[{store.store_id}] 検索ボタン未検出（スキップ）")
+            break
 
-    # ──────────────────────────────────────────────────────────────
-    # データ値抽出ヘルパー
-    # ──────────────────────────────────────────────────────────────
+        # 3. 全選択ボタン
+        self._click_first(page, [
+            'button:has-text("全選択")',
+            'a:has-text("全選択")',
+            'input[value="全選択"]',
+        ], "全選択ボタン")
+        time.sleep(1)
 
-    def _extract_value(
-        self, page: Page, store: StoreConfig, label: str, label_variants: list[str]
-    ) -> float:
+        # 4. 決定するボタン
+        self._click_first(page, [
+            'button:has-text("決定する")',
+            'a:has-text("決定する")',
+            'input[value="決定する"]',
+        ], "決定するボタン")
+        page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+        logger.info("店舗選択完了（イニシエート/全選択/決定）")
+
+    def _set_period(self, page: Page, start: date, end: date) -> None:
+        """期間の開始日・終了日を入力する。"""
+        start_str = start.strftime("%Y/%m/%d")
+        end_str = end.strftime("%Y/%m/%d")
+
+        self._fill_first(page, [
+            'input[name*="start"]', 'input[id*="start"]',
+            'input[name*="from"]',  'input[id*="from"]',
+            'input[placeholder*="開始"]', 'input[name*="From"]',
+        ], start_str, "開始日")
+
+        self._fill_first(page, [
+            'input[name*="end"]',  'input[id*="end"]',
+            'input[name*="to"]',   'input[id*="to"]',
+            'input[placeholder*="終了"]', 'input[name*="To"]',
+        ], end_str, "終了日")
+
+        logger.info(f"期間設定完了: {start_str}〜{end_str}")
+
+    def _click_output(self, page: Page, download_dir: Path) -> Path:
+        """出力ボタンをクリックして Excel をダウンロードする。"""
+        with page.expect_download(timeout=60000) as dl_info:
+            self._click_first(page, [
+                'button:has-text("出力")',
+                'a:has-text("出力")',
+                'input[value="出力"]',
+            ], "出力ボタン")
+        dl: Download = dl_info.value
+        filename = dl.suggested_filename or f"manager_report_{date.today().strftime('%Y%m%d')}.xlsx"
+        dest = download_dir / filename
+        dl.save_as(str(dest))
+        return dest
+
+    # ── Excel 解析 ───────────────────────────────────────────────────────────
+
+    def _parse_excel(self, excel_path: Path) -> dict[str, dict[str, float]]:
         """
-        ページ上のテーブル/定義リスト/div からラベルに対応する数値を抽出する。
-        複数の検索戦略を順に試みる。
+        各シート（1シート=1店舗）から指標を抽出する。
+        Returns: {店舗名: {metric_key: value, ...}}
         """
-        # 戦略1: ラベルを含む th/td の隣接セルから数値を取得
-        for variant in label_variants:
-            for container in ["th", "td", "dt", "label", "span", "div"]:
-                locs = page.locator(f'{container}:has-text("{variant}")')
-                for i in range(locs.count()):
-                    try:
-                        cell = locs.nth(i)
-                        # 隣の兄弟要素
-                        sibling_text = cell.evaluate(
-                            """el => {
-                                const next = el.nextElementSibling;
-                                if (next) return next.innerText;
-                                const parent = el.parentElement;
-                                if (parent) {
-                                    const cells = parent.querySelectorAll('td,dd,span');
-                                    for (let c of cells) {
-                                        if (c !== el && /[0-9,，]/.test(c.innerText)) return c.innerText;
-                                    }
-                                }
-                                return '';
-                            }"""
-                        )
-                        value = self._parse_number(sibling_text)
-                        if value is not None:
-                            logger.debug(f"[{store.store_id}] {label} 抽出成功: {value:,.0f} (variant='{variant}')")
-                            return value
-                    except Exception:
-                        continue
+        wb = openpyxl.load_workbook(str(excel_path), data_only=True)
+        store_data: dict[str, dict[str, float]] = {}
 
-        # 戦略2: ページ全体テキストから正規表現で抽出
-        try:
-            full_text = page.inner_text("body")
-            for variant in label_variants:
-                pattern = rf"{re.escape(variant)}[^\d\n]{{0,20}}([\d,，]+)"
-                m = re.search(pattern, full_text)
-                if m:
-                    value = self._parse_number(m.group(1))
-                    if value is not None:
-                        logger.debug(f"[{store.store_id}] {label} テキスト抽出: {value:,.0f}")
-                        return value
-        except Exception as e:
-            logger.debug(f"[{store.store_id}] テキスト抽出エラー: {e}")
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            try:
+                entry: dict[str, float] = {
+                    key: self._read_cell(ws, row, col)
+                    for key, (row, col) in CELL_MAP.items()
+                }
+                # 当月棚卸金額の行を確認（行160前後を探してログ出力）
+                self._log_inventory_row(ws, sheet_name)
 
-        logger.warning(f"[{store.store_id}] '{label}' の値が見つかりませんでした（0として記録）")
-        return 0.0
+                store_data[sheet_name] = entry
+                logger.debug(
+                    f"[{sheet_name}] "
+                    f"売上={entry['sales']:,.0f} "
+                    f"F仕入={entry['food_purchase']:,.0f} "
+                    f"D仕入={entry['drink_purchase']:,.0f} "
+                    f"F理論={entry['food_theory']:,.0f} "
+                    f"D理論={entry['drink_theory']:,.0f}"
+                )
+            except Exception as e:
+                logger.warning(f"[{sheet_name}] 解析エラー（スキップ）: {e}")
+
+        logger.info(f"Excel 解析完了: {len(store_data)} 店舗")
+        return store_data
 
     @staticmethod
-    def _parse_number(text: str) -> Optional[float]:
-        """カンマ区切り数値文字列を float に変換する。"""
-        if not text:
-            return None
-        cleaned = re.sub(r"[^\d.]", "", text.replace(",", "").replace("，", ""))
+    def _read_cell(ws, row: int, col: int) -> float:
+        val = ws.cell(row=row, column=col).value
+        if val is None:
+            return 0.0
         try:
-            v = float(cleaned)
-            return v if v >= 0 else None
-        except ValueError:
-            return None
+            return float(str(val).replace(",", "").replace("，", ""))
+        except (TypeError, ValueError):
+            return 0.0
 
-    # ──────────────────────────────────────────────────────────────
-    # Google Sheets 書き込み
-    # ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _log_inventory_row(ws, sheet_name: str) -> None:
+        """当月棚卸金額セルを行155〜169で探してデバッグログに出力する（確認用）。"""
+        for r in range(155, 170):
+            for c in range(1, 25):
+                val = ws.cell(row=r, column=c).value
+                if val and "棚卸" in str(val):
+                    logger.debug(
+                        f"[{sheet_name}] 棚卸関連セル: row={r}, col={c}, value={val}"
+                    )
+
+    # ── Google Sheets 書き込み ────────────────────────────────────────────────
 
     @property
     def sheets_service(self):
@@ -477,141 +345,160 @@ class FoodistJournalScraper:
         return self._sheets_service
 
     def _write_to_sheets(
-        self, results: list[FoodistJournalResult], target_month: date
+        self, store_data: dict[str, dict[str, float]], year_month: str, kind: str
     ) -> None:
-        spreadsheet_id = self.fj.spreadsheet_id
-        sheet_name = self.fj.sheet_name
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sheet_ids = self._ensure_sheets()
 
-        logger.info(f"Google Sheets への書き込み開始: {sheet_name}")
-        self._ensure_sheet(spreadsheet_id, sheet_name)
+        for metric_key, sheet_name in METRICS:
+            existing = self._get_values(f"'{sheet_name}'!A:E")
 
-        existing = self._get_sheet_values(spreadsheet_id, f"{sheet_name}!A:G")
-        rows_to_write: list[list] = []
+            if kind == "確定":
+                # 同年月の「中間」行を全店舗まとめて削除してから書き込む
+                self._bulk_delete_interim(sheet_ids[sheet_name], year_month, existing)
+                existing = self._get_values(f"'{sheet_name}'!A:E")
 
-        if not existing:
-            rows_to_write.append(SHEET_HEADERS)
+            rows_to_append: list[list] = []
+            for store_name, data in store_data.items():
+                new_row = [year_month, store_name, data.get(metric_key, 0.0), kind, timestamp]
+                dup_idx = self._find_dup(existing, year_month, store_name, kind)
+                if dup_idx is not None:
+                    self.sheets_service.spreadsheets().values().update(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range=f"'{sheet_name}'!A{dup_idx}:E{dup_idx}",
+                        valueInputOption="RAW",
+                        body={"values": [new_row]},
+                    ).execute()
+                else:
+                    rows_to_append.append(new_row)
 
-        month_str = target_month.strftime("%Y-%m")
-        for result in results:
-            if not result.success:
-                logger.warning(f"[{result.store.store_id}] 失敗のためスキップ: {result.error}")
-                continue
-
-            row = result.to_row(target_month)
-            store_id = result.store.store_id
-
-            # 同月・同店舗の既存行を上書き
-            dup_idx = None
-            for i, existing_row in enumerate(existing):
-                if len(existing_row) >= 2 and existing_row[0] == month_str and existing_row[1] == store_id:
-                    dup_idx = i + 1
-                    break
-
-            if dup_idx is not None:
-                self.sheets_service.spreadsheets().values().update(
-                    spreadsheetId=spreadsheet_id,
-                    range=f"{sheet_name}!A{dup_idx}:G{dup_idx}",
+            if rows_to_append:
+                self.sheets_service.spreadsheets().values().append(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range=f"'{sheet_name}'!A1",
                     valueInputOption="RAW",
-                    body={"values": [row]},
+                    insertDataOption="INSERT_ROWS",
+                    body={"values": rows_to_append},
                 ).execute()
-                logger.debug(f"[{store_id}] 既存行を更新 (行 {dup_idx})")
-            else:
-                rows_to_write.append(row)
 
-        if rows_to_write:
-            self.sheets_service.spreadsheets().values().append(
-                spreadsheetId=spreadsheet_id,
-                range=f"{sheet_name}!A1",
-                valueInputOption="RAW",
-                insertDataOption="INSERT_ROWS",
-                body={"values": rows_to_write},
+            logger.info(f"[{sheet_name}] 書き込み完了: {len(store_data)} 店舗")
+
+    def _ensure_sheets(self) -> dict[str, int]:
+        """必要なシートを作成し {sheet_name: sheet_id} を返す。"""
+        info = self.sheets_service.spreadsheets().get(
+            spreadsheetId=SPREADSHEET_ID
+        ).execute()
+        existing: dict[str, int] = {
+            s["properties"]["title"]: s["properties"]["sheetId"]
+            for s in info["sheets"]
+        }
+
+        requests = [
+            {"addSheet": {"properties": {"title": name}}}
+            for _, name in METRICS
+            if name not in existing
+        ]
+        if requests:
+            resp = self.sheets_service.spreadsheets().batchUpdate(
+                spreadsheetId=SPREADSHEET_ID,
+                body={"requests": requests},
             ).execute()
+            for reply in resp.get("replies", []):
+                if "addSheet" in reply:
+                    props = reply["addSheet"]["properties"]
+                    existing[props["title"]] = props["sheetId"]
+            logger.info(f"シート新規作成: {len(requests)} 件")
 
-        self._apply_number_format(spreadsheet_id, sheet_name)
-        logger.info(f"Google Sheets 書き込み完了: {len([r for r in results if r.success])} 件")
+        return existing
 
-    def _ensure_sheet(self, spreadsheet_id: str, sheet_name: str) -> None:
-        info = self.sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-        existing = {s["properties"]["title"] for s in info["sheets"]}
-        if sheet_name not in existing:
-            self.sheets_service.spreadsheets().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body={"requests": [{"addSheet": {"properties": {"title": sheet_name}}}]},
-            ).execute()
-            logger.info(f"シート '{sheet_name}' を新規作成しました")
+    def _bulk_delete_interim(
+        self, sheet_id: int, year_month: str, existing: list[list]
+    ) -> None:
+        """同年月の「中間」行を降順で一括削除する。"""
+        indices = [
+            i for i, row in enumerate(existing)
+            if len(row) >= 4 and row[0] == year_month and row[3] == "中間"
+        ]
+        if not indices:
+            return
 
-    def _apply_number_format(self, spreadsheet_id: str, sheet_name: str) -> None:
-        """仕入金額・理論原価・売上高列（D・E・F列）に円書式を適用。"""
-        try:
-            info = self.sheets_service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-            sheet_id = next(
-                (s["properties"]["sheetId"] for s in info["sheets"]
-                 if s["properties"]["title"] == sheet_name), None
-            )
-            if sheet_id is None:
-                return
-            self.sheets_service.spreadsheets().batchUpdate(
-                spreadsheetId=spreadsheet_id,
-                body={"requests": [{
-                    "repeatCell": {
-                        "range": {
-                            "sheetId": sheet_id,
-                            "startRowIndex": 1,
-                            "startColumnIndex": 3,  # D列
-                            "endColumnIndex": 6,    # F列まで
-                        },
-                        "cell": {
-                            "userEnteredFormat": {
-                                "numberFormat": {"type": "CURRENCY", "pattern": "¥#,##0"}
-                            }
-                        },
-                        "fields": "userEnteredFormat.numberFormat",
-                    }
-                }]},
-            ).execute()
-        except Exception as e:
-            logger.warning(f"円書式適用失敗: {e}")
+        requests = [
+            {"deleteDimension": {
+                "range": {
+                    "sheetId": sheet_id,
+                    "dimension": "ROWS",
+                    "startIndex": idx,
+                    "endIndex": idx + 1,
+                }
+            }}
+            for idx in sorted(indices, reverse=True)
+        ]
+        self.sheets_service.spreadsheets().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={"requests": requests},
+        ).execute()
+        logger.debug(f"「中間」行を {len(indices)} 件削除しました (sheet_id={sheet_id})")
 
-    def _get_sheet_values(self, spreadsheet_id: str, range_notation: str) -> list[list]:
+    @staticmethod
+    def _find_dup(
+        existing: list[list], year_month: str, store_name: str, kind: str
+    ) -> Optional[int]:
+        """同年月・同店舗・同種別の行番号（1始まり）を返す。なければ None。"""
+        for i, row in enumerate(existing):
+            if (
+                len(row) >= 4
+                and row[0] == year_month
+                and row[1] == store_name
+                and row[3] == kind
+            ):
+                return i + 1
+        return None
+
+    def _get_values(self, range_notation: str) -> list[list]:
         try:
             result = self.sheets_service.spreadsheets().values().get(
-                spreadsheetId=spreadsheet_id, range=range_notation
+                spreadsheetId=SPREADSHEET_ID, range=range_notation
             ).execute()
             return result.get("values", [])
         except Exception:
             return []
 
-    # ──────────────────────────────────────────────────────────────
-    # ユーティリティ
-    # ──────────────────────────────────────────────────────────────
+    # ── ユーティリティ ────────────────────────────────────────────────────────
 
-    def _fill_field(
-        self, page: Page, selectors: list[str], value: str, field_name: str
+    def _click_first(self, page: Page, selectors: list[str], name: str) -> None:
+        """セレクタリストの先頭から順に試してクリックする。"""
+        for sel in selectors:
+            try:
+                loc = page.locator(sel)
+                if loc.count() > 0:
+                    loc.first.click()
+                    logger.debug(f"{name} クリック: {sel}")
+                    return
+            except Exception:
+                continue
+        self._save_screenshot(page, f"missing_{name}")
+        raise RuntimeError(f"'{name}' のクリック対象が見つかりません")
+
+    def _fill_first(
+        self, page: Page, selectors: list[str], value: str, name: str
     ) -> None:
+        """セレクタリストの先頭から順に試して入力する。見つからない場合は警告のみ。"""
         for sel in selectors:
             try:
                 loc = page.locator(sel)
                 if loc.count() > 0:
                     loc.first.fill(value)
-                    logger.debug(f"{field_name} 入力: {sel}")
+                    logger.debug(f"{name} 入力: {value} ({sel})")
                     return
             except Exception:
                 continue
-        self._save_screenshot(page, f"login_no_{field_name}")
-        raise RuntimeError(f"ログインフォームの {field_name} 欄が見つかりません")
+        logger.warning(f"'{name}' の入力欄が見つかりませんでした（スキップ）")
 
     def _save_screenshot(self, page: Page, name: str) -> None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = self.screenshot_dir / f"{timestamp}_{name}.png"
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = self.screenshot_dir / f"{ts}_{name}.png"
         try:
             page.screenshot(path=str(path))
             logger.info(f"スクリーンショット保存: {path}")
         except Exception as e:
             logger.warning(f"スクリーンショット保存失敗: {e}")
-
-    def _log_summary(self, results: list[FoodistJournalResult]) -> None:
-        success = [r for r in results if r.success]
-        failed = [r for r in results if not r.success]
-        logger.info(f"Foodist Journal 取得サマリー: 成功={len(success)}, 失敗={len(failed)}")
-        for r in failed:
-            logger.error(f"  ✗ {r.store.store_id} ({r.store.store_name}): {r.error}")
