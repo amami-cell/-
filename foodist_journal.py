@@ -737,6 +737,7 @@ class FoodistJournalScraper:
 
         for metric_key, sheet_name in METRICS:
             existing = self._get_values(f"'{sheet_name}'!A:E")
+            rows_before = len(existing)
 
             if kind == "確定":
                 # 同年月の「中間」行を全店舗まとめて削除してから書き込む
@@ -756,6 +757,11 @@ class FoodistJournalScraper:
                 else:
                     rows_to_append.append(new_row)
 
+            logger.info(
+                f"[{sheet_name}] {year_month} 書き込み前: 既存{rows_before}行, "
+                f"更新予定{len(update_data)}件, 追記予定{len(rows_to_append)}件"
+            )
+
             # 1回のbatchUpdateで全上書き（レート制限対策）
             if update_data:
                 self.sheets_service.spreadsheets().values().batchUpdate(
@@ -774,7 +780,12 @@ class FoodistJournalScraper:
                 ).execute()
                 time.sleep(1)
 
-            logger.info(f"[{sheet_name}] 書き込み完了: {len(store_data)} 店舗")
+            rows_after = rows_before + len(rows_to_append)
+            logger.info(
+                f"[{sheet_name}] {year_month} 書き込み完了: "
+                f"追記{len(rows_to_append)}件 / 上書{len(update_data)}件 "
+                f"(合計行数 {rows_before}→{rows_after})"
+            )
 
     def _ensure_sheets(self) -> dict[str, int]:
         """必要なシートを作成し {sheet_name: sheet_id} を返す。"""
