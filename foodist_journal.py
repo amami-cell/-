@@ -498,93 +498,116 @@ class FoodistJournalScraper:
     def _set_period(self, page: Page, start: date, end: date) -> None:
         """
         期間の開始日・終了日を入力する。
-        Angular 変更検知対応のため JS angularFill を第1手段、
-        Playwright fill をフォールバックとして使用し、設定値を検証する。
+        JS で入力欄座標を取得し、Playwright の mouse.click() + keyboard.type() で
+        ブラウザのネイティブイベントを発火させ Angular 変更検知を確実にトリガーする。
         """
         start_str = start.strftime("%Y/%m/%d")
         end_str   = end.strftime("%Y/%m/%d")
         logger.info(f"期間設定開始: {start_str} 〜 {end_str}")
         self._save_screenshot(page, f"before_set_period_{start.strftime('%Y%m')}")
 
-        # ── Step 1: JS で Angular 変更検知をトリガーしながら入力 ──────────
-        js_result = page.evaluate(f"""() => {{
-            function angularFill(el, value) {{
-                if (!el) return null;
-                el.focus();
-                el.value = '';
-                el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                el.value = value;
-                el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                el.dispatchEvent(new Event('change', {{bubbles: true}}));
-                el.dispatchEvent(new KeyboardEvent('keyup', {{bubbles: true, key: 'Enter'}}));
-                el.blur();
-                el.dispatchEvent(new FocusEvent('blur', {{bubbles: true}}));
-                return el.value;
-            }}
-
-            // 表示中のすべての入力欄を列挙
+        # ── Step 1: 可視入力欄の座標を JS で取得 ─────────────────────────────
+        rect_info = page.evaluate("""() => {
             const allVisible = Array.from(document.querySelectorAll('input'))
                 .filter(el => el.type !== 'hidden' && el.offsetParent !== null);
-            const inputInfo = allVisible.map(el => ({{
-                type: el.type, name: el.name, id: el.id,
-                placeholder: el.placeholder, value: el.value,
-                ngName: el.getAttribute('ng-reflect-name') || '',
-            }}));
 
-            let startEl = null, endEl = null;
-            for (const inp of allVisible) {{
-                const key = [inp.name || '', inp.id || '', inp.placeholder || '',
-                             inp.getAttribute('ng-reflect-name') || ''].join(' ').toLowerCase();
-                if (!startEl && (key.includes('start') || key.includes('from') || key.includes('開始'))) {{
-                    startEl = inp;
-                }} else if (!endEl && (key.includes('end') || key.includes('to') || key.includes('終了'))) {{
-                    endEl = inp;
-                }}
-            }}
-            // 属性で特定できない場合は先頭2つを使用
-            if (!startEl && allVisible.length >= 1) startEl = allVisible[0];
-            if (!endEl   && allVisible.length >= 2) endEl   = allVisible[1];
+            const info = allVisible.map(el => {
+                const r = el.getBoundingClientRect();
+                return {
+                    cx: r.left + r.width / 2,
+                    cy: r.top  + r.height / 2,
+                    value: el.value,
+                    name: el.name || '',
+                    id: el.id || '',
+                    placeholder: el.placeholder || '',
+                    ngName: el.getAttribute('ng-reflect-name') || '',
+                };
+            });
 
-            return {{
-                inputs:   inputInfo,
-                startSet: angularFill(startEl, '{start_str}'),
-                endSet:   angularFill(endEl,   '{end_str}'),
-            }};
-        }}""")
+            // 日付入力欄を YYYY/MM/DD パターンで優先識別
+            const datePattern = /^\\d{4}\\/\\d{2}\\/\\d{2}$/;
+            let si = -1, ei = -1;
+            for (let i = 0; i < info.length; i++) {
+                if (datePattern.test(info[i].value)) {
+                    if (si < 0) si = i;
+                    else if (ei < 0) { ei = i; break; }
+                }
+            }
 
-        logger.info(
-            f"期間設定JS: startSet={js_result.get('startSet')!r} "
-            f"endSet={js_result.get('endSet')!r} "
-            f"(期待: {start_str!r}〜{end_str!r})"
-        )
-        logger.debug(f"検出された入力欄: {js_result.get('inputs', [])}")
+            // パターン未検出時は属性で特定
+            if (si < 0) {
+                for (let i = 0; i < allVisible.length; i++) {
+                    const el = allVisible[i];
+                    const k = [el.name, el.id, el.placeholder,
+                               el.getAttribute('ng-reflect-name') || ''].join(' ').toLowerCase();
+                    if (si < 0 && (k.includes('start') || k.includes('from') || k.includes('開始'))) si = i;
+                    else if (ei < 0 && (k.includes('end') || k.includes('to') || k.includes('終了'))) ei = i;
+                }
+            }
+            // それでも未検出なら先頭2件
+            if (si < 0 && info.length >= 1) si = 0;
+            if (ei < 0 && info.length >= 2) ei = 1;
+
+            return { inputs: info, si, ei };
+        }""")
+
+        inputs = rect_info.get('inputs', [])
+        si = rect_info.get('si', 0)
+        ei = rect_info.get('ei', 1)
+        logger.info(f"入力欄検出: {len(inputs)}件 (開始idx={si}, 終了idx={ei})")
+        logger.info(f"入力欄詳細: {inputs}")
+
+        # ── Step 2: 座標クリック → Ctrl+A → Backspace → キーボード入力 ──────
+        def fill_by_coord(rect: dict, value: str, label: str) -> bool:
+            if not rect:
+                logger.warning(f"'{label}': 座標が取得できません")
+                return False
+            try:
+                page.mouse.click(rect['cx'], rect['cy'])
+                time.sleep(0.3)
+                page.keyboard.press("Control+a")
+                time.sleep(0.1)
+                page.keyboard.press("Backspace")
+                time.sleep(0.1)
+                page.keyboard.type(value)
+                time.sleep(0.3)
+                page.keyboard.press("Tab")
+                time.sleep(0.5)
+                logger.info(f"'{label}' キーボード入力: {value!r}")
+                return True
+            except Exception as e:
+                logger.warning(f"'{label}' キーボード入力失敗: {e}")
+                return False
+
+        start_rect = inputs[si] if 0 <= si < len(inputs) else None
+        end_rect   = inputs[ei] if 0 <= ei < len(inputs) else None
+
+        filled_start = fill_by_coord(start_rect, start_str, "開始日")
+        filled_end   = fill_by_coord(end_rect,   end_str,   "終了日")
+
         time.sleep(1)
-
-        # ── Step 2: Playwright fill でも念押し ──────────────────────────────
-        filled_start = self._fill_first_bool(page, [
-            'input[name*="start"]', 'input[id*="start"]',
-            'input[name*="from"]',  'input[id*="from"]',
-            'input[placeholder*="開始"]', 'input[name*="From"]',
-        ], start_str, "開始日")
-        filled_end = self._fill_first_bool(page, [
-            'input[name*="end"]',  'input[id*="end"]',
-            'input[name*="to"]',   'input[id*="to"]',
-            'input[placeholder*="終了"]', 'input[name*="To"]',
-        ], end_str, "終了日")
-
         self._save_screenshot(page, f"after_set_period_{start.strftime('%Y%m')}")
 
-        # ── Step 3: 設定結果を検証してログ ──────────────────────────────────
-        start_ok = js_result.get('startSet') == start_str or filled_start
-        end_ok   = js_result.get('endSet')   == end_str   or filled_end
+        # ── Step 3: 設定後の実際値を読み返して検証 ───────────────────────────
+        actual = page.evaluate("""() => {
+            return Array.from(document.querySelectorAll('input'))
+                .filter(el => el.type !== 'hidden' && el.offsetParent !== null)
+                .map(el => el.value);
+        }""")
+        logger.info(f"設定後の入力値(全{len(actual)}件): {actual}")
+
+        # si/ei インデックスで直接検証（全体 list で確認）
+        start_ok = (0 <= si < len(actual) and actual[si] == start_str) or start_str in actual
+        end_ok   = (0 <= ei < len(actual) and actual[ei] == end_str)   or end_str   in actual
         if start_ok and end_ok:
             logger.info(f"期間設定完了: {start_str} 〜 {end_str}")
         else:
+            sv = actual[si] if si < len(actual) else 'N/A'
+            ev = actual[ei] if ei < len(actual) else 'N/A'
             logger.warning(
-                f"期間が正しくセットされていない可能性があります！ "
-                f"JS startSet={js_result.get('startSet')!r} (期待:{start_str!r}), "
-                f"JS endSet={js_result.get('endSet')!r} (期待:{end_str!r}), "
-                f"Playwright start={filled_start}, end={filled_end}"
+                f"期間が正しくセットされていない可能性！ "
+                f"actual[{si}]={sv!r}, actual[{ei}]={ev!r}, "
+                f"期待: {start_str!r}/{end_str!r}"
             )
 
     def _click_output(self, page: Page, download_dir: Path) -> Path:
