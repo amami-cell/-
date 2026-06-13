@@ -229,10 +229,19 @@ function updateInventorySheet_(targetSheet) {
   Logger.log('当月: ' + JSON.stringify(curData));
   Logger.log('前月: ' + JSON.stringify(prevData));
 
-  // 書き込み（当月・前月それぞれの売上を明示的に渡す）
+  // 売上ラベル（I1: 当月, I13: 前月）
+  sheet.getRange('I1').setValue('売上：¥' + formatYen_(curData.sales));
+  sheet.getRange('I13').setValue('売上：¥' + formatYen_(prevData.sales));
+
+  // FWデータ（仕入行・理論原価行）書き込み
   Logger.log('当月売上: ' + curData.sales + ' / 前月売上: ' + prevData.sales);
   writeSection_(sheet, curData,  curData.sales,  ROWS.current.purchase, ROWS.current.theory);
   writeSection_(sheet, prevData, prevData.sales, ROWS.prev.purchase,    ROWS.prev.theory);
+
+  // FW書き込みをコミットしてから全行の売上比を書き込む（Infomart取得値の行を含む）
+  SpreadsheetApp.flush();
+  writeRatiosForRows_(sheet, curData.sales,  4, 11);
+  writeRatiosForRows_(sheet, prevData.sales, 15, 22);
 
   SpreadsheetApp.flush();
   Logger.log('更新完了');
@@ -359,6 +368,32 @@ function setRatio_(sheet, row, col, numerator, denominator) {
   }
   cell.setNumberFormat('0.00%');
   cell.setValue(numerator / denominator);
+}
+
+/**
+ * startRow〜endRow の C/E/G列の値を読み取り D/F/H列に売上比（0.00%）を書き込む。
+ * Infomart 取得済み値を含むすべての行をカバーする。
+ * C列(3)〜G列(7) の 5列を一括取得し、[0]=C, [2]=E, [4]=G を使う。
+ */
+function writeRatiosForRows_(sheet, sales, startRow, endRow) {
+  const numRows = endRow - startRow + 1;
+  const vals = sheet.getRange(startRow, COLS.fdTotal, numRows, 5).getValues();
+  for (let i = 0; i < numRows; i++) {
+    const row      = startRow + i;
+    const fdVal    = Number(vals[i][0]) || 0;  // C列 = FD合計
+    const foodVal  = Number(vals[i][2]) || 0;  // E列 = 食材F
+    const drinkVal = Number(vals[i][4]) || 0;  // G列 = 飲料D
+    setRatio_(sheet, row, COLS.fdRatio,    fdVal,    sales);
+    setRatio_(sheet, row, COLS.foodRatio,  foodVal,  sales);
+    setRatio_(sheet, row, COLS.drinkRatio, drinkVal, sales);
+  }
+}
+
+/**
+ * 金額を "1,234,567" 形式の文字列にフォーマットする。
+ */
+function formatYen_(amount) {
+  return Math.round(amount).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────────
