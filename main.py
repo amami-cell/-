@@ -160,6 +160,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="--foodist-all の開始月 (YYYY-MM形式)。例: 2026-01",
     )
     parser.add_argument(
+        "--clear-sheets",
+        action="store_true",
+        help="--foodist-all 実行前に5つの指標シートの全データを削除してから書き込む",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default=None,
@@ -374,6 +379,12 @@ def main() -> int:
             logger.info(f"Foodist Journal 一括取得: {from_month.strftime('%Y-%m')} 〜 {current_month.strftime('%Y-%m')} ({len(months)} ヶ月)")
 
             pipeline = AutomationPipeline(config)
+
+            # --clear-sheets: 書き込み前に全シートをクリア
+            if args.clear_sheets:
+                logger.info("--clear-sheets: 指標シート全データを削除します")
+                pipeline.fj_scraper.clear_all_metric_sheets()
+
             errors: list[str] = []
             for month in months:
                 month_str = month.strftime("%Y-%m")

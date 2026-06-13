@@ -97,6 +97,21 @@ class FoodistJournalScraper:
 
     # ── エントリポイント ──────────────────────────────────────────────────────
 
+    def clear_all_metric_sheets(self) -> None:
+        """5つの指標シートの全データをクリアする（一括再取込前のリセット用）。"""
+        logger.info("指標シート全クリア開始")
+        for _, sheet_name in METRICS:
+            try:
+                self.sheets_service.spreadsheets().values().clear(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range=f"'{sheet_name}'!A:E",
+                ).execute()
+                logger.info(f"  [{sheet_name}] クリア完了")
+                time.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"  [{sheet_name}] クリア失敗: {e}")
+        logger.info("指標シート全クリア完了")
+
     def run_all(self, target_month: date = None, stores=None) -> None:
         """
         Excel ダウンロード → 解析 → Google Sheets 書き込みを実行する。
