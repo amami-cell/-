@@ -325,33 +325,11 @@ class FoodistJournalScraper:
         self._close_dialogs(page)
         self._save_screenshot(page, "before_menu_click")
 
-        # ── 第1手段: 直接 URL で遷移 ─────────────────────────────────────────
-        direct_ok = False
-        try:
-            page.goto(REPORT_URL, timeout=self.fj.timeout_ms)
-            page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
-            if "manager_meeting_document" in page.url:
-                logger.info(f"直接URL遷移成功: {page.url}")
-                direct_ok = True
-            else:
-                logger.warning(f"直接URL遷移後のURLが期待外れ: {page.url}")
-        except Exception as e:
-            logger.warning(f"直接URL遷移失敗: {e}")
-
-        if direct_ok:
-            # 店舗選択ボタン待機
-            try:
-                page.wait_for_selector(
-                    'button:has-text("店舗選択"), a:has-text("店舗選択")',
-                    timeout=20000
-                )
-            except Exception:
-                logger.warning("店舗選択ボタン出現タイムアウト（非致命）")
-            logger.info(f"店長会資料ページ遷移完了: {page.url}")
-            return
-
-        # ── フォールバック: メニュークリック経由 ──────────────────────────────
-        logger.info("フォールバック: メニュー経由で店長会資料ページへ遷移します")
+        # ── メニュークリック経由で遷移 ───────────────────────────────────────
+        # Note: page.goto(REPORT_URL) はセッションストレージが失われログインへリダイレクト
+        # されるため、メニュークリックのみ使用する。
+        # タイミング注意: 損益管理クリック〜実績管理業務クリックの間隔が長いと
+        # ドロップダウンが自動クローズするため、スクリーンショット等の遅延を最小化する。
 
         # 1. 損益管理メニューをクリック（ドロップダウンを開く）
         profit_selectors = [
@@ -361,10 +339,9 @@ class FoodistJournalScraper:
             '[routerlink*="profit_loss"]',
         ]
         self._click_first_force(page, profit_selectors, "損益管理メニュー")
-        time.sleep(2)
-        self._save_screenshot(page, "menu_profit_open")
+        time.sleep(0.5)  # ドロップダウン表示待ち（最小限）
 
-        # 2. 実績管理業務をクリック（ハブページへ移動）
+        # 2. 実績管理業務をすぐクリック（ドロップダウンが閉じる前に）
         jisseki_selectors = [
             'a:has-text("実績管理業務")',
             'li:has-text("実績管理業務") a',
@@ -375,6 +352,17 @@ class FoodistJournalScraper:
         time.sleep(3)
         page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
         self._save_screenshot(page, "menu_jisseki_open")
+
+        # ハブページ到達を確認（まだ TOP なら再度ナビゲーション試行）
+        if "manager_meeting_document" not in page.url and "/app/top" in page.url:
+            logger.warning(f"実績管理業務メニュー経由のナビゲーションが不完全: {page.url}")
+            logger.info("損益管理メニューを再クリックして再試行します")
+            self._click_first_force(page, profit_selectors, "損益管理メニュー（再試行）")
+            time.sleep(0.5)
+            self._click_first_force(page, jisseki_selectors, "実績管理業務メニュー（再試行）")
+            time.sleep(3)
+            page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+            self._save_screenshot(page, "menu_jisseki_open_retry")
 
         # 3. 店長会資料DLタイル（またはサブメニュー項目）をクリック
         report_selectors = [
