@@ -172,22 +172,30 @@ function updateInventorySheet_(targetSheet) {
 
   Logger.log('当月: ' + JSON.stringify(curData));
   Logger.log('前月: ' + JSON.stringify(prevData));
-
-  // 売上ラベル（I1: 当月, I13: 前月）
-  sheet.getRange('I1').setValue('売上：¥' + formatYen_(curData.sales));
-  sheet.getRange('I13').setValue('売上：¥' + formatYen_(prevData.sales));
-
-  // FWデータ（仕入行・理論原価行）書き込み
   Logger.log('当月売上: ' + curData.sales + ' / 前月売上: ' + prevData.sales);
+
+  // ── Step1: FWデータ（仕入行・理論原価行）書き込み ─────────────────────
   writeSection_(sheet, curData,  curData.sales,  ROWS.current.purchase, ROWS.current.theory);
   writeSection_(sheet, prevData, prevData.sales, ROWS.prev.purchase,    ROWS.prev.theory);
 
-  // FW書き込みをコミットしてから全行の売上比を書き込む（Infomart取得値の行を含む）
+  // ── Step2: Infomart 取得済み値を含む全行の売上比を書き込む ───────────
+  // flush() でStep1の書き込みを確定させてから getValues() で読み直す
   SpreadsheetApp.flush();
+  Logger.log('writeRatiosForRows_ 開始 (当月: rows 4-11, 売上=' + curData.sales + ')');
   writeRatiosForRows_(sheet, curData.sales,  4, 11);
+  Logger.log('writeRatiosForRows_ 開始 (前月: rows 15-22, 売上=' + prevData.sales + ')');
   writeRatiosForRows_(sheet, prevData.sales, 15, 22);
 
+  // ── Step3: 売上ラベルを最後に書き込む（Step2に上書きされないよう末尾に配置）─
   SpreadsheetApp.flush();
+  const i1Val  = '売上：¥' + formatYen_(curData.sales);
+  const i13Val = '売上：¥' + formatYen_(prevData.sales);
+  sheet.getRange('I1').setNumberFormat('@').setValue(i1Val);
+  sheet.getRange('I13').setNumberFormat('@').setValue(i13Val);
+  SpreadsheetApp.flush();
+  Logger.log('I1 書き込み完了: ' + i1Val);
+  Logger.log('I13 書き込み完了: ' + i13Val);
+
   Logger.log('更新完了');
 }
 
@@ -330,6 +338,10 @@ function writeRatiosForRows_(sheet, sales, startRow, endRow) {
     const fdVal    = Number(vals[i][0]) || 0;  // C列 = FD合計
     const foodVal  = Number(vals[i][2]) || 0;  // E列 = 食材F
     const drinkVal = Number(vals[i][4]) || 0;  // G列 = 飲料D
+    Logger.log(
+      'row' + row + ': FD=' + fdVal + ' F=' + foodVal + ' D=' + drinkVal +
+      ' → 比率D=' + (sales ? (fdVal/sales*100).toFixed(2) : '-') + '%'
+    );
     setRatio_(sheet, row, COLS.fdRatio,    fdVal,    sales);
     setRatio_(sheet, row, COLS.foodRatio,  foodVal,  sales);
     setRatio_(sheet, row, COLS.drinkRatio, drinkVal, sales);
