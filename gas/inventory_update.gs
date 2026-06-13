@@ -262,6 +262,7 @@ function fetchMetrics_(ss, storeName, monthStr) {
     sales: 0, foodPurchase: 0, drinkPurchase: 0, foodTheory: 0, drinkTheory: 0
   };
 
+  const range = toDateRange_(monthStr);
   const keys = Object.keys(SRC);
   for (let i = 0; i < keys.length; i++) {
     const key       = keys[i];
@@ -286,9 +287,9 @@ function fetchMetrics_(ss, storeName, monthStr) {
     const targetStore = normalize_(fjStoreName);
 
     for (let r = 0; r < data.length; r++) {
-      const rowMonth = toYYYYMM_(data[r][0]);
+      if (!dateInRange_(data[r][0], range.start, range.end)) continue;
       const rowStore = normalize_(String(data[r][1]));
-      if (rowMonth !== monthStr || rowStore !== targetStore) continue;
+      if (rowStore !== targetStore) continue;
 
       const kind = String(data[r][3]).trim();
       const val  = Number(data[r][2]) || 0;
@@ -347,14 +348,55 @@ function writeSection_(sheet, data, sales, purchaseRow, theoryRow) {
 }
 
 /**
- * 売上比を計算してセルに書き込む。売上が 0 の場合は空文字。
+ * 売上比を計算して％形式（小数点2桁）でセルに書き込む。売上が 0 の場合は空文字。
  * 負値の売上（一部会計システム）にも対応するため !== 0 で判定する。
  */
 function setRatio_(sheet, row, col, numerator, denominator) {
-  sheet.getRange(row, col).setValue(denominator !== 0 ? numerator / denominator : '');
+  const cell = sheet.getRange(row, col);
+  if (denominator === 0) {
+    cell.setValue('');
+    return;
+  }
+  cell.setNumberFormat('0.00%');
+  cell.setValue(numerator / denominator);
 }
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────────
+
+/**
+ * "YYYY-MM" から当月の開始日・終了日（Date）を返す。
+ */
+function toDateRange_(monthStr) {
+  const parts = monthStr.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  return {
+    start: new Date(y, m - 1, 1),
+    end:   new Date(y, m, 0, 23, 59, 59, 999),
+  };
+}
+
+/**
+ * セル値（Date または "YYYY-MM"/"YYYY-MM-DD" 文字列）が [start, end] 内かを判定する。
+ * "YYYY-MM" 文字列は月初（1日）として扱う。
+ */
+function dateInRange_(value, start, end) {
+  let d;
+  if (value instanceof Date) {
+    d = value;
+  } else {
+    const s = String(value).trim();
+    if (!s) return false;
+    if (/^\d{4}-\d{2}$/.test(s)) {
+      const p = s.split('-');
+      d = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, 1);
+    } else {
+      d = new Date(s);
+    }
+  }
+  if (!d || isNaN(d.getTime())) return false;
+  return d >= start && d <= end;
+}
 
 /**
  * Date オブジェクトまたは文字列を "YYYY-MM" に変換する。

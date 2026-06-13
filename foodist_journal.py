@@ -8,7 +8,7 @@ Google Sheets の各指標シートへ書き込む。
   D列: 種別(中間/確定)  E列: 取込日時
 
 実行日判定:
-  1〜17日 → 種別=中間, 期間=当月1日〜15日
+  1〜17日 → 種別=中間, 期間=当月1日〜末日
   18日以降 → 種別=確定, 期間=当月1日〜末日
 """
 from __future__ import annotations
@@ -109,13 +109,13 @@ class FoodistJournalScraper:
 
         today = date.today()
 
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        period_end = today.replace(day=last_day)
+
         if today.day <= 17:
             kind = "中間"
-            period_end = today.replace(day=15)
         else:
             kind = "確定"
-            last_day = calendar.monthrange(today.year, today.month)[1]
-            period_end = today.replace(day=last_day)
 
         period_start = today.replace(day=1)
         year_month = today.strftime("%Y-%m")
