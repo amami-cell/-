@@ -215,7 +215,8 @@ function fetchMetrics_(ss, storeName, monthStr) {
     sales: 0, foodPurchase: 0, drinkPurchase: 0, foodTheory: 0, drinkTheory: 0
   };
 
-  const range = toDateRange_(monthStr);
+  Logger.log('fetchMetrics_: 検索月=' + monthStr);
+
   const keys = Object.keys(SRC);
   for (let i = 0; i < keys.length; i++) {
     const key       = keys[i];
@@ -240,7 +241,9 @@ function fetchMetrics_(ss, storeName, monthStr) {
     const targetStore = normalize_(fjStoreName);
 
     for (let r = 0; r < data.length; r++) {
-      if (!dateInRange_(data[r][0], range.start, range.end)) continue;
+      // A列の値を "YYYY-MM" 文字列に変換して比較（タイムゾーン非依存）
+      const rowMonth = toYYYYMM_(data[r][0]);
+      if (rowMonth !== monthStr) continue;
       const rowStore = normalize_(String(data[r][1]));
       if (rowStore !== targetStore) continue;
 
@@ -392,15 +395,18 @@ function toYYYYMM_(value) {
 }
 
 /**
- * "YYYY-MM" の前月を返す。
+ * "YYYY-MM" の前月を返す。new Date() を使わず文字列算術で計算（タイムゾーン非依存）。
  * 例: "2026-05" → "2026-04", "2026-01" → "2025-12"
  */
 function prevMonth_(monthStr) {
   const parts = monthStr.split('-');
-  const y = parseInt(parts[0], 10);
-  const m = parseInt(parts[1], 10);
-  const prev = new Date(y, m - 2, 1);  // month は 0 始まりなので m-2 = 前月
-  return prev.getFullYear() + '-' + String(prev.getMonth() + 1).padStart(2, '0');
+  let y = parseInt(parts[0], 10);
+  let m = parseInt(parts[1], 10) - 1;
+  if (m === 0) {
+    m = 12;
+    y -= 1;
+  }
+  return y + '-' + String(m).padStart(2, '0');
 }
 
 // ─── 手動実行用 ────────────────────────────────────────────────────────────────
