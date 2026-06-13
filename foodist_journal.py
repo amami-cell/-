@@ -318,12 +318,40 @@ class FoodistJournalScraper:
 
     def _navigate_to_report_via_menu(self, page: Page) -> None:
         """
-        Angular SPA のセッションを保ったままメニュー経由で店長会資料ページへ移動する。
-        page.goto() はフルリロードになりセッションが失われるため、クリック遷移を使う。
-        メニュー階層: 損益管理 → 実績管理業務（ハブページ） → 店長会資料DLタイル
+        店長会資料ページへ移動する。
+        第1手段: ログイン後のセッション Cookie を保ったまま直接URLへ goto。
+        失敗時フォールバック: 損益管理 → 実績管理業務 → 店長会資料DL タイルをクリック。
         """
         self._close_dialogs(page)
         self._save_screenshot(page, "before_menu_click")
+
+        # ── 第1手段: 直接 URL で遷移 ─────────────────────────────────────────
+        direct_ok = False
+        try:
+            page.goto(REPORT_URL, timeout=self.fj.timeout_ms)
+            page.wait_for_load_state("networkidle", timeout=self.fj.timeout_ms)
+            if "manager_meeting_document" in page.url:
+                logger.info(f"直接URL遷移成功: {page.url}")
+                direct_ok = True
+            else:
+                logger.warning(f"直接URL遷移後のURLが期待外れ: {page.url}")
+        except Exception as e:
+            logger.warning(f"直接URL遷移失敗: {e}")
+
+        if direct_ok:
+            # 店舗選択ボタン待機
+            try:
+                page.wait_for_selector(
+                    'button:has-text("店舗選択"), a:has-text("店舗選択")',
+                    timeout=20000
+                )
+            except Exception:
+                logger.warning("店舗選択ボタン出現タイムアウト（非致命）")
+            logger.info(f"店長会資料ページ遷移完了: {page.url}")
+            return
+
+        # ── フォールバック: メニュークリック経由 ──────────────────────────────
+        logger.info("フォールバック: メニュー経由で店長会資料ページへ遷移します")
 
         # 1. 損益管理メニューをクリック（ドロップダウンを開く）
         profit_selectors = [
