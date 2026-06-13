@@ -121,8 +121,8 @@ class FoodistJournalScraper:
         year_month = today.strftime("%Y-%m")
 
         logger.info(
-            f"Foodist Journal 開始: 種別={kind}, "
-            f"期間={period_start.strftime('%Y/%m/%d')}〜{period_end.strftime('%Y/%m/%d')}"
+            f"[{year_month}] 種別={kind} 期間: "
+            f"{period_start.strftime('%Y-%m-%d')}〜{period_end.strftime('%Y-%m-%d')}"
         )
 
         try:
@@ -147,8 +147,8 @@ class FoodistJournalScraper:
         year_month = target_month.strftime("%Y-%m")
 
         logger.info(
-            f"Foodist Journal 開始: 種別={kind}, "
-            f"期間={period_start.strftime('%Y/%m/%d')}〜{period_end.strftime('%Y/%m/%d')}"
+            f"[{year_month}] 種別={kind} 期間: "
+            f"{period_start.strftime('%Y-%m-%d')}〜{period_end.strftime('%Y-%m-%d')}"
         )
 
         try:
@@ -496,23 +496,96 @@ class FoodistJournalScraper:
         logger.info("店舗選択完了（イニシエート/全選択/追加/決定）")
 
     def _set_period(self, page: Page, start: date, end: date) -> None:
-        """期間の開始日・終了日を入力する。"""
+        """
+        期間の開始日・終了日を入力する。
+        Angular 変更検知対応のため JS angularFill を第1手段、
+        Playwright fill をフォールバックとして使用し、設定値を検証する。
+        """
         start_str = start.strftime("%Y/%m/%d")
-        end_str = end.strftime("%Y/%m/%d")
+        end_str   = end.strftime("%Y/%m/%d")
+        logger.info(f"期間設定開始: {start_str} 〜 {end_str}")
+        self._save_screenshot(page, f"before_set_period_{start.strftime('%Y%m')}")
 
-        self._fill_first(page, [
+        # ── Step 1: JS で Angular 変更検知をトリガーしながら入力 ──────────
+        js_result = page.evaluate(f"""() => {{
+            function angularFill(el, value) {{
+                if (!el) return null;
+                el.focus();
+                el.value = '';
+                el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                el.value = value;
+                el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                el.dispatchEvent(new Event('change', {{bubbles: true}}));
+                el.dispatchEvent(new KeyboardEvent('keyup', {{bubbles: true, key: 'Enter'}}));
+                el.blur();
+                el.dispatchEvent(new FocusEvent('blur', {{bubbles: true}}));
+                return el.value;
+            }}
+
+            // 表示中のすべての入力欄を列挙
+            const allVisible = Array.from(document.querySelectorAll('input'))
+                .filter(el => el.type !== 'hidden' && el.offsetParent !== null);
+            const inputInfo = allVisible.map(el => ({{
+                type: el.type, name: el.name, id: el.id,
+                placeholder: el.placeholder, value: el.value,
+                ngName: el.getAttribute('ng-reflect-name') || '',
+            }}));
+
+            let startEl = null, endEl = null;
+            for (const inp of allVisible) {{
+                const key = [inp.name || '', inp.id || '', inp.placeholder || '',
+                             inp.getAttribute('ng-reflect-name') || ''].join(' ').toLowerCase();
+                if (!startEl && (key.includes('start') || key.includes('from') || key.includes('開始'))) {{
+                    startEl = inp;
+                }} else if (!endEl && (key.includes('end') || key.includes('to') || key.includes('終了'))) {{
+                    endEl = inp;
+                }}
+            }}
+            // 属性で特定できない場合は先頭2つを使用
+            if (!startEl && allVisible.length >= 1) startEl = allVisible[0];
+            if (!endEl   && allVisible.length >= 2) endEl   = allVisible[1];
+
+            return {{
+                inputs:   inputInfo,
+                startSet: angularFill(startEl, '{start_str}'),
+                endSet:   angularFill(endEl,   '{end_str}'),
+            }};
+        }}""")
+
+        logger.info(
+            f"期間設定JS: startSet={js_result.get('startSet')!r} "
+            f"endSet={js_result.get('endSet')!r} "
+            f"(期待: {start_str!r}〜{end_str!r})"
+        )
+        logger.debug(f"検出された入力欄: {js_result.get('inputs', [])}")
+        time.sleep(1)
+
+        # ── Step 2: Playwright fill でも念押し ──────────────────────────────
+        filled_start = self._fill_first_bool(page, [
             'input[name*="start"]', 'input[id*="start"]',
             'input[name*="from"]',  'input[id*="from"]',
             'input[placeholder*="開始"]', 'input[name*="From"]',
         ], start_str, "開始日")
-
-        self._fill_first(page, [
+        filled_end = self._fill_first_bool(page, [
             'input[name*="end"]',  'input[id*="end"]',
             'input[name*="to"]',   'input[id*="to"]',
             'input[placeholder*="終了"]', 'input[name*="To"]',
         ], end_str, "終了日")
 
-        logger.info(f"期間設定完了: {start_str}〜{end_str}")
+        self._save_screenshot(page, f"after_set_period_{start.strftime('%Y%m')}")
+
+        # ── Step 3: 設定結果を検証してログ ──────────────────────────────────
+        start_ok = js_result.get('startSet') == start_str or filled_start
+        end_ok   = js_result.get('endSet')   == end_str   or filled_end
+        if start_ok and end_ok:
+            logger.info(f"期間設定完了: {start_str} 〜 {end_str}")
+        else:
+            logger.warning(
+                f"期間が正しくセットされていない可能性があります！ "
+                f"JS startSet={js_result.get('startSet')!r} (期待:{start_str!r}), "
+                f"JS endSet={js_result.get('endSet')!r} (期待:{end_str!r}), "
+                f"Playwright start={filled_start}, end={filled_end}"
+            )
 
     def _click_output(self, page: Page, download_dir: Path) -> Path:
         """出力ボタンをクリックして Excel をダウンロードする。"""
@@ -792,16 +865,23 @@ class FoodistJournalScraper:
         self, page: Page, selectors: list[str], value: str, name: str
     ) -> None:
         """セレクタリストの先頭から順に試して入力する。見つからない場合は警告のみ。"""
+        self._fill_first_bool(page, selectors, value, name)
+
+    def _fill_first_bool(
+        self, page: Page, selectors: list[str], value: str, name: str
+    ) -> bool:
+        """セレクタリストの先頭から順に試して入力する。成功したら True を返す。"""
         for sel in selectors:
             try:
                 loc = page.locator(sel)
                 if loc.count() > 0:
                     loc.first.fill(value)
-                    logger.debug(f"{name} 入力: {value} ({sel})")
-                    return
+                    logger.info(f"{name} Playwright入力完了: {value!r} ({sel})")
+                    return True
             except Exception:
                 continue
-        logger.warning(f"'{name}' の入力欄が見つかりませんでした（スキップ）")
+        logger.warning(f"'{name}' の入力欄が Playwright で見つかりませんでした")
+        return False
 
     def _save_screenshot(self, page: Page, name: str) -> None:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
