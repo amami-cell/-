@@ -124,13 +124,13 @@ class FoodistJournalScraper:
 
         today = date.today()
 
-        last_day = calendar.monthrange(today.year, today.month)[1]
-        period_end = today.replace(day=last_day)
-
         if today.day <= 17:
             kind = "中間"
+            period_end = today.replace(day=15)
         else:
             kind = "確定"
+            last_day = calendar.monthrange(today.year, today.month)[1]
+            period_end = today.replace(day=last_day)
 
         period_start = today.replace(day=1)
         year_month = today.strftime("%Y-%m")
@@ -153,12 +153,15 @@ class FoodistJournalScraper:
 
     def run_for_month(self, target_month: date, kind: str = "確定") -> None:
         """
-        指定月の全期間（1日〜末日）でデータを取得して Sheets へ書き込む。
-        --foodist-all による過去月一括取得で使用する。
+        指定月のデータを取得して Sheets へ書き込む。
+        kind="確定" → 1日〜末日、kind="中間" → 1日〜15日。
         """
-        last_day = calendar.monthrange(target_month.year, target_month.month)[1]
         period_start = target_month.replace(day=1)
-        period_end = target_month.replace(day=last_day)
+        if kind == "中間":
+            period_end = target_month.replace(day=15)
+        else:
+            last_day = calendar.monthrange(target_month.year, target_month.month)[1]
+            period_end = target_month.replace(day=last_day)
         year_month = target_month.strftime("%Y-%m")
 
         logger.info(

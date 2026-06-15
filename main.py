@@ -147,6 +147,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Foodist Journal のデータ取得のみ実行（インフォマート処理をスキップ）",
     )
     parser.add_argument(
+        "--interim",
+        action="store_true",
+        help="Foodist Journal を中間（1日〜15日）として取得する（--foodist-only と併用）",
+    )
+    parser.add_argument(
         "--foodist-all",
         action="store_true",
         help="Foodist Journal の指定月〜当月を一括取得（確定として書き込み）。--from と併用。",
@@ -401,6 +406,12 @@ def main() -> int:
                 logger.warning(f"一括取得完了（失敗月: {', '.join(errors)}）")
                 return 1
             logger.info(f"一括取得完了（全{len(months)}ヶ月）")
+            return 0
+
+        # --foodist-only --interim: 中間として直接実行
+        if args.foodist_only and getattr(args, 'interim', False):
+            pipeline = AutomationPipeline(config)
+            pipeline.fj_scraper.run_for_month(target_month, kind="中間")
             return 0
 
         # パイプライン実行
