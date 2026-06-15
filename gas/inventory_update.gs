@@ -361,12 +361,16 @@ function updateInventorySheet_(targetSheet) {
 
   Logger.log('I12 書き込み完了: ' + i12Val);
 
-  // I13: 売上ラベルを削除し元の見出しに戻す（前回実行で書き込んだ場合のみクリア）
-  const i13Cell  = sheet.getRange('I13');
-  const i13Val   = String(i13Cell.getValue());
-  if (i13Val.indexOf('売上：¥') === 0) {
-    i13Cell.clearContent();
-    Logger.log('I13 売上ラベルを削除しました（元の見出しに戻す）');
+  // 行13「前月棚卸」見出しを確実に復元（旧実装で売上ラベルが書き込まれた場合）
+  // 結合セルのマスターが B13 以外にある場合も getMergedRanges() で追跡する
+  const prevHeaderRef = sheet.getRange(13, 2); // B13
+  const prevHeaderMaster = prevHeaderRef.isPartOfMerge()
+    ? sheet.getRange(prevHeaderRef.getMergedRanges()[0].getRow(),
+                     prevHeaderRef.getMergedRanges()[0].getColumn())
+    : prevHeaderRef;
+  if (String(prevHeaderMaster.getValue()).indexOf('売上：¥') !== -1) {
+    prevHeaderMaster.setValue('前月棚卸');
+    Logger.log('行13 header を「前月棚卸」に復元しました');
   }
 
   // ── Step4: ロス入力欄レイアウト整備 ─────────────────────────────────
