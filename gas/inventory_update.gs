@@ -48,9 +48,9 @@ const COLS = { fdTotal: 3, fdRatio: 4, foodVal: 5, foodRatio: 6, drinkVal: 7, dr
 /** ロス入力欄の列番号（L=分類1, M=分類2, N=金額, O=詳細メモ） */
 const LOSS_COLS = { cat1: 12, cat2: 13, amount: 14, memo: 15 };
 
-/** 当月・前月ロス入力行 */
-const LOSS_ROWS_CUR  = [9, 10, 11];
-const LOSS_ROWS_PREV = [20, 21, 22];
+/** 当月・前月ロス入力行（L〜O 列、A〜H 列の棚卸表とは独立） */
+const LOSS_ROWS_CUR  = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const LOSS_ROWS_PREV = [13, 14, 15, 16, 17, 18, 19, 20, 21, 22];
 
 /** 分類1 → 集計ターゲット行（当月） */
 const LOSS_TARGET_CUR  = { '必要ロス': 9,  '廃棄ロス': 10 };
@@ -454,21 +454,25 @@ function parseSalesLabel_(label) {
 /**
  * ロス入力欄のレイアウトを整備する（updateInventorySheet_ の末尾から自動実行）。
  *
- * - 理論原価行（row8=当月, row19=前月）の L〜O 列にヘッダーラベルを設定
- * - 全ロス入力行（rows 9-11, 20-22）の L/M 列にドロップダウンを設定
- * - 背景色: L/M/N=薄い黄色（金額入力系）、O=薄い水色（詳細メモ）
+ * - 行1（L〜O）に当月ロスブロックのヘッダーを設定
+ * - 行12（L〜O）に前月ロスブロックの見出し＋ヘッダーを設定
+ * - 全ロス入力行（当月 rows 2-11 / 前月 rows 13-22）に
+ *   ドロップダウンと背景色を設定
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  */
 function setupLossLayout_(sheet) {
-  // ヘッダーラベル: 理論原価行の L〜O 列（C〜H は既存データ）
-  const headerRows = [ROWS.current.theory, ROWS.prev.theory];
-  headerRows.forEach(function(r) {
-    sheet.getRange(r, LOSS_COLS.cat1  ).setValue('分類1（種別）');
-    sheet.getRange(r, LOSS_COLS.cat2  ).setValue('分類2（食材/飲料）');
-    sheet.getRange(r, LOSS_COLS.amount).setValue('金額');
-    sheet.getRange(r, LOSS_COLS.memo  ).setValue('詳細メモ');
-  });
+  // 当月ロス入力ブロック ヘッダー（行1 L〜O）
+  sheet.getRange(1, LOSS_COLS.cat1  ).setValue('分類1（種別）');
+  sheet.getRange(1, LOSS_COLS.cat2  ).setValue('分類2（食材/飲料）');
+  sheet.getRange(1, LOSS_COLS.amount).setValue('金額');
+  sheet.getRange(1, LOSS_COLS.memo  ).setValue('詳細メモ');
+
+  // 前月ロス入力ブロック 見出し＋ヘッダー（行12 L〜O）
+  sheet.getRange(12, LOSS_COLS.cat1  ).setValue('▼ 前月ロス（種別）');
+  sheet.getRange(12, LOSS_COLS.cat2  ).setValue('分類2（食材/飲料）');
+  sheet.getRange(12, LOSS_COLS.amount).setValue('金額');
+  sheet.getRange(12, LOSS_COLS.memo  ).setValue('詳細メモ');
 
   // ドロップダウン: 全ロス入力行の L（分類1）・M（分類2）列
   const cat1Rule = SpreadsheetApp.newDataValidation()
