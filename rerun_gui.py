@@ -1,9 +1,10 @@
 """
 rerun_gui.py
-棚卸自動化 管理ツール
-- 再集計タブ: 月を選んで再集計
-- 店舗管理タブ: 店舗の追加・削除
-- 取引先管理タブ: 取引先の追加・削除
+棚卸自動化 管理ツール（4タブ構成）
+  棚卸取得  : 月指定でインフォマート取得・集計
+  FW取得    : 月指定＋月末/中間でFoodist Journal取得
+  店舗管理  : config.yaml 店舗追加・削除
+  取引先管理 : supplier_master.csv 追加・削除
 """
 import sys
 import re
@@ -12,7 +13,7 @@ import threading
 import subprocess
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
-from datetime import datetime
+from datetime import date
 import yaml
 
 
@@ -24,6 +25,20 @@ MASTER_PATH = os.path.join(SCRIPT_DIR, "supplier_master.csv")
 def strip_ansi(text):
     ansi_escape = re.compile(r'\x1b\[[0-9;]*m')
     return ansi_escape.sub('', text)
+
+
+def recent_months(n=13):
+    """直近 n ヶ月の YYYY-MM 文字列リストを返す（当月が先頭）"""
+    months = []
+    today = date.today()
+    year, month = today.year, today.month
+    for _ in range(n):
+        months.append(f"{year}-{month:02d}")
+        month -= 1
+        if month == 0:
+            month = 12
+            year -= 1
+    return months
 
 
 def load_config():
@@ -56,85 +71,167 @@ def save_master(rows):
             f.write(f"{name},{cat}\n")
 
 
+def run_subprocess(args, log_widget, btn, btn_label, start_msg=None, on_done=None):
+    """subprocess をバックグラウンドスレッドで実行し、ログを log_widget に流す。"""
+    def task():
+        try:
+            btn.configure(state='disabled', text='実行中...')
+            log_widget.configure(state='normal')
+            log_widget.delete('1.0', tk.END)
+            if start_msg:
+                log_widget.insert(tk.END, start_msg + "\n")
+            log_widget.configure(state='disabled')
+
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"
+            result = subprocess.run(
+                args, cwd=SCRIPT_DIR,
+                capture_output=True, text=True,
+                encoding='utf-8', errors='replace', env=env,
+            )
+
+            log_widget.configure(state='normal')
+            if result.stdout:
+                log_widget.insert(tk.END, strip_ansi(result.stdout))
+            if result.stderr:
+                log_widget.insert(tk.END, "\n[エラー出力]\n" + strip_ansi(result.stderr))
+            log_widget.insert(tk.END, "\n=== 完了 ===\n")
+            log_widget.see(tk.END)
+            log_widget.configure(state='disabled')
+
+            if on_done:
+                on_done(result.returncode == 0)
+            elif result.returncode == 0:
+                messagebox.showinfo("完了", "処理が完了しました！")
+            else:
+                messagebox.showwarning("完了（警告あり）", "処理が完了しました。\nログを確認してください。")
+        except Exception as e:
+            messagebox.showerror("エラー", str(e))
+        finally:
+            btn.configure(state='normal', text=btn_label)
+
+    threading.Thread(target=task, daemon=True).start()
+
+
 # ──────────────────────────────────────────
-# タブ1: 再集計
+# タブ1: 棚卸取得（インフォマート）
 # ──────────────────────────────────────────
-def build_rerun_tab(notebook):
+def build_infomart_tab(notebook):
     tab = ttk.Frame(notebook)
-    notebook.add(tab, text="  再集計  ")
+    notebook.add(tab, text="  棚卸取得  ")
 
-    tk.Label(tab, text="対象月を選んで再集計", font=("メイリオ", 13, "bold")).pack(pady=10)
+    tk.Label(tab, text="棚卸取得（インフォマート）", font=("メイリオ", 13, "bold")).pack(pady=10)
 
-    frame = tk.Frame(tab)
-    frame.pack(pady=5)
+    sel_frame = tk.Frame(tab)
+    sel_frame.pack(pady=5)
+    tk.Label(sel_frame, text="対象月：", font=("メイリオ", 11)).grid(row=0, column=0, padx=5)
+    months = recent_months()
+    month_var = tk.StringVar(value=months[1])  # デフォルト: 前月
+    ttk.Combobox(sel_frame, textvariable=month_var, values=months,
+                 width=12, font=("メイリオ", 11), state='readonly').grid(row=0, column=1, padx=5)
+    tk.Label(sel_frame, text="（同月データがある場合は上書き更新）",
+             font=("メイリオ", 9), fg="#777").grid(row=0, column=2, padx=10)
 
-    tk.Label(frame, text="対象年：", font=("メイリオ", 11)).grid(row=0, column=0, padx=5)
-    now = datetime.now()
-    year_var = tk.StringVar(value=str(now.year))
-    ttk.Spinbox(frame, from_=2020, to=2099, textvariable=year_var, width=8, font=("メイリオ", 11)).grid(row=0, column=1, padx=5)
-    tk.Label(frame, text="年", font=("メイリオ", 11)).grid(row=0, column=2, padx=2)
-
-    tk.Label(frame, text="対象月：", font=("メイリオ", 11)).grid(row=0, column=3, padx=5)
-    prev_month = now.month - 1 if now.month > 1 else 12
-    month_var = tk.StringVar(value=str(prev_month))
-    ttk.Spinbox(frame, from_=1, to=12, textvariable=month_var, width=5, font=("メイリオ", 11)).grid(row=0, column=4, padx=5)
-    tk.Label(frame, text="月", font=("メイリオ", 11)).grid(row=0, column=5, padx=2)
-
-    tk.Label(tab, text="実行ログ：", font=("メイリオ", 9)).pack(anchor='w', padx=20)
-    log_widget = scrolledtext.ScrolledText(tab, height=15, state='disabled', font=("Consolas", 9))
+    tk.Label(tab, text="実行ログ：", font=("メイリオ", 9)).pack(anchor='w', padx=20, pady=(8, 0))
+    log_widget = scrolledtext.ScrolledText(tab, height=16, state='disabled', font=("Consolas", 9))
     log_widget.pack(fill='both', expand=True, padx=20, pady=5)
 
-    btn = tk.Button(tab, text="▶ 再集計を実行", font=("メイリオ", 12, "bold"),
+    btn_label = "▶ 取り込み開始"
+    btn = tk.Button(tab, text=btn_label, font=("メイリオ", 12, "bold"),
                     bg="#4CAF50", fg="white", padx=20, pady=6, cursor="hand2")
 
-    def run_automation():
-        def task():
-            try:
-                btn.configure(state='disabled', text='実行中...')
-                log_widget.configure(state='normal')
-                log_widget.delete('1.0', tk.END)
-                log_widget.configure(state='disabled')
+    def run():
+        m = month_var.get().strip()
+        if not m:
+            messagebox.showerror("エラー", "対象月を選択してください")
+            return
 
-                target = f"{year_var.get()}-{str(month_var.get()).zfill(2)}"
-                log_widget.configure(state='normal')
-                log_widget.insert(tk.END, f"=== {target} の再集計を開始 ===\n")
-                log_widget.configure(state='disabled')
+        def on_done(success):
+            if success:
+                messagebox.showinfo("完了", f"{m} の棚卸取得が完了しました！")
+            else:
+                messagebox.showwarning("完了（警告あり）",
+                                       f"{m} の棚卸取得が完了しました。\nログを確認してください。")
 
-                env = os.environ.copy()
-                env["PYTHONIOENCODING"] = "utf-8"
-                result = subprocess.run(
-                    [sys.executable, "main.py", "--month", target],
-                    cwd=SCRIPT_DIR, capture_output=True, text=True,
-                    encoding='utf-8', errors='replace', env=env
-                )
+        run_subprocess(
+            [sys.executable, "main.py", "--month", m],
+            log_widget, btn, btn_label,
+            start_msg=f"=== {m} の棚卸取得を開始 ===",
+            on_done=on_done,
+        )
 
-                log_widget.configure(state='normal')
-                if result.stdout:
-                    log_widget.insert(tk.END, strip_ansi(result.stdout))
-                if result.stderr:
-                    log_widget.insert(tk.END, "\n[エラー出力]\n" + strip_ansi(result.stderr))
-                log_widget.insert(tk.END, "\n=== 完了 ===\n")
-                log_widget.see(tk.END)
-                log_widget.configure(state='disabled')
-
-                if result.returncode == 0:
-                    messagebox.showinfo("完了", f"{target} の再集計が完了しました！")
-                else:
-                    messagebox.showwarning("完了（警告あり）", f"{target} の再集計が完了しました。\nログを確認してください。")
-            except Exception as e:
-                messagebox.showerror("エラー", str(e))
-            finally:
-                btn.configure(state='normal', text='▶ 再集計を実行')
-
-        threading.Thread(target=task, daemon=True).start()
-
-    btn.configure(command=run_automation)
+    btn.configure(command=run)
     btn.pack(pady=8)
     return tab
 
 
 # ──────────────────────────────────────────
-# タブ2: 店舗管理
+# タブ2: FW取得（Foodist Journal）
+# ──────────────────────────────────────────
+def build_fw_tab(notebook):
+    tab = ttk.Frame(notebook)
+    notebook.add(tab, text="  FW取得  ")
+
+    tk.Label(tab, text="FW取得（Foodist Journal）", font=("メイリオ", 13, "bold")).pack(pady=10)
+
+    sel_frame = tk.Frame(tab)
+    sel_frame.pack(pady=5)
+    tk.Label(sel_frame, text="対象月：", font=("メイリオ", 11)).grid(row=0, column=0, padx=5)
+    months = recent_months()
+    month_var = tk.StringVar(value=months[1])  # デフォルト: 前月
+    ttk.Combobox(sel_frame, textvariable=month_var, values=months,
+                 width=12, font=("メイリオ", 11), state='readonly').grid(row=0, column=1, padx=5)
+
+    radio_frame = tk.Frame(tab)
+    radio_frame.pack(pady=6)
+    tk.Label(radio_frame, text="取得期間：", font=("メイリオ", 11)).grid(row=0, column=0, padx=5)
+    kind_var = tk.StringVar(value="月末")
+    tk.Radiobutton(radio_frame, text="月末（1日〜月末）", variable=kind_var, value="月末",
+                   font=("メイリオ", 11)).grid(row=0, column=1, padx=8)
+    tk.Radiobutton(radio_frame, text="中間（1日〜15日）", variable=kind_var, value="中間",
+                   font=("メイリオ", 11)).grid(row=0, column=2, padx=8)
+
+    tk.Label(tab, text="実行ログ：", font=("メイリオ", 9)).pack(anchor='w', padx=20, pady=(8, 0))
+    log_widget = scrolledtext.ScrolledText(tab, height=16, state='disabled', font=("Consolas", 9))
+    log_widget.pack(fill='both', expand=True, padx=20, pady=5)
+
+    btn_label = "▶ 取り込み開始"
+    btn = tk.Button(tab, text=btn_label, font=("メイリオ", 12, "bold"),
+                    bg="#2196F3", fg="white", padx=20, pady=6, cursor="hand2")
+
+    def run():
+        m = month_var.get().strip()
+        k = kind_var.get()
+        if not m:
+            messagebox.showerror("エラー", "対象月を選択してください")
+            return
+
+        args = [sys.executable, "main.py", "--foodist-only", "--month", m]
+        if k == "中間":
+            args.append("--interim")
+
+        period = "中間（〜15日）" if k == "中間" else "月末（〜末日）"
+
+        def on_done(success):
+            if success:
+                messagebox.showinfo("完了", f"{m} [{period}] のFW取得が完了しました！")
+            else:
+                messagebox.showwarning("完了（警告あり）",
+                                       f"FW取得が完了しました。\nログを確認してください。")
+
+        run_subprocess(
+            args, log_widget, btn, btn_label,
+            start_msg=f"=== {m} FW取得 [{period}] 開始 ===",
+            on_done=on_done,
+        )
+
+    btn.configure(command=run)
+    btn.pack(pady=8)
+    return tab
+
+
+# ──────────────────────────────────────────
+# タブ3: 店舗管理
 # ──────────────────────────────────────────
 def build_store_tab(notebook):
     tab = ttk.Frame(notebook)
@@ -142,7 +239,6 @@ def build_store_tab(notebook):
 
     tk.Label(tab, text="店舗の追加・削除", font=("メイリオ", 13, "bold")).pack(pady=10)
 
-    # 店舗一覧
     list_frame = tk.Frame(tab)
     list_frame.pack(fill='both', expand=True, padx=20, pady=5)
 
@@ -175,7 +271,6 @@ def build_store_tab(notebook):
 
     refresh_tree()
 
-    # 追加フォーム
     form_frame = tk.LabelFrame(tab, text="新規店舗を追加", font=("メイリオ", 10))
     form_frame.pack(fill='x', padx=20, pady=5)
 
@@ -246,7 +341,7 @@ def build_store_tab(notebook):
 
 
 # ──────────────────────────────────────────
-# タブ3: 取引先管理
+# タブ4: 取引先管理
 # ──────────────────────────────────────────
 def build_master_tab(notebook):
     tab = ttk.Frame(notebook)
@@ -336,7 +431,7 @@ def build_master_tab(notebook):
 def main():
     root = tk.Tk()
     root.title("棚卸自動化 管理ツール")
-    root.geometry("800x600")
+    root.geometry("820x620")
     root.resizable(True, True)
 
     tk.Label(root, text="棚卸自動化 管理ツール", font=("メイリオ", 15, "bold")).pack(pady=8)
@@ -344,7 +439,8 @@ def main():
     notebook = ttk.Notebook(root)
     notebook.pack(fill='both', expand=True, padx=10, pady=5)
 
-    build_rerun_tab(notebook)
+    build_infomart_tab(notebook)
+    build_fw_tab(notebook)
     build_store_tab(notebook)
     build_master_tab(notebook)
 

@@ -89,146 +89,58 @@ const STORE_MAP = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📊 棚卸管理')
-    .addItem('棚卸ツール（インフォマート）', 'showInventoryCommand_')
-    .addItem('FWシート再取得', 'showFwCommand_')
+    .addItem('管理ツールを開く', 'showLaunchCommand_')
     .addToUi();
 }
 
-// ─── ダイアログ: 棚卸ツール（インフォマート） ──────────────────────────────────
+// ─── ダイアログ: 管理ツール起動コマンド ────────────────────────────────────────
 
-function showInventoryCommand_() {
-  const curMonth = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM');
-  const BASE = 'cd C:\\\\Users\\\\Owner\\\\OneDrive\\\\デスクトップ\\\\infomart_automation && ';
-
-  const html = HtmlService.createHtmlOutput(`<!DOCTYPE html>
-<html>
-<head>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:"Google Sans",Arial,sans-serif;padding:18px 20px;color:#202124;font-size:13px}
-  h3{font-size:14px;font-weight:600;margin-bottom:14px}
-  .section{margin-bottom:14px}
-  .label{font-weight:500;margin-bottom:6px;color:#444}
-  .row{display:flex;align-items:center;gap:6px;background:#f1f3f4;border-radius:6px;padding:8px 10px}
-  .cmd{flex:1;font-family:"Roboto Mono",monospace;font-size:11px;color:#1a73e8;
-       background:transparent;border:none;outline:none;resize:none;cursor:text;line-height:1.4}
-  input[type=text]{font-family:"Roboto Mono",monospace;font-size:12px;border:1px solid #ccc;
-                   border-radius:4px;padding:4px 7px;width:110px;outline:none}
-  input[type=text]:focus{border-color:#1a73e8}
-  .copy-btn{flex-shrink:0;padding:5px 12px;background:#1a73e8;color:#fff;border:none;
-            border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap}
-  .copy-btn:hover{background:#1557b0}
-  .msg{font-size:11px;color:#188038;min-height:14px;margin-top:4px;padding-left:2px}
-  .note{font-size:11px;color:#777;margin-top:8px}
-</style>
-</head>
-<body>
-<h3>📦 棚卸ツール（インフォマート）</h3>
-<div class="section">
-  <div class="label">対象月を指定してコマンドを生成</div>
-  <div class="row">
-    <textarea class="cmd" id="cmd1" rows="1" readonly></textarea>
-    <input type="text" id="month1" value="${curMonth}" placeholder="YYYY-MM" oninput="update()">
-    <button class="copy-btn" onclick="copyCmd()">📋 コピー</button>
-  </div>
-  <div class="msg" id="msg1"></div>
-  <div class="note">※ 同月データが既にある場合は上書きされます</div>
-</div>
-<script>
-  var BASE = "${BASE}";
-  function update(){
-    var m = document.getElementById('month1').value.trim() || 'YYYY-MM';
-    document.getElementById('cmd1').value = BASE + 'py main.py --month ' + m;
-  }
-  function copyCmd(){
-    var el = document.getElementById('cmd1');
-    el.select();
-    var ok = false;
-    try{ ok = document.execCommand('copy'); }catch(e){}
-    document.getElementById('msg1').textContent = ok ? '✅ コピーしました！' : '❌ コピー失敗（手動でコピーしてください）';
-    setTimeout(function(){ document.getElementById('msg1').textContent=''; }, 3000);
-  }
-  update();
-<\/script>
-</body>
-</html>`)
-    .setWidth(580)
-    .setHeight(175);
-
-  SpreadsheetApp.getUi().showModalDialog(html, '📦 棚卸ツール（インフォマート）');
-}
-
-// ─── ダイアログ: FWシート再取得 ────────────────────────────────────────────────
-
-function showFwCommand_() {
-  const curMonth = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM');
-  const BASE = 'cd C:\\\\Users\\\\Owner\\\\OneDrive\\\\デスクトップ\\\\infomart_automation && ';
+function showLaunchCommand_() {
+  const cmd = 'cd C:\\\\Users\\\\Owner\\\\OneDrive\\\\デスクトップ\\\\infomart_automation && py rerun_gui.py';
 
   const html = HtmlService.createHtmlOutput(`<!DOCTYPE html>
 <html>
 <head>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:"Google Sans",Arial,sans-serif;padding:18px 20px;color:#202124;font-size:13px}
-  h3{font-size:14px;font-weight:600;margin-bottom:14px}
-  .section{margin-bottom:14px}
-  .label{font-weight:500;margin-bottom:6px;color:#444}
-  .row{display:flex;align-items:center;gap:6px;background:#f1f3f4;border-radius:6px;padding:8px 10px}
-  .cmd{flex:1;font-family:"Roboto Mono",monospace;font-size:11px;color:#1a73e8;
-       background:transparent;border:none;outline:none;resize:none;cursor:text;line-height:1.4}
-  input[type=text]{font-family:"Roboto Mono",monospace;font-size:12px;border:1px solid #ccc;
-                   border-radius:4px;padding:4px 7px;width:110px;outline:none}
-  input[type=text]:focus{border-color:#1a73e8}
-  select{font-size:12px;border:1px solid #ccc;border-radius:4px;padding:4px 7px;outline:none;cursor:pointer}
-  select:focus{border-color:#1a73e8}
-  .copy-btn{flex-shrink:0;padding:5px 12px;background:#1a73e8;color:#fff;border:none;
+  body{font-family:"Google Sans",Arial,sans-serif;padding:20px 22px;color:#202124;font-size:13px}
+  h3{font-size:15px;font-weight:600;margin-bottom:10px}
+  p{color:#555;font-size:12px;line-height:1.7;margin-bottom:12px}
+  .row{display:flex;align-items:center;gap:8px;background:#f1f3f4;border-radius:6px;padding:10px 12px}
+  .cmd{flex:1;font-family:"Roboto Mono",monospace;font-size:12px;color:#1a73e8;
+       background:transparent;border:none;outline:none;cursor:pointer;white-space:nowrap;overflow:hidden}
+  .copy-btn{flex-shrink:0;padding:6px 14px;background:#1a73e8;color:#fff;border:none;
             border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap}
   .copy-btn:hover{background:#1557b0}
-  .msg{font-size:11px;color:#188038;min-height:14px;margin-top:4px;padding-left:2px}
-  .note{font-size:11px;color:#777;margin-top:8px}
+  .msg{font-size:11px;color:#188038;min-height:16px;margin-top:6px}
 </style>
 </head>
 <body>
-<h3>📊 FWシート 再取得</h3>
-<div class="section">
-  <div class="label">対象月・種別を指定してコマンドを生成</div>
-  <div class="row">
-    <textarea class="cmd" id="cmd1" rows="1" readonly></textarea>
-    <input type="text" id="month1" value="${curMonth}" placeholder="YYYY-MM" oninput="update()">
-    <select id="kind1" onchange="update()">
-      <option value="月末">月末（1日〜末日）</option>
-      <option value="中間">中間（1日〜15日）</option>
-    </select>
-    <button class="copy-btn" onclick="copyCmd()">📋 コピー</button>
-  </div>
-  <div class="msg" id="msg1"></div>
-  <div class="note">※ 同月データが既にある場合は上書き。中間→月末で再取得すると更新されます。</div>
+<h3>🛠 棚卸 管理ツール</h3>
+<p>以下のコマンドをコピーしてターミナルで実行してください。<br>
+棚卸取得・FW取得・店舗管理・取引先管理を GUI で操作できます。</p>
+<div class="row">
+  <input class="cmd" id="cmd" readonly onclick="this.select()">
+  <button class="copy-btn" onclick="copyCmd()">📋 コピー</button>
 </div>
+<div class="msg" id="msg"></div>
 <script>
-  var BASE = "${BASE}";
-  function update(){
-    var m = document.getElementById('month1').value.trim() || 'YYYY-MM';
-    var k = document.getElementById('kind1').value;
-    var cmd = BASE + 'py main.py --foodist-only --month ' + m;
-    if(k === '中間') cmd += ' --interim';
-    document.getElementById('cmd1').value = cmd;
-  }
+  document.getElementById('cmd').value = "${cmd}";
   function copyCmd(){
-    var el = document.getElementById('cmd1');
+    var el = document.getElementById('cmd');
     el.select();
     var ok = false;
     try{ ok = document.execCommand('copy'); }catch(e){}
-    document.getElementById('msg1').textContent = ok ? '✅ コピーしました！' : '❌ コピー失敗（手動でコピーしてください）';
-    setTimeout(function(){ document.getElementById('msg1').textContent=''; }, 3000);
+    document.getElementById('msg').textContent = ok ? '✅ コピーしました！' : '❌ 手動でコピーしてください';
+    setTimeout(function(){ document.getElementById('msg').textContent=''; }, 3000);
   }
-  update();
 <\/script>
 </body>
 </html>`)
-    .setWidth(640)
+    .setWidth(560)
     .setHeight(185);
 
-  SpreadsheetApp.getUi().showModalDialog(html, '📊 FWシート 再取得');
+  SpreadsheetApp.getUi().showModalDialog(html, '🛠 棚卸 管理ツール');
 }
 
 // ─── トリガー ──────────────────────────────────────────────────────────────────
