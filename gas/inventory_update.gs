@@ -10,18 +10,18 @@
  *
  * 【動作概要】
  * - C1/F1 変更 → onEdit 発火 → 全体更新
- * - L9/L10/L20/L21（ロス金額）変更 → C列反映＋比率再計算
- * - M9/M10/M20/M21（ロス詳細メモ）変更 → 記録のみ（計算不要・上書きなし）
- * - 売上・F食材費仕入・D飲料費仕入・フード理論原価・ドリンク理論原価
- *   の各シートから当月・前月データを取得
- * - 棚卸仕入れ項目シートの指定セルへ書き込み
+ * - ロス入力欄（L/M/N列・行9-11/行20-22）変更
+ *     → 分類1（必要ロス/廃棄ロス）× 分類2（フード/ドリンク）で集計
+ *     → 必要ロス行(9/20)の E/G/C 列・廃棄ロス行(10/21)の E/G/C 列に振り分け
+ *     → 売上比・不明ロスも自動再計算
+ * - O列（詳細メモ）変更 → 記録のみ（計算不要・上書きなし）
+ * - I1: 当月売上ラベル / I12: 前月売上ラベル
  * - 行4・行6（インフォマート取得済み棚卸金額）は上書きしない
- * - L3/M3（当月）・L14/M14（前月）にヘッダーラベルを設定（updateInventorySheet_ 実行時）
  */
 
 // ─── 設定・定数 ──────────────────────────────────────────────────────────────────
 
-/** 更新対象のシート名（実際のシート名に合わせて変更） */
+/** 更新対象のシート名 */
 const INVENTORY_SHEET_NAME = '棚卸仕入れ項目';
 
 /** データソースシート名 */
@@ -38,12 +38,24 @@ const SRC = {
  * ※ 上書きしない行: 4（前月棚卸高）, 6（翌月棚卸高）, 15, 17（前月分）
  */
 const ROWS = {
-  current: { purchase: 5,  theory: 8  },  // 当月セクション
-  prev:    { purchase: 16, theory: 19 },  // 前月セクション
+  current: { purchase: 5,  theory: 8  },
+  prev:    { purchase: 16, theory: 19 },
 };
 
-/** セル列番号（FD合計=C:3, FD売上比=D:4, 食材F=E:5, F売上比=F:6, 飲料D=G:7, D売上比=H:8） */
+/** 棚卸仕入れ項目シートの列番号 */
 const COLS = { fdTotal: 3, fdRatio: 4, foodVal: 5, foodRatio: 6, drinkVal: 7, drinkRatio: 8 };
+
+/** ロス入力欄の列番号（L=分類1, M=分類2, N=金額, O=詳細メモ） */
+const LOSS_COLS = { cat1: 12, cat2: 13, amount: 14, memo: 15 };
+
+/** 当月・前月ロス入力行 */
+const LOSS_ROWS_CUR  = [9, 10, 11];
+const LOSS_ROWS_PREV = [20, 21, 22];
+
+/** 分類1 → 集計ターゲット行（当月） */
+const LOSS_TARGET_CUR  = { '必要ロス': 9,  '廃棄ロス': 10 };
+/** 分類1 → 集計ターゲット行（前月） */
+const LOSS_TARGET_PREV = { '必要ロス': 20, '廃棄ロス': 21 };
 
 /** インフォマート店舗名 → Foodist Journal シート店舗名 対応表 */
 const STORE_MAP = {
@@ -74,9 +86,6 @@ const STORE_MAP = {
 
 // ─── メニュー ──────────────────────────────────────────────────────────────────
 
-/**
- * スプレッドシートを開いたときにカスタムメニューを追加する
- */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📊 棚卸管理')
@@ -226,8 +235,8 @@ function showFwCommand_() {
 
 /**
  * C1/F1 変更 → 全体更新
- * L9/L10/L20/L21（ロス金額）変更 → C列反映＋比率再計算
- * M9/M10/M20/M21（ロス詳細メモ）変更 → 記録のみ（計算不要）
+ * L/M/N列（分類1/分類2/金額）・ロス入力行 → 分類別集計＋比率再計算
+ * O列（詳細メモ）・ロス入力行 → 記録のみ
  */
 function onEdit(e) {
   if (!e) return;
@@ -237,16 +246,17 @@ function onEdit(e) {
   const row = e.range.getRow();
   const col = e.range.getColumn();
 
-  const LOSS_ROWS = [9, 10, 20, 21];
+  const allLossRows = LOSS_ROWS_CUR.concat(LOSS_ROWS_PREV);
 
-  // L列（12列）: ロス金額入力 → C列反映＋比率再計算
-  if (col === 12 && LOSS_ROWS.indexOf(row) >= 0) {
-    handleLossInput_(sheet, row, e.range.getValue());
+  // L/M/N列（分類1/分類2/金額）: ロス集計トリガー
+  if ((col === LOSS_COLS.cat1 || col === LOSS_COLS.cat2 || col === LOSS_COLS.amount)
+      && allLossRows.indexOf(row) >= 0) {
+    aggregateLossInput_(sheet, LOSS_ROWS_CUR.indexOf(row) >= 0);
     return;
   }
 
-  // M列（13列）: ロス詳細メモは記録のみ（上書きせず計算もしない）
-  if (col === 13 && LOSS_ROWS.indexOf(row) >= 0) {
+  // O列（詳細メモ）: 記録のみ（計算不要）
+  if (col === LOSS_COLS.memo && allLossRows.indexOf(row) >= 0) {
     return;
   }
 
@@ -271,7 +281,6 @@ function updateInventorySheet_(targetSheet) {
     return;
   }
 
-  // C1: 店舗名 / F1: 対象月
   const storeName = String(sheet.getRange('C1').getValue()).trim();
   const monthStr  = toYYYYMM_(sheet.getRange('F1').getValue());
 
@@ -283,7 +292,6 @@ function updateInventorySheet_(targetSheet) {
   const prevMonthStr = prevMonth_(monthStr);
   Logger.log('更新開始: 店舗=' + storeName + ' 当月=' + monthStr + ' 前月=' + prevMonthStr);
 
-  // 当月・前月のデータ取得
   const curData  = fetchMetrics_(ss, storeName, monthStr);
   const prevData = fetchMetrics_(ss, storeName, prevMonthStr);
 
@@ -295,19 +303,20 @@ function updateInventorySheet_(targetSheet) {
   writeSection_(sheet, curData,  curData.sales,  ROWS.current.purchase, ROWS.current.theory);
   writeSection_(sheet, prevData, prevData.sales, ROWS.prev.purchase,    ROWS.prev.theory);
 
-  // ── Step2: Infomart 取得済み値を含む全行の売上比を書き込む ───────────
+  // ── Step2: 全行の売上比を書き込む ───────────────────────────────────
   SpreadsheetApp.flush();
   Logger.log('writeRatiosForRows_ 開始 (当月: rows 4-11, 売上=' + curData.sales + ')');
   writeRatiosForRows_(sheet, curData.sales,  4, 11);
   Logger.log('writeRatiosForRows_ 開始 (前月: rows 15-22, 売上=' + prevData.sales + ')');
   writeRatiosForRows_(sheet, prevData.sales, 15, 22);
 
-  // ── Step3: 売上ラベルを最後に書き込む ────────────────────────────────
+  // ── Step3: 売上ラベルを書き込む ──────────────────────────────────────
+  // I1: 当月売上 / I12: 前月売上（旧I13から変更）
   SpreadsheetApp.flush();
   const i1Val  = '売上：¥' + formatYen_(curData.sales);
-  const i13Val = '売上：¥' + formatYen_(prevData.sales);
+  const i12Val = '売上：¥' + formatYen_(prevData.sales);
 
-  // I1 書き込み
+  // I1（当月）書き込み
   const i1Cell = sheet.getRange('I1');
   i1Cell.clearContent();
   i1Cell.setNumberFormat('@');
@@ -315,45 +324,50 @@ function updateInventorySheet_(targetSheet) {
   SpreadsheetApp.flush();
   Logger.log('I1 書き込み完了: ' + i1Val + ' / 読み返し: ' + JSON.stringify(sheet.getRange('I1').getValue()));
 
-  // I13 書き込み ── 診断ログ付き多重フォールバック
-  const i13Cell = sheet.getRange('I13');
-  Logger.log('[I13 診断] 書き込み前 value=' + JSON.stringify(i13Cell.getValue()) +
-             ' formula=' + JSON.stringify(i13Cell.getFormula()) +
-             ' isMerged=' + i13Cell.isPartOfMerge());
+  // I12（前月）書き込み ── 診断ログ付き多重フォールバック
+  const i12Cell = sheet.getRange('I12');
+  Logger.log('[I12 診断] 書き込み前 value=' + JSON.stringify(i12Cell.getValue()) +
+             ' formula=' + JSON.stringify(i12Cell.getFormula()) +
+             ' isMerged=' + i12Cell.isPartOfMerge());
 
-  i13Cell.clearContent();
-  i13Cell.setNumberFormat('@');
-  i13Cell.setValue(i13Val);
+  i12Cell.clearContent();
+  i12Cell.setNumberFormat('@');
+  i12Cell.setValue(i12Val);
   SpreadsheetApp.flush();
 
-  const i13After = sheet.getRange('I13').getValue();
-  Logger.log('[I13 確認] 書き込み後 getValue=' + JSON.stringify(i13After) + ' (期待値=' + i13Val + ')');
+  const i12After = sheet.getRange('I12').getValue();
+  Logger.log('[I12 確認] 書き込み後 getValue=' + JSON.stringify(i12After) + ' (期待値=' + i12Val + ')');
 
-  if (String(i13After) !== i13Val) {
-    Logger.log('[I13 警告] 値が残っていません。原因を調査します...');
-
-    if (i13Cell.isPartOfMerge()) {
-      // マージセルの場合: master セル（左上）に書き込み直す
-      const merges = i13Cell.getMergedRanges();
+  if (String(i12After) !== i12Val) {
+    Logger.log('[I12 警告] 値が残っていません。原因を調査します...');
+    if (i12Cell.isPartOfMerge()) {
+      const merges = i12Cell.getMergedRanges();
       if (merges.length > 0) {
         const masterCell = sheet.getRange(merges[0].getRow(), merges[0].getColumn());
-        Logger.log('[I13] マージ master: ' + masterCell.getA1Notation() + ' → 書き込み直し');
+        Logger.log('[I12] マージ master: ' + masterCell.getA1Notation() + ' → 書き込み直し');
         masterCell.clearContent();
         masterCell.setNumberFormat('@');
-        masterCell.setValue(i13Val);
+        masterCell.setValue(i12Val);
         SpreadsheetApp.flush();
-        Logger.log('[I13] master 書き込み後: ' + JSON.stringify(masterCell.getValue()));
+        Logger.log('[I12] master 書き込み後: ' + JSON.stringify(masterCell.getValue()));
       }
     } else {
-      // それ以外（ArrayFormula・保護など）: setValues で再試行
-      Logger.log('[I13] setValues [[]] で再試行...');
-      sheet.getRange(13, 9).setValues([[i13Val]]);
+      Logger.log('[I12] setValues [[]] で再試行...');
+      sheet.getRange(12, 9).setValues([[i12Val]]);
       SpreadsheetApp.flush();
-      Logger.log('[I13] setValues 後: ' + JSON.stringify(sheet.getRange('I13').getValue()));
+      Logger.log('[I12] setValues 後: ' + JSON.stringify(sheet.getRange('I12').getValue()));
     }
   }
 
-  Logger.log('I13 書き込み完了: ' + i13Val);
+  Logger.log('I12 書き込み完了: ' + i12Val);
+
+  // I13: 売上ラベルを削除し元の見出しに戻す（前回実行で書き込んだ場合のみクリア）
+  const i13Cell  = sheet.getRange('I13');
+  const i13Val   = String(i13Cell.getValue());
+  if (i13Val.indexOf('売上：¥') === 0) {
+    i13Cell.clearContent();
+    Logger.log('I13 売上ラベルを削除しました（元の見出しに戻す）');
+  }
 
   // ── Step4: ロス入力欄レイアウト整備 ─────────────────────────────────
   setupLossLayout_(sheet);
@@ -361,33 +375,67 @@ function updateInventorySheet_(targetSheet) {
   Logger.log('更新完了');
 }
 
-// ─── L/M列ロス入力処理 ────────────────────────────────────────────────────────
+// ─── ロス入力集計処理 ─────────────────────────────────────────────────────────
 
 /**
- * L列（12列）にロス金額が手入力されたとき C列（FD合計）へ反映し、
- * セクション全体の売上比を再計算する。
- * M列（13列）のロス詳細メモは onEdit で検知するが計算には影響しない。
+ * L/M/N列（分類1/分類2/金額）が編集されたとき、全ロス入力行を読み取って集計し
+ * ターゲット行（必要ロス行・廃棄ロス行）の C/E/G 列に振り分ける。
+ *
+ * 振り分けロジック:
+ *   必要ロス × フード   → 当月:row9/前月:row20 の E列（食材F）
+ *   必要ロス × ドリンク → 当月:row9/前月:row20 の G列（飲料D）
+ *   廃棄ロス × フード   → 当月:row10/前月:row21 の E列
+ *   廃棄ロス × ドリンク → 当月:row10/前月:row21 の G列
+ *   C列 = E列 + G列（FD合計を自動算出）
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {number} row   編集行（9/10=当月, 20/21=前月）
- * @param {*}      value 入力値
+ * @param {boolean} isCurrent  true=当月セクション / false=前月セクション
  */
-function handleLossInput_(sheet, row, value) {
-  const val = Number(value) || 0;
+function aggregateLossInput_(sheet, isCurrent) {
+  const inputRows = isCurrent ? LOSS_ROWS_CUR    : LOSS_ROWS_PREV;
+  const targets   = isCurrent ? LOSS_TARGET_CUR  : LOSS_TARGET_PREV;
+  const salesCell = isCurrent ? 'I1' : 'I12';
 
-  // L値 → C列（FD合計）へ反映
-  sheet.getRange(row, COLS.fdTotal).setValue(val);
+  // 集計バッファ初期化
+  const sums = {};
+  const tKeys = Object.keys(targets);
+  for (let i = 0; i < tKeys.length; i++) {
+    sums[targets[tKeys[i]]] = { food: 0, drink: 0 };
+  }
 
-  // I1/I13 から売上を読み取る（当月セクション: row <= 12）
-  const isCurrent  = (row <= 12);
-  const salesLabel = String(sheet.getRange(isCurrent ? 'I1' : 'I13').getValue());
-  const sales      = parseSalesLabel_(salesLabel);
+  // ロス入力行（L/M/N = cat1/cat2/amount）を一括読み取り
+  const inputData = sheet.getRange(
+    inputRows[0], LOSS_COLS.cat1, inputRows.length, 3
+  ).getValues();
 
-  // 変更行の D列（FD売上比）を即時更新
-  setRatio_(sheet, row, COLS.fdRatio, val, sales);
+  for (let i = 0; i < inputData.length; i++) {
+    const cat1   = String(inputData[i][0]).trim();
+    const cat2   = String(inputData[i][1]).trim();
+    const amount = Number(inputData[i][2]) || 0;
+    if (!cat1 || !cat2 || amount === 0) continue;
 
-  // セクション全体の比率を再計算（不明ロス行も含む）
+    const targetRow = targets[cat1];
+    if (!targetRow || !sums[targetRow]) continue;
+
+    if (cat2 === 'フード')   { sums[targetRow].food   += amount; }
+    if (cat2 === 'ドリンク') { sums[targetRow].drink  += amount; }
+  }
+
+  // ターゲット行の C/E/G 列に書き込む
+  const rowKeys = Object.keys(sums);
+  for (let i = 0; i < rowKeys.length; i++) {
+    const r   = Number(rowKeys[i]);
+    const val = sums[rowKeys[i]];
+    const fd  = val.food + val.drink;
+    sheet.getRange(r, COLS.fdTotal ).setValue(fd);
+    sheet.getRange(r, COLS.foodVal ).setValue(val.food);
+    sheet.getRange(r, COLS.drinkVal).setValue(val.drink);
+  }
+
+  // 売上比・不明ロスを再計算
   SpreadsheetApp.flush();
+  const salesLabel = String(sheet.getRange(salesCell).getValue());
+  const sales      = parseSalesLabel_(salesLabel);
   if (isCurrent) {
     writeRatiosForRows_(sheet, sales, 4, 11);
   } else {
@@ -406,24 +454,44 @@ function parseSalesLabel_(label) {
 /**
  * ロス入力欄のレイアウトを整備する（updateInventorySheet_ の末尾から自動実行）。
  *
- * - L3/L14: 「ロス金額」ヘッダー
- * - M3/M14: 「ロス詳細」ヘッダー
- * - L9/L10/L20/L21: 薄い黄色背景（金額手入力欄）
- * - M9/M10/M20/M21: 薄い水色背景（詳細メモ欄）
+ * - 理論原価行（row8=当月, row19=前月）の L〜O 列にヘッダーラベルを設定
+ * - 全ロス入力行（rows 9-11, 20-22）の L/M 列にドロップダウンを設定
+ * - 背景色: L/M/N=薄い黄色（金額入力系）、O=薄い水色（詳細メモ）
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  */
 function setupLossLayout_(sheet) {
-  // ヘッダー: 行3（当月）・行14（前月）
-  [3, 14].forEach(function(r) {
-    sheet.getRange(r, 12).setValue('ロス金額');
-    sheet.getRange(r, 13).setValue('ロス詳細');
+  // ヘッダーラベル: 理論原価行の L〜O 列（C〜H は既存データ）
+  const headerRows = [ROWS.current.theory, ROWS.prev.theory];
+  headerRows.forEach(function(r) {
+    sheet.getRange(r, LOSS_COLS.cat1  ).setValue('分類1（種別）');
+    sheet.getRange(r, LOSS_COLS.cat2  ).setValue('分類2（食材/飲料）');
+    sheet.getRange(r, LOSS_COLS.amount).setValue('金額');
+    sheet.getRange(r, LOSS_COLS.memo  ).setValue('詳細メモ');
   });
 
-  // 背景色: L列（金額）= 薄い黄色、M列（メモ）= 薄い水色
-  [9, 10, 20, 21].forEach(function(r) {
-    sheet.getRange(r, 12).setBackground('#FFF9C4');  // L列: 手入力金額欄
-    sheet.getRange(r, 13).setBackground('#E3F2FD');  // M列: 詳細メモ欄
+  // ドロップダウン: 全ロス入力行の L（分類1）・M（分類2）列
+  const cat1Rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['必要ロス', '廃棄ロス'], true)
+    .setAllowInvalid(false)
+    .build();
+  const cat2Rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['フード', 'ドリンク'], true)
+    .setAllowInvalid(false)
+    .build();
+
+  const allLossRows = LOSS_ROWS_CUR.concat(LOSS_ROWS_PREV);
+  allLossRows.forEach(function(r) {
+    sheet.getRange(r, LOSS_COLS.cat1).setDataValidation(cat1Rule);
+    sheet.getRange(r, LOSS_COLS.cat2).setDataValidation(cat2Rule);
+  });
+
+  // 背景色: L/M/N=薄い黄色（手入力欄）、O=薄い水色（メモ欄）
+  allLossRows.forEach(function(r) {
+    sheet.getRange(r, LOSS_COLS.cat1  ).setBackground('#FFF9C4');
+    sheet.getRange(r, LOSS_COLS.cat2  ).setBackground('#FFF9C4');
+    sheet.getRange(r, LOSS_COLS.amount).setBackground('#FFF9C4');
+    sheet.getRange(r, LOSS_COLS.memo  ).setBackground('#E3F2FD');
   });
 }
 
@@ -439,7 +507,6 @@ function setupLossLayout_(sheet) {
  * @returns {{ sales, foodPurchase, drinkPurchase, foodTheory, drinkTheory }}
  */
 function fetchMetrics_(ss, storeName, monthStr) {
-  // インフォマート店舗名 → Foodist Journal 店舗名に変換（対応表にあれば）
   const fjStoreName = STORE_MAP[storeName] || storeName;
   if (fjStoreName !== storeName) {
     Logger.log('店舗名変換: "' + storeName + '" → "' + fjStoreName + '"');
@@ -466,13 +533,11 @@ function fetchMetrics_(ss, storeName, monthStr) {
     const lastRow = src.getLastRow();
     if (lastRow < 1) continue;
 
-    // A:月 B:店舗名 C:金額 D:種別
     const data = src.getRange(1, 1, lastRow, 4).getValues();
 
     let amount     = 0;
     let hasKakutei = false;
 
-    // 比較用に全角・半角スペースを統一して正規化する
     const normalize_ = function(s) { return s.replace(/[\s　]+/g, ' ').trim(); };
     const targetStore = normalize_(fjStoreName);
 
@@ -506,20 +571,12 @@ function fetchMetrics_(ss, storeName, monthStr) {
 /**
  * 仕入金額行・理論原価行に値を書き込む。
  * 書き込み先: C=FD合計, D=FD売上比, E=食材F, F=F売上比, G=飲料D, H=D売上比
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {{ foodPurchase, drinkPurchase, foodTheory, drinkTheory }} data
- * @param {number} sales       売上金額
- * @param {number} purchaseRow 仕入金額の行番号
- * @param {number} theoryRow   理論原価の行番号
  */
 function writeSection_(sheet, data, sales, purchaseRow, theoryRow) {
   Logger.log(
-    'writeSection_: 仕入行=' + purchaseRow + ' 理論行=' + theoryRow +
-    ' 売上=' + sales
+    'writeSection_: 仕入行=' + purchaseRow + ' 理論行=' + theoryRow + ' 売上=' + sales
   );
 
-  // ── 仕入金額行 ──────────────────────────
   const fdP = data.foodPurchase + data.drinkPurchase;
   sheet.getRange(purchaseRow, COLS.fdTotal  ).setValue(fdP);
   sheet.getRange(purchaseRow, COLS.foodVal  ).setValue(data.foodPurchase);
@@ -528,7 +585,6 @@ function writeSection_(sheet, data, sales, purchaseRow, theoryRow) {
   setRatio_(sheet, purchaseRow, COLS.foodRatio,  data.foodPurchase,  sales);
   setRatio_(sheet, purchaseRow, COLS.drinkRatio, data.drinkPurchase, sales);
 
-  // ── 理論原価行 ──────────────────────────
   const fdT = data.foodTheory + data.drinkTheory;
   sheet.getRange(theoryRow, COLS.fdTotal  ).setValue(fdT);
   sheet.getRange(theoryRow, COLS.foodVal  ).setValue(data.foodTheory);
@@ -553,16 +609,15 @@ function setRatio_(sheet, row, col, numerator, denominator) {
 
 /**
  * startRow〜endRow の C/E/G列の値を読み取り D/F/H列に売上比（0.00%）を書き込む。
- * Infomart 取得済み値を含むすべての行をカバーする。
  */
 function writeRatiosForRows_(sheet, sales, startRow, endRow) {
   const numRows = endRow - startRow + 1;
   const vals = sheet.getRange(startRow, COLS.fdTotal, numRows, 5).getValues();
   for (let i = 0; i < numRows; i++) {
     const row      = startRow + i;
-    const fdVal    = Number(vals[i][0]) || 0;  // C列 = FD合計
-    const foodVal  = Number(vals[i][2]) || 0;  // E列 = 食材F
-    const drinkVal = Number(vals[i][4]) || 0;  // G列 = 飲料D
+    const fdVal    = Number(vals[i][0]) || 0;
+    const foodVal  = Number(vals[i][2]) || 0;
+    const drinkVal = Number(vals[i][4]) || 0;
     Logger.log(
       'row' + row + ': FD=' + fdVal + ' F=' + foodVal + ' D=' + drinkVal +
       ' → 比率D=' + (sales ? (fdVal/sales*100).toFixed(2) : '-') + '%'
@@ -582,9 +637,6 @@ function formatYen_(amount) {
 
 // ─── ユーティリティ ────────────────────────────────────────────────────────────
 
-/**
- * "YYYY-MM" から当月の開始日・終了日（Date）を返す。
- */
 function toDateRange_(monthStr) {
   const parts = monthStr.split('-');
   const y = parseInt(parts[0], 10);
@@ -595,9 +647,6 @@ function toDateRange_(monthStr) {
   };
 }
 
-/**
- * セル値（Date または "YYYY-MM"/"YYYY-MM-DD" 文字列）が [start, end] 内かを判定する。
- */
 function dateInRange_(value, start, end) {
   let d;
   if (value instanceof Date) {
