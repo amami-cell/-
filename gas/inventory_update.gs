@@ -10,11 +10,13 @@
  *
  * 【動作概要】
  * - C1/F1 変更 → onEdit 発火 → 全体更新
- * - L9/L10/L20/L21 変更 → onEdit 発火 → ロス値を C列へ反映・比率再計算
+ * - L9/L10/L20/L21（ロス金額）変更 → C列反映＋比率再計算
+ * - M9/M10/M20/M21（ロス詳細メモ）変更 → 記録のみ（計算不要・上書きなし）
  * - 売上・F食材費仕入・D飲料費仕入・フード理論原価・ドリンク理論原価
  *   の各シートから当月・前月データを取得
  * - 棚卸仕入れ項目シートの指定セルへ書き込み
  * - 行4・行6（インフォマート取得済み棚卸金額）は上書きしない
+ * - L3/M3（当月）・L14/M14（前月）にヘッダーラベルを設定（updateInventorySheet_ 実行時）
  */
 
 // ─── 設定・定数 ──────────────────────────────────────────────────────────────────
@@ -223,8 +225,9 @@ function showFwCommand_() {
 // ─── トリガー ──────────────────────────────────────────────────────────────────
 
 /**
- * C1（店舗名）・F1（対象月）変更 → 全体更新
- * L9/L10（当月ロス）・L20/L21（前月ロス）変更 → C列反映＋比率再計算
+ * C1/F1 変更 → 全体更新
+ * L9/L10/L20/L21（ロス金額）変更 → C列反映＋比率再計算
+ * M9/M10/M20/M21（ロス詳細メモ）変更 → 記録のみ（計算不要）
  */
 function onEdit(e) {
   if (!e) return;
@@ -234,9 +237,16 @@ function onEdit(e) {
   const row = e.range.getRow();
   const col = e.range.getColumn();
 
-  // L列（12列）のロス手打ち入力
-  if (col === 12 && (row === 9 || row === 10 || row === 20 || row === 21)) {
+  const LOSS_ROWS = [9, 10, 20, 21];
+
+  // L列（12列）: ロス金額入力 → C列反映＋比率再計算
+  if (col === 12 && LOSS_ROWS.indexOf(row) >= 0) {
     handleLossInput_(sheet, row, e.range.getValue());
+    return;
+  }
+
+  // M列（13列）: ロス詳細メモは記録のみ（上書きせず計算もしない）
+  if (col === 13 && LOSS_ROWS.indexOf(row) >= 0) {
     return;
   }
 
@@ -293,34 +303,70 @@ function updateInventorySheet_(targetSheet) {
   writeRatiosForRows_(sheet, prevData.sales, 15, 22);
 
   // ── Step3: 売上ラベルを最後に書き込む ────────────────────────────────
-  // clearContent() で既存数式・値を除去してから書き込む（I13 が反映されない問題の対策）
   SpreadsheetApp.flush();
   const i1Val  = '売上：¥' + formatYen_(curData.sales);
   const i13Val = '売上：¥' + formatYen_(prevData.sales);
 
+  // I1 書き込み
   const i1Cell = sheet.getRange('I1');
   i1Cell.clearContent();
   i1Cell.setNumberFormat('@');
   i1Cell.setValue(i1Val);
   SpreadsheetApp.flush();
+  Logger.log('I1 書き込み完了: ' + i1Val + ' / 読み返し: ' + JSON.stringify(sheet.getRange('I1').getValue()));
 
+  // I13 書き込み ── 診断ログ付き多重フォールバック
   const i13Cell = sheet.getRange('I13');
+  Logger.log('[I13 診断] 書き込み前 value=' + JSON.stringify(i13Cell.getValue()) +
+             ' formula=' + JSON.stringify(i13Cell.getFormula()) +
+             ' isMerged=' + i13Cell.isPartOfMerge());
+
   i13Cell.clearContent();
   i13Cell.setNumberFormat('@');
   i13Cell.setValue(i13Val);
   SpreadsheetApp.flush();
 
-  Logger.log('I1 書き込み完了: ' + i1Val);
+  const i13After = sheet.getRange('I13').getValue();
+  Logger.log('[I13 確認] 書き込み後 getValue=' + JSON.stringify(i13After) + ' (期待値=' + i13Val + ')');
+
+  if (String(i13After) !== i13Val) {
+    Logger.log('[I13 警告] 値が残っていません。原因を調査します...');
+
+    if (i13Cell.isPartOfMerge()) {
+      // マージセルの場合: master セル（左上）に書き込み直す
+      const merges = i13Cell.getMergedRanges();
+      if (merges.length > 0) {
+        const masterCell = sheet.getRange(merges[0].getRow(), merges[0].getColumn());
+        Logger.log('[I13] マージ master: ' + masterCell.getA1Notation() + ' → 書き込み直し');
+        masterCell.clearContent();
+        masterCell.setNumberFormat('@');
+        masterCell.setValue(i13Val);
+        SpreadsheetApp.flush();
+        Logger.log('[I13] master 書き込み後: ' + JSON.stringify(masterCell.getValue()));
+      }
+    } else {
+      // それ以外（ArrayFormula・保護など）: setValues で再試行
+      Logger.log('[I13] setValues [[]] で再試行...');
+      sheet.getRange(13, 9).setValues([[i13Val]]);
+      SpreadsheetApp.flush();
+      Logger.log('[I13] setValues 後: ' + JSON.stringify(sheet.getRange('I13').getValue()));
+    }
+  }
+
   Logger.log('I13 書き込み完了: ' + i13Val);
+
+  // ── Step4: ロス入力欄レイアウト整備 ─────────────────────────────────
+  setupLossLayout_(sheet);
 
   Logger.log('更新完了');
 }
 
-// ─── L列ロス手打ち入力処理 ────────────────────────────────────────────────────
+// ─── L/M列ロス入力処理 ────────────────────────────────────────────────────────
 
 /**
- * L列（12列）に必要ロス・廃棄ロスが手入力されたとき C列（FD合計）へ反映し、
- * セクション全体の売上比を再計算する。不明ロス（C11/C22）はシート側の数式で自動更新。
+ * L列（12列）にロス金額が手入力されたとき C列（FD合計）へ反映し、
+ * セクション全体の売上比を再計算する。
+ * M列（13列）のロス詳細メモは onEdit で検知するが計算には影響しない。
  *
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
  * @param {number} row   編集行（9/10=当月, 20/21=前月）
@@ -355,6 +401,30 @@ function handleLossInput_(sheet, row, value) {
 function parseSalesLabel_(label) {
   const m = String(label).replace(/,/g, '').match(/\d+/);
   return m ? parseInt(m[0], 10) : 0;
+}
+
+/**
+ * ロス入力欄のレイアウトを整備する（updateInventorySheet_ の末尾から自動実行）。
+ *
+ * - L3/L14: 「ロス金額」ヘッダー
+ * - M3/M14: 「ロス詳細」ヘッダー
+ * - L9/L10/L20/L21: 薄い黄色背景（金額手入力欄）
+ * - M9/M10/M20/M21: 薄い水色背景（詳細メモ欄）
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ */
+function setupLossLayout_(sheet) {
+  // ヘッダー: 行3（当月）・行14（前月）
+  [3, 14].forEach(function(r) {
+    sheet.getRange(r, 12).setValue('ロス金額');
+    sheet.getRange(r, 13).setValue('ロス詳細');
+  });
+
+  // 背景色: L列（金額）= 薄い黄色、M列（メモ）= 薄い水色
+  [9, 10, 20, 21].forEach(function(r) {
+    sheet.getRange(r, 12).setBackground('#FFF9C4');  // L列: 手入力金額欄
+    sheet.getRange(r, 13).setBackground('#E3F2FD');  // M列: 詳細メモ欄
+  });
 }
 
 // ─── データ取得 ────────────────────────────────────────────────────────────────
