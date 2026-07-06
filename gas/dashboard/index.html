@@ -82,6 +82,7 @@
   .mini .mv.muted { color: var(--muted); font-weight: 500; font-size: 14px; }
   .mini .ml { font-size: 11px; color: var(--muted); }
   .mini .mr { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .mini .mr.accent { color: var(--accent); font-weight: 700; font-size: 13px; }
 
   /* テーブル */
   .table-scroll { overflow-x: auto; }
@@ -395,7 +396,7 @@
     sel.value = sortKey;
   }
 
-  function mini(label, valText, rateText, opts) {
+  function mini(label, valText, subText, opts) {
     opts = opts || {};
     var d = document.createElement('div'); d.className = 'mini';
     var l = document.createElement('div'); l.className = 'ml'; l.textContent = label;
@@ -404,9 +405,9 @@
     if (opts.cls) v.classList.add(opts.cls);
     v.textContent = valText;
     d.appendChild(l); d.appendChild(v);
-    if (rateText) {
-      var rt = document.createElement('div'); rt.className = 'mr';
-      rt.textContent = '売上比 ' + rateText;
+    if (subText) {
+      var rt = document.createElement('div'); rt.className = 'mr' + (opts.subCls ? ' ' + opts.subCls : '');
+      rt.textContent = subText;
       d.appendChild(rt);
     }
     return d;
@@ -445,31 +446,32 @@
         var kb = document.createElement('span'); kb.className = 'kind-badge'; kb.textContent = '中間';
         top.appendChild(kb);
       }
-      if (listMetric === 'inv') {
-        var chip = document.createElement('span'); chip.className = 'turn-chip';
-        chip.textContent = r.turnover === null ? '在庫 —' : '在庫 ' + days1(r.turnover) + '日分';
-        top.appendChild(chip);
-      }
       row.appendChild(top);
 
       var vals = document.createElement('div');
       if (listMetric === 'inv') {
+        var pv = calc(r.key, calPrevYm(curMonth));
+        var prevTurn = pv ? pv.turnover : null;
         vals.className = 'sr-vals';
         vals.appendChild(mini('当月棚卸（' + curMonth.slice(5) + '月）',
-          r.invCur === null ? '— 未取得' : yen(r.invCur), '', { big: true }));
+          r.invCur === null ? '— 未取得' : yen(r.invCur),
+          r.turnover === null ? '' : '在庫 ' + days1(r.turnover) + '日分',
+          { big: true, subCls: 'accent' }));
         vals.appendChild(mini('前月棚卸',
-          r.invPrev === null ? '—' : yen(r.invPrev), '', { muted: true }));
+          r.invPrev === null ? '—' : yen(r.invPrev),
+          prevTurn === null ? '' : '在庫 ' + days1(prevTurn) + '日分',
+          { muted: true }));
       } else {
         vals.className = 'sr-vals three';
         vals.appendChild(mini('実使用金額',
           r.actual === null ? '—' : yen(r.actual),
-          r.actualRate !== null ? pct(r.actualRate) : ''));
+          r.actualRate !== null ? '売上比 ' + pct(r.actualRate) : ''));
         vals.appendChild(mini('理論原価',
           yen(r.theory),
-          r.theoryRate !== null ? pct(r.theoryRate) : ''));
+          r.theoryRate !== null ? '売上比 ' + pct(r.theoryRate) : ''));
         vals.appendChild(mini('不明ロス',
           r.unknown === null ? '—' : yen(r.unknown),
-          r.unknownRate !== null ? pct(r.unknownRate) : '',
+          r.unknownRate !== null ? '売上比 ' + pct(r.unknownRate) : '',
           { cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') }));
       }
       row.appendChild(vals);
