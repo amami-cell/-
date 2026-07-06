@@ -224,6 +224,49 @@ function addLoss(storeKey, ym, kind, cat, memo, amount) {
   }
 }
 
+/**
+ * ロスを複数件まとめて登録する。
+ * @param {string} storeKey FWシート店舗名
+ * @param {string} ym 'YYYY-MM'
+ * @param {string} kind '廃棄ロス' | '必要ロス'
+ * @param {Array<{cat:string, memo:string, amount:number}>} items
+ */
+function addLosses(storeKey, ym, kind, items) {
+  storeKey = String(storeKey || '').trim();
+  ym = String(ym || '').trim();
+  if (!storeKey) return { ok: false, message: '店舗が不正です' };
+  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '月の形式が不正です' };
+  if (['廃棄ロス', '必要ロス'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
+  if (!items || !items.length) return { ok: false, message: '入力された項目がありません' };
+  if (items.length > 50) return { ok: false, message: '一度に登録できるのは50件までです' };
+
+  const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+  const recs = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i] || {};
+    const cat = String(it.cat || '').trim();
+    const memo = String(it.memo || '').trim().slice(0, 200);
+    const amount = Number(it.amount);
+    if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: (i + 1) + '行目: 区分が不正です' };
+    if (!memo) return { ok: false, message: (i + 1) + '行目: 内容を入力してください' };
+    if (!isFinite(amount) || amount <= 0) return { ok: false, message: (i + 1) + '行目: 金額は1円以上で入力してください' };
+    recs.push({ id: Utilities.getUuid(), kind: kind, cat: cat, memo: memo, amount: Math.round(amount), ts: ts });
+  }
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = lossSheet_(ss);
+    const rows = recs.map(function (r) { return [r.id, ym, storeKey, r.kind, r.cat, r.memo, r.amount, r.ts]; });
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, recs: recs };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** ロスを1件削除する。 */
 function deleteLoss(id) {
   id = String(id || '').trim();
