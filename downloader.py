@@ -87,6 +87,17 @@ class InfomartDownloader:
         page.goto(self.config.infomart.inventory_url)
         page.wait_for_load_state("networkidle")
 
+        # 前店舗のCSV生成バッチが続いていると processing.pagex に飛ばされ
+        # 店舗選択リンクが出ないため、処理が終わるまで最大3分待って再読込する
+        deadline = time.time() + 180
+        while "processing.pagex" in page.url or page.locator('a.open-dialog-modal').count() == 0:
+            if time.time() > deadline:
+                raise Exception(f"棚卸ページが処理中のまま復帰しません: {page.url}")
+            logger.info(f"[{store.store_id}] 処理中画面を検出、10秒待って再読込 ({page.url})")
+            time.sleep(10)
+            page.goto(self.config.infomart.inventory_url)
+            page.wait_for_load_state("networkidle")
+
         # ── STEP1: 店舗選択ダイアログを開く ──
         page.click('a.open-dialog-modal')
         time.sleep(3)
