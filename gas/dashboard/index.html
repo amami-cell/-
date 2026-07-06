@@ -69,13 +69,19 @@
   .hero .sub { color: var(--muted); font-size: 12px; }
   .hero .hlabel { font-size: 13px; color: var(--ink-2); width: 100%; }
 
-  /* KPIタイル */
-  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
-  @media (max-width: 640px) { .kpis { grid-template-columns: repeat(3, 1fr); gap: 6px; } }
-  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 14px; }
-  .tile .label { font-size: 11px; color: var(--ink-2); }
-  .tile .value { font-size: 20px; font-weight: 600; }
-  @media (max-width: 640px) { .tile .value { font-size: 16px; } }
+  /* 店舗リスト（一覧画面・横はみ出しなし） */
+  .seg-sm button { padding: 5px 14px; font-size: 13px; }
+  .srow { padding: 10px 2px; border-bottom: 1px solid var(--grid); cursor: pointer; }
+  .srow:hover { background: rgba(128,128,128,.06); }
+  .sr-top { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .sr-name { font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sr-vals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sr-vals.three { grid-template-columns: 1fr 1fr 1fr; }
+  .mini .mv { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mini .mv.big { font-size: 18px; }
+  .mini .mv.muted { color: var(--muted); font-weight: 500; font-size: 14px; }
+  .mini .ml { font-size: 11px; color: var(--muted); }
+  .mini .mr { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 
   /* テーブル */
   .table-scroll { overflow-x: auto; }
@@ -207,14 +213,17 @@
         <div class="hero" id="heroList"></div>
       </div>
 
-      <div class="kpis" id="kpis"></div>
-
       <div class="card">
-        <h2>店舗一覧（クリックで店舗画面へ／列名クリックで並べ替え）</h2>
-        <div class="table-scroll"><table>
-          <thead><tr id="tableHead"></tr></thead>
-          <tbody id="tableBody"></tbody>
-        </table></div>
+        <div class="filters" style="margin-bottom:10px">
+          <div class="seg seg-sm" id="metricSeg">
+            <button data-m="inv" class="on">棚卸</button>
+            <button data-m="cost">原価・ロス</button>
+          </div>
+          <span class="spacer"></span>
+          <label>並べ替え</label>
+          <select id="sortSel"></select>
+        </div>
+        <div id="storeList"></div>
       </div>
     </div>
 
@@ -358,83 +367,121 @@
   }
 
   // ── 一覧画面 ─────────────────────────────────────────
-  var COLS = [
-    { k: 'name',     t: '店舗',     f: null },
-    { k: 'turnover', t: '回転日数', f: function (v) { return v === null ? '—' : days1(v) + '日'; } },
-    { k: 'sales',    t: '売上',     f: yen },
-    { k: 'purchase', t: '仕入',     f: yen },
-    { k: 'theory',   t: '理論原価', f: yen },
-    { k: 'invCur',   t: '棚卸高',   f: function (v) { return v === null ? '—' : yen(v); } },
-    { k: 'lossSum',  t: 'ロス計',   f: yen },
-    { k: 'unknown',  t: '不明ロス', f: function (v) { return v === null ? '—' : yen(v); }, diff: true },
-  ];
+  var listMetric = 'inv';   // 'inv'=棚卸 | 'cost'=原価・ロス
+  var SORTS = {
+    inv: [
+      { k: 'turnover', t: '在庫回転日数が多い順' },
+      { k: 'invCur',   t: '当月棚卸が多い順' },
+      { k: 'name',     t: '店舗名順' },
+    ],
+    cost: [
+      { k: 'unknown', t: '不明ロスが大きい順' },
+      { k: 'actual',  t: '実使用金額が多い順' },
+      { k: 'theory',  t: '理論原価が多い順' },
+      { k: 'name',    t: '店舗名順' },
+    ],
+  };
+
+  function refreshSortOptions() {
+    var sel = document.getElementById('sortSel');
+    sel.textContent = '';
+    SORTS[listMetric].forEach(function (o) {
+      var op = document.createElement('option'); op.value = o.k; op.textContent = o.t;
+      sel.appendChild(op);
+    });
+    if (!SORTS[listMetric].some(function (o) { return o.k === sortKey; })) {
+      sortKey = SORTS[listMetric][0].k;
+    }
+    sel.value = sortKey;
+  }
+
+  function mini(label, valText, rateText, opts) {
+    opts = opts || {};
+    var d = document.createElement('div'); d.className = 'mini';
+    var l = document.createElement('div'); l.className = 'ml'; l.textContent = label;
+    var v = document.createElement('div');
+    v.className = 'mv' + (opts.big ? ' big' : '') + (opts.muted ? ' muted' : '');
+    if (opts.cls) v.classList.add(opts.cls);
+    v.textContent = valText;
+    d.appendChild(l); d.appendChild(v);
+    if (rateText) {
+      var rt = document.createElement('div'); rt.className = 'mr';
+      rt.textContent = '売上比 ' + rateText;
+      d.appendChild(rt);
+    }
+    return d;
+  }
 
   function renderList() {
     var t = totalsOf(curMonth);
     renderHero(document.getElementById('heroList'), t.turnover, t.inv, t.theory, t.days, '全社 ' + curMonth);
     document.getElementById('kindBadge').style.display = t.interim ? '' : 'none';
-
-    var kp = document.getElementById('kpis');
-    kp.textContent = '';
-    [['総売上', yenCompact(t.sales)],
-     ['理論原価率（' + modeLabel() + '）', t.sales ? pct(t.theory / t.sales) : '—'],
-     ['棚卸高（' + modeLabel() + '）', t.hasInv ? yenCompact(t.inv) : '—']].forEach(function (kv) {
-      var d = document.createElement('div'); d.className = 'tile';
-      var l = document.createElement('div'); l.className = 'label'; l.textContent = kv[0];
-      var v = document.createElement('div'); v.className = 'value'; v.textContent = kv[1];
-      d.appendChild(l); d.appendChild(v); kp.appendChild(d);
-    });
-
-    var head = document.getElementById('tableHead');
-    head.textContent = '';
-    COLS.forEach(function (c) {
-      var th = document.createElement('th');
-      th.textContent = c.t;
-      if (sortKey === c.k) {
-        var m = document.createElement('span'); m.className = 'sort-mark';
-        m.textContent = sortAsc ? ' ▲' : ' ▼'; th.appendChild(m);
-      }
-      th.onclick = function () {
-        if (sortKey === c.k) sortAsc = !sortAsc; else { sortKey = c.k; sortAsc = (c.k === 'name'); }
-        renderList();
-      };
-      head.appendChild(th);
-    });
+    refreshSortOptions();
 
     var rows = DATA.stores.map(function (s) {
       var r = calc(s.key, curMonth);
       if (!r) return null;
-      r.name = s.name; r.key = s.key; r.lossSum = r.need + r.waste;
+      r.name = s.name; r.key = s.key;
       return r;
     }).filter(Boolean);
 
     rows.sort(function (a, b) {
+      if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
       var x = a[sortKey], y = b[sortKey];
       if (x === null || x === undefined) x = -Infinity;
       if (y === null || y === undefined) y = -Infinity;
-      if (typeof x === 'string') return sortAsc ? x.localeCompare(y, 'ja') : y.localeCompare(x, 'ja');
-      return sortAsc ? x - y : y - x;
+      return y - x;   // 金額・日数は多い順
     });
 
-    var body = document.getElementById('tableBody');
-    body.textContent = '';
+    var box = document.getElementById('storeList');
+    box.textContent = '';
     rows.forEach(function (r) {
-      var tr = document.createElement('tr');
-      COLS.forEach(function (c) {
-        var td = document.createElement('td');
-        var v = r[c.k];
-        td.textContent = c.f ? c.f(v) : v;
-        if (c.diff && typeof v === 'number') td.className = v > 0 ? 'pos' : (v < 0 ? 'neg' : '');
-        tr.appendChild(td);
-      });
-      tr.style.cursor = 'pointer';
-      tr.onclick = function () { openStore(r.key); };
-      body.appendChild(tr);
+      var row = document.createElement('div'); row.className = 'srow';
+
+      var top = document.createElement('div'); top.className = 'sr-top';
+      var nm = document.createElement('span'); nm.className = 'sr-name'; nm.textContent = r.name;
+      top.appendChild(nm);
+      if (r.kind === '中間') {
+        var kb = document.createElement('span'); kb.className = 'kind-badge'; kb.textContent = '中間';
+        top.appendChild(kb);
+      }
+      if (listMetric === 'inv') {
+        var chip = document.createElement('span'); chip.className = 'turn-chip';
+        chip.textContent = r.turnover === null ? '在庫 —' : '在庫 ' + days1(r.turnover) + '日分';
+        top.appendChild(chip);
+      }
+      row.appendChild(top);
+
+      var vals = document.createElement('div');
+      if (listMetric === 'inv') {
+        vals.className = 'sr-vals';
+        vals.appendChild(mini('当月棚卸（' + curMonth.slice(5) + '月）',
+          r.invCur === null ? '— 未取得' : yen(r.invCur), '', { big: true }));
+        vals.appendChild(mini('前月棚卸',
+          r.invPrev === null ? '—' : yen(r.invPrev), '', { muted: true }));
+      } else {
+        vals.className = 'sr-vals three';
+        vals.appendChild(mini('実使用金額',
+          r.actual === null ? '—' : yen(r.actual),
+          r.actualRate !== null ? pct(r.actualRate) : ''));
+        vals.appendChild(mini('理論原価',
+          yen(r.theory),
+          r.theoryRate !== null ? pct(r.theoryRate) : ''));
+        vals.appendChild(mini('不明ロス',
+          r.unknown === null ? '—' : yen(r.unknown),
+          r.unknownRate !== null ? pct(r.unknownRate) : '',
+          { cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') }));
+      }
+      row.appendChild(vals);
+
+      row.onclick = function () { openStore(r.key); };
+      box.appendChild(row);
     });
+
     if (!rows.length) {
-      var tr = document.createElement('tr'); var td = document.createElement('td');
-      td.colSpan = COLS.length; td.className = 'empty'; td.textContent = 'この月のデータはありません';
-      tr.appendChild(td); body.appendChild(tr);
+      var e = document.createElement('div'); e.className = 'empty';
+      e.textContent = 'この月のデータはありません';
+      box.appendChild(e);
     }
   }
 
@@ -696,6 +743,15 @@
     this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
     renderAll();
   });
+  document.getElementById('metricSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    listMetric = b.dataset.m;
+    sortKey = SORTS[listMetric][0].k;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderList();
+  });
+  document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
   document.getElementById('monthSel').onchange = function () { curMonth = this.value; renderList(); };
   document.getElementById('mPrev').onclick = function () {
     var i = DATA.months.indexOf(curMonth);
