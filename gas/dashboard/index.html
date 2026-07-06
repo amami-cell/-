@@ -68,6 +68,10 @@
   .hero .big small { font-size: 22px; font-weight: 600; color: var(--ink-2); }
   .hero .sub { color: var(--muted); font-size: 12px; }
   .hero .hlabel { font-size: 13px; color: var(--ink-2); width: 100%; }
+  @media (max-width: 480px) {
+    .hero .big { font-size: 40px; }
+    .hero .big small { font-size: 18px; }
+  }
 
   /* 店舗リスト（一覧画面・横はみ出しなし） */
   .seg-sm button { padding: 5px 14px; font-size: 13px; }
@@ -120,11 +124,15 @@
     width: 100%; font-size: 13px; border-collapse: separate; border-spacing: 0;
     border: 1px solid var(--grid); border-radius: 10px; overflow: hidden; background: var(--page);
   }
-  .items td:nth-child(2), .items td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; }
+  .items td:nth-child(2), .items td:nth-child(3) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .items td { border-bottom: 1px solid var(--grid); padding: 6px 10px; }
   .items tr:last-child td { border-bottom: none; }
-  .items td:first-child { color: var(--ink-2); }
+  .items td:first-child { color: var(--ink-2); overflow-wrap: anywhere; }
   .items .strong td { font-weight: 600; background: var(--surface); }
+  @media (max-width: 480px) {
+    .items { font-size: 12px; }
+    .items td { padding: 6px 6px; }
+  }
 
   /* ロス */
   .loss-list { margin-top: 8px; }
@@ -572,7 +580,7 @@
       itemRow(tbl, '当月仕入（' + modeLabel() + '）', yen(r.purchase), r.purchaseRate !== null ? pct(r.purchaseRate) : '');
       itemRow(tbl, '前月棚卸高', r.invPrev === null ? '—' : yen(r.invPrev), '');
       itemRow(tbl, '当月棚卸高', r.invCur === null ? '— 未取得' : yen(r.invCur), '');
-      itemRow(tbl, '実原価（前棚卸＋仕入−当棚卸）', r.actual === null ? '—' : yen(r.actual),
+      itemRow(tbl, '実原価（前棚＋仕入−当棚）', r.actual === null ? '—' : yen(r.actual),
         r.actualRate !== null ? pct(r.actualRate) : '', { strong: true });
       itemRow(tbl, '理論原価', yen(r.theory), r.theoryRate !== null ? pct(r.theoryRate) : '');
       [['必要ロス', r.need], ['廃棄ロス', r.waste]].forEach(function (k) {
@@ -580,14 +588,15 @@
         var count = r.losses.filter(function (l) { return l.kind === kind; }).length;
         var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === kind);
         itemRow(tbl,
-          (isOpen ? '▾ ' : '▸ ') + kind + '（' + count + '件・タップで内訳）',
-          yen(k[1]), '',
+          (isOpen ? '▾ ' : '▸ ') + kind + '（' + count + '件）',
+          yen(k[1]),
+          r.sales ? pct(k[1] / r.sales) : '',
           { onClick: function () {
               expandedLoss = isOpen ? null : { ym: ym, kind: kind };
               renderStore();
             } });
       });
-      itemRow(tbl, '不明ロス（実原価−理論−登録ロス）',
+      itemRow(tbl, '不明ロス（実−理論−登録ロス）',
         r.unknown === null ? '—' : yen(r.unknown),
         r.unknownRate !== null ? pct(r.unknownRate) : '',
         { strong: true, cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') });
