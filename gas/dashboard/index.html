@@ -131,13 +131,14 @@
   .items td.rate { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); font-size: 12px; }
   .items tr.head td { color: var(--muted); font-size: 11px; background: var(--surface); white-space: nowrap; }
   .items tr.strong td { font-weight: 600; background: var(--surface); }
-  /* スマホでは上部のF/D/FD切替で選んだ列だけを表示して横はみ出しを防ぐ */
   @media (max-width: 680px) {
     .items { font-size: 12px; }
-    .items td { padding: 6px 6px; }
-    .items.m-FD .col-F, .items.m-FD .col-D { display: none; }
-    .items.m-F .col-FD, .items.m-F .col-D { display: none; }
-    .items.m-D .col-FD, .items.m-D .col-F { display: none; }
+    .items td { padding: 6px 5px; }
+  }
+  @media (max-width: 420px) {
+    .items { font-size: 11px; }
+    .items td { padding: 5px 4px; }
+    .items td.rate { font-size: 10px; }
   }
 
   /* ロス */
@@ -516,27 +517,28 @@
   }
 
   // ── 店舗画面 ─────────────────────────────────────────
-  function fdCells(tr, r, colCls, getter, clsFn) {
+  function fdCells(tr, r, getter, clsFn, withRate) {
     var v = r ? getter(r) : null;
-    var td = document.createElement('td'); td.className = 'num ' + colCls;
+    var td = document.createElement('td'); td.className = 'num';
     td.textContent = v === null ? '—' : yen(v);
     if (clsFn && v !== null) { var c = clsFn(v); if (c) td.classList.add(c); }
     tr.appendChild(td);
-    var tdr = document.createElement('td'); tdr.className = 'rate ' + colCls;
-    tdr.textContent = (v !== null && r && r.sales) ? pct(v / r.sales) : '';
-    tr.appendChild(tdr);
+    if (withRate) {
+      var tdr = document.createElement('td'); tdr.className = 'rate';
+      tdr.textContent = (v !== null && r && r.sales) ? pct(v / r.sales) : '';
+      tr.appendChild(tdr);
+    }
   }
 
-  /** 仕入項目 × FD合計/食材費(F)/飲料費(D)（各売上比つき）の表を作る */
+  /** 仕入項目 × FD合計（売上比つき）/食材費(F)/飲料費(D) の表を作る */
   function buildFdTable(rFD, rF, rD, ym) {
     var tbl = document.createElement('table');
-    tbl.className = 'items m-' + fdMode;
+    tbl.className = 'items';
 
     var trh = document.createElement('tr'); trh.className = 'head';
     [['仕入項目', 'lbl'],
-     ['ＦＤ合計', 'num col-FD'], ['売上比', 'rate col-FD'],
-     ['食材費(F)', 'num col-F'], ['売上比', 'rate col-F'],
-     ['飲料費(D)', 'num col-D'], ['売上比', 'rate col-D']].forEach(function (hc) {
+     ['ＦＤ合計', 'num'], ['売上比', 'rate'],
+     ['食材費(F)', 'num'], ['飲料費(D)', 'num']].forEach(function (hc) {
       var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0];
       trh.appendChild(td);
     });
@@ -571,9 +573,9 @@
         lbl.textContent = row.label;
       }
       tr.appendChild(lbl);
-      fdCells(tr, rFD, 'col-FD', row.get, row.clsFn);
-      fdCells(tr, rF, 'col-F', row.get, row.clsFn);
-      fdCells(tr, rD, 'col-D', row.get, row.clsFn);
+      fdCells(tr, rFD, row.get, row.clsFn, true);
+      fdCells(tr, rF, row.get, row.clsFn, false);
+      fdCells(tr, rD, row.get, row.clsFn, false);
       tbl.appendChild(tr);
     });
     return tbl;
