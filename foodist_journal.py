@@ -616,33 +616,45 @@ class FoodistJournalScraper:
         start_rect = inputs[si] if 0 <= si < len(inputs) else None
         end_rect   = inputs[ei] if 0 <= ei < len(inputs) else None
 
-        filled_start = fill_by_coord(start_rect, start_str, "開始日")
-        filled_end   = fill_by_coord(end_rect,   end_str,   "終了日")
+        # ── Step 3: 入力 → 実際値を読み返して検証（NGなら1回リトライして例外）──
+        # 検証NGのまま続行すると、画面デフォルト期間のExcelを対象月として
+        # 書き込んでしまう（誤った月のデータ混入）ため、失敗として扱う。
+        last_actual: list = []
+        for attempt in (1, 2):
+            fill_by_coord(start_rect, start_str, "開始日")
+            fill_by_coord(end_rect,   end_str,   "終了日")
 
-        time.sleep(1)
-        self._save_screenshot(page, f"after_set_period_{start.strftime('%Y%m')}")
+            time.sleep(1)
+            self._save_screenshot(page, f"after_set_period_{start.strftime('%Y%m')}")
 
-        # ── Step 3: 設定後の実際値を読み返して検証 ───────────────────────────
-        actual = page.evaluate("""() => {
-            return Array.from(document.querySelectorAll('input'))
-                .filter(el => el.type !== 'hidden' && el.offsetParent !== null)
-                .map(el => el.value);
-        }""")
-        logger.info(f"設定後の入力値(全{len(actual)}件): {actual}")
+            actual = page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('input'))
+                    .filter(el => el.type !== 'hidden' && el.offsetParent !== null)
+                    .map(el => el.value);
+            }""")
+            last_actual = actual
+            logger.info(f"設定後の入力値(全{len(actual)}件): {actual}")
 
-        # si/ei インデックスで直接検証（全体 list で確認）
-        start_ok = (0 <= si < len(actual) and actual[si] == start_str) or start_str in actual
-        end_ok   = (0 <= ei < len(actual) and actual[ei] == end_str)   or end_str   in actual
-        if start_ok and end_ok:
-            logger.info(f"期間設定完了: {start_str} 〜 {end_str}")
-        else:
-            sv = actual[si] if si < len(actual) else 'N/A'
-            ev = actual[ei] if ei < len(actual) else 'N/A'
+            # si/ei インデックスで直接検証（全体 list で確認）
+            start_ok = (0 <= si < len(actual) and actual[si] == start_str) or start_str in actual
+            end_ok   = (0 <= ei < len(actual) and actual[ei] == end_str)   or end_str   in actual
+            if start_ok and end_ok:
+                logger.info(f"期間設定完了: {start_str} 〜 {end_str}")
+                return
+
+            sv = actual[si] if 0 <= si < len(actual) else 'N/A'
+            ev = actual[ei] if 0 <= ei < len(actual) else 'N/A'
             logger.warning(
-                f"期間が正しくセットされていない可能性！ "
+                f"期間が正しくセットされていません (試行{attempt}/2): "
                 f"actual[{si}]={sv!r}, actual[{ei}]={ev!r}, "
                 f"期待: {start_str!r}/{end_str!r}"
             )
+
+        raise RuntimeError(
+            f"期間の設定に失敗しました（期待: {start_str}〜{end_str}, "
+            f"画面上の値: {last_actual}）。画面レイアウト変更の可能性があります。"
+            "screenshots/ の after_set_period_* を確認してください。"
+        )
 
     def _click_output(self, page: Page, download_dir: Path) -> Path:
         """出力ボタンをクリックして Excel をダウンロードする。"""
@@ -691,6 +703,13 @@ class FoodistJournalScraper:
                 logger.warning(f"[{sheet_name}] 解析エラー（スキップ）: {e}")
 
         logger.info(f"Excel 解析完了: {len(store_data)} 店舗")
+        if not store_data:
+            # 0店舗のまま続行すると「追記0件」で正常終了し、シート未反映なのに
+            # 成功として報告されるため、明示的に失敗させる
+            raise RuntimeError(
+                f"Excel から1店舗も解析できませんでした: {excel_path}。"
+                "Foodist Journal のExcelレイアウト変更の可能性があります。"
+            )
         return store_data
 
     @staticmethod
@@ -783,7 +802,7 @@ class FoodistJournalScraper:
                 ).execute()
                 time.sleep(1)
 
-            rows_after = rows_before + len(rows_to_append)
+            rows_after = len(existing) + len(rows_to_append)
             logger.info(
                 f"[{sheet_name}] {year_month} 書き込み完了: "
                 f"追記{len(rows_to_append)}件 / 上書{len(update_data)}件 "
