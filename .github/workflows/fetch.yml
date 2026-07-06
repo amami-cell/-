@@ -8,12 +8,13 @@ on:
         required: false
         default: ""
       target:
-        description: "取得対象"
+        description: "取得対象（check=取得せずシート内容の確認のみ）"
         type: choice
         options:
           - fw
           - infomart
           - both
+          - check
         default: fw
   schedule:
     # 毎月3日 09:00 JST (= 00:00 UTC) に前月分のFW確定データを取得
@@ -84,6 +85,7 @@ jobs:
       # 現行コードは headless=False（画面表示前提）のため xvfb（仮想ディスプレイ）上で実行する
       - name: FW（Fooding Journal）取得
         if: github.event_name == 'schedule' || inputs.target == 'fw' || inputs.target == 'both'
+        id: fw
         env:
           FOODIST_JOURNAL_USER_ID: ${{ secrets.FOODIST_JOURNAL_USER_ID }}
           FOODIST_JOURNAL_PASSWORD: ${{ secrets.FOODIST_JOURNAL_PASSWORD }}
@@ -109,6 +111,13 @@ jobs:
           MONTH="${{ inputs.month }}"
           [ -n "$MONTH" ] && ARGS="--month $MONTH"
           xvfb-run -a python main.py $ARGS
+
+      # 書き込み結果の確認: 各シートの年月×種別ごとの行数と対象月のサンプルを表示
+      - name: シート内容チェック
+        if: always()
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+        run: python tools/sheet_report.py "${{ inputs.month }}" || echo "::warning::シート内容チェックに失敗しました"
 
       # 成否に関わらずログ・スクリーンショットを保存（失敗時の原因調査用）
       - name: ログ・スクリーンショットの保存
