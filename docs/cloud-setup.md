@@ -13,18 +13,18 @@ GitHub リポジトリの **Settings > Secrets and variables > Actions > New rep
 |---|---|
 | `FOODIST_JOURNAL_USER_ID` | FW（Fooding Journal）のログインID |
 | `FOODIST_JOURNAL_PASSWORD` | FW のパスワード |
-| `GOOGLE_SERVICE_ACCOUNT_JSON_B64` | `credentials/service_account.json` を Base64 化した文字列（下記） |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | `credentials/service_account.json` の**中身をそのまま**貼り付け（下記） |
 | `INFOMART_USER_ID` | インフォマートのID（インフォマート取得を使う場合のみ） |
 | `INFOMART_PASSWORD` | インフォマートのパスワード（同上） |
 
-### service_account.json の Base64 化（PC の PowerShell で実行）
+### GOOGLE_SERVICE_ACCOUNT_JSON の値の作り方
 
-```powershell
-cd C:\Users\Owner\OneDrive\デスクトップ\infomart_automation
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("credentials\service_account.json")) | Set-Clipboard
-```
+1. PC でメモ帳を開く: `Win + R` →「`notepad C:\Users\Owner\OneDrive\デスクトップ\infomart_automation\credentials\service_account.json`」→ Enter
+2. `Ctrl + A`（全選択）→ `Ctrl + C`（コピー）
+3. Secret の値の欄に `Ctrl + V` で貼り付けて保存
 
-実行するとクリップボードにコピーされるので、そのまま Secret の値に貼り付ける。
+`{` で始まり `}` で終わる長い文字列がそのまま入っていればOK。
+（旧方式の `GOOGLE_SERVICE_ACCOUNT_JSON_B64`（Base64文字列）も引き続き使用可能）
 
 ## 2. 実行方法
 
