@@ -20,6 +20,8 @@ const SPREADSHEET_ID = '18Fq_mpEweHOFTlF4ntmwJzDsJNSt-DOq7wQYy8E0iLc';
 
 const METRIC_SHEETS = {
   sales: '売上',
+  foodSales: 'F売上',
+  drinkSales: 'D売上',
   foodPurchase: 'F食材費仕入',
   drinkPurchase: 'D飲料費仕入',
   foodTheory: 'フード理論原価',

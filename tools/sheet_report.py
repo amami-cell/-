@@ -19,6 +19,8 @@ SPREADSHEET_ID = "18Fq_mpEweHOFTlF4ntmwJzDsJNSt-DOq7wQYy8E0iLc"
 # (シート名, 種別列の有無)  ※5指標シートはD列=種別(中間/確定)
 SHEETS = [
     ("売上", True),
+    ("F売上", True),
+    ("D売上", True),
     ("F食材費仕入", True),
     ("D飲料費仕入", True),
     ("フード理論原価", True),

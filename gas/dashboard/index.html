@@ -313,6 +313,7 @@
   var DATA = null;
   var view = 'list';          // 'list' | 'store'
   var fdMode = 'FD';          // 'F' | 'D' | 'FD'
+  var pct2View = 'incl';      // 'incl'=2%込み表示 | 'excl'=2%なし表示
   var curMonth = '';
   var curStore = '';
   var sortKey = 'turnover';
@@ -363,6 +364,13 @@
                  : (m.foodPurchase || 0) + (m.drinkPurchase || 0);
     var theory = mode === 'F' ? (m.foodTheory || 0) : mode === 'D' ? (m.drinkTheory || 0)
                : (m.foodTheory || 0) + (m.drinkTheory || 0);
+    // クレジット手数料2%: 理論原価に F売上×2% / D売上×2% を乗せる会社ルール。
+    // storeFlags[店舗]=true は「FWの理論原価に2%込み済み」。表示切替に合わせて加減算する。
+    var fs = m.foodSales || 0, ds = m.drinkSales || 0;
+    var pct2 = mode === 'F' ? fs * 0.02 : mode === 'D' ? ds * 0.02 : (fs + ds) * 0.02;
+    var inc2 = !!((DATA.storeFlags || {})[storeKey]);
+    if (pct2View === 'incl' && !inc2) theory += pct2;
+    else if (pct2View === 'excl' && inc2) theory -= pct2;
     var invPrev = invOfM(calPrevYm(ym), storeKey, mode);
     var ls = lossesOfM(ym, storeKey, mode);
     var need = 0, waste = 0;
@@ -515,6 +523,10 @@
       if (r.kind === '中間') {
         var kb = document.createElement('span'); kb.className = 'kind-badge'; kb.textContent = '中間';
         top.appendChild(kb);
+      }
+      if ((DATA.storeFlags || {})[r.key]) {
+        var pb = document.createElement('span'); pb.className = 'kind-badge'; pb.textContent = '2%込済';
+        top.appendChild(pb);
       }
       row.appendChild(top);
 
@@ -897,6 +909,61 @@
     this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
     renderAll();
   });
+  document.getElementById('pctSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    pct2View = b.dataset.p;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderAll();
+  });
+
+  // ── 2%設定モーダル ───────────────────────────────────
+  var pctOverlay = document.getElementById('pctOverlay');
+  document.getElementById('btnPctSetup').onclick = function () {
+    var list = document.getElementById('pctList');
+    list.textContent = '';
+    DATA.stores.forEach(function (s) {
+      var lab = document.createElement('label');
+      lab.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--grid);font-size:13px;cursor:pointer';
+      var cb = document.createElement('input'); cb.type = 'checkbox';
+      cb.dataset.key = s.key;
+      cb.checked = !!((DATA.storeFlags || {})[s.key]);
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(s.name));
+      list.appendChild(lab);
+    });
+    document.getElementById('pctMsg').textContent = '';
+    pctOverlay.classList.add('show');
+  };
+  document.getElementById('btnPctCancel').onclick = function () { pctOverlay.classList.remove('show'); };
+  pctOverlay.addEventListener('click', function (e) { if (e.target === pctOverlay) pctOverlay.classList.remove('show'); });
+  document.getElementById('btnPctSave').onclick = function () {
+    var flags = {};
+    document.querySelectorAll('#pctList input[type="checkbox"]').forEach(function (cb) {
+      flags[cb.dataset.key] = cb.checked;
+    });
+    var btn = this;
+    var msg = document.getElementById('pctMsg');
+    btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) {
+          DATA.storeFlags = flags;
+          pctOverlay.classList.remove('show');
+          renderAll();
+        }
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
+      })
+      .saveStoreFlags(flags);
+  };
+
   document.getElementById('metricSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;

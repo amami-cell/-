@@ -16,6 +16,10 @@ on:
           - both
           - check
         default: fw
+      fw_from:
+        description: "FW一括取得の開始月 YYYY-MM（指定すると開始月〜対象月を一括取得）"
+        required: false
+        default: ""
   schedule:
     # 毎月3〜5日 09:00 JST (= 00:00 UTC) に前月分のFW＋インフォマートを自動取得
     # （同月・同店舗は上書きされるため、毎日最新の値に置き換わる）
@@ -92,10 +96,17 @@ jobs:
           FOODIST_JOURNAL_PASSWORD: ${{ secrets.FOODIST_JOURNAL_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
         run: |
-          ARGS=""
           MONTH="${{ inputs.month }}"
-          [ -n "$MONTH" ] && ARGS="--month $MONTH"
-          xvfb-run -a python main.py --foodist-only $ARGS
+          FW_FROM="${{ inputs.fw_from }}"
+          if [ -n "$FW_FROM" ]; then
+            TO="$MONTH"
+            [ -z "$TO" ] && TO=$(date -d "$(date +%Y-%m-01) -1 day" +%Y-%m)
+            xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO"
+          else
+            ARGS=""
+            [ -n "$MONTH" ] && ARGS="--month $MONTH"
+            xvfb-run -a python main.py --foodist-only $ARGS
+          fi
 
       - name: インフォマート取得
         if: github.event_name == 'schedule' || inputs.target == 'infomart' || inputs.target == 'both'
