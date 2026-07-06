@@ -545,13 +545,13 @@
     tbl.appendChild(trh);
 
     var ROWS = [
-      { label: '前月棚卸金額', get: function (r) { return r.invPrev; } },
-      { label: '当月仕入金額', get: function (r) { return r.purchase; } },
-      { label: '当月棚卸金額', get: function (r) { return r.invCur; } },
-      { label: '当月実使用金額', get: function (r) { return r.actual; }, strong: true },
-      { label: '当月理論原価', get: function (r) { return r.theory; } },
-      { label: '必要ロス', get: function (r) { return r.need; }, loss: '必要ロス' },
-      { label: '廃棄ロス', get: function (r) { return r.waste; }, loss: '廃棄ロス' },
+      { label: '前月棚金', get: function (r) { return r.invPrev; } },
+      { label: '当月仕入', get: function (r) { return r.purchase; } },
+      { label: '当月棚金', get: function (r) { return r.invCur; } },
+      { label: '当月実使用', get: function (r) { return r.actual; }, strong: true },
+      { label: '理論原価', get: function (r) { return r.theory; } },
+      { label: '必要ロス', get: function (r) { return r.need; }, loss: '必要ロス', indent: true },
+      { label: '廃棄ロス', get: function (r) { return r.waste; }, loss: '廃棄ロス', indent: true },
       { label: '不明ロス', get: function (r) { return r.unknown; }, strong: true,
         clsFn: function (v) { return v > 0 ? 'pos' : 'neg'; } },
     ];
@@ -560,6 +560,7 @@
       var tr = document.createElement('tr');
       if (row.strong) tr.className = 'strong';
       var lbl = document.createElement('td'); lbl.className = 'lbl';
+      if (row.indent) lbl.style.paddingLeft = '1.4em';
       if (row.loss) {
         var count = rFD.losses.filter(function (l) { return l.kind === row.loss; }).length;
         var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === row.loss);
