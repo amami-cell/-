@@ -364,11 +364,14 @@
   }
   function calc(storeKey, ym) { return calcM(storeKey, ym, fdMode); }
   function totalsOf(ym) {
-    var t = { sales: 0, purchase: 0, theory: 0, inv: 0, hasInv: false, interim: false, days: daysInMonth(ym) };
+    var t = { sales: 0, purchase: 0, theory: 0, inv: 0, hasInv: false, interim: false,
+              need: 0, waste: 0, unknown: null, days: daysInMonth(ym) };
     DATA.stores.forEach(function (s) {
       var r = calc(s.key, ym);
       if (!r) return;
       t.sales += r.sales; t.purchase += r.purchase; t.theory += r.theory;
+      t.need += r.need; t.waste += r.waste;
+      if (r.unknown !== null) t.unknown = (t.unknown || 0) + r.unknown;
       if (r.invCur !== null) { t.inv += r.invCur; t.hasInv = true; }
       if (r.kind === '中間') t.interim = true;
     });
@@ -444,7 +447,24 @@
 
   function renderList() {
     var t = totalsOf(curMonth);
-    renderHero(document.getElementById('heroList'), t.turnover, t.inv, t.theory, t.days, '全社 ' + curMonth);
+
+    // 全社ロス合計（必要・廃棄・不明 × 売上比）を横3列で表示
+    var hb = document.getElementById('heroList');
+    hb.textContent = '';
+    var lt = document.createElement('div');
+    lt.style.cssText = 'font-size:13px;color:var(--ink-2);margin-bottom:8px';
+    lt.textContent = 'ロス合計（全社・' + curMonth + '・' + modeLabel() + '）';
+    hb.appendChild(lt);
+    var w3 = document.createElement('div'); w3.className = 'sr-vals three';
+    w3.appendChild(mini('必要ロス', yen(t.need),
+      t.sales ? '売上比 ' + pct(t.need / t.sales) : ''));
+    w3.appendChild(mini('廃棄ロス', yen(t.waste),
+      t.sales ? '売上比 ' + pct(t.waste / t.sales) : ''));
+    w3.appendChild(mini('不明ロス', t.unknown === null ? '—' : yen(t.unknown),
+      (t.unknown !== null && t.sales) ? '売上比 ' + pct(t.unknown / t.sales) : '',
+      { cls: t.unknown === null ? '' : (t.unknown > 0 ? 'pos' : 'neg') }));
+    hb.appendChild(w3);
+
     document.getElementById('kindBadge').style.display = t.interim ? '' : 'none';
     refreshSortOptions();
 
