@@ -1,0 +1,106 @@
+name: 棚卸データ自動取得
+
+on:
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "対象月 YYYY-MM（空欄なら前月を自動選択）"
+        required: false
+        default: ""
+      target:
+        description: "取得対象"
+        type: choice
+        options:
+          - fw
+          - infomart
+          - both
+        default: fw
+  schedule:
+    # 毎月3日 09:00 JST (= 00:00 UTC) に前月分のFW確定データを取得
+    - cron: "0 0 3 * *"
+
+env:
+  TZ: Asia/Tokyo
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 依存パッケージのインストール
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Secrets の設定確認
+        env:
+          FW_ID: ${{ secrets.FOODIST_JOURNAL_USER_ID }}
+          FW_PW: ${{ secrets.FOODIST_JOURNAL_PASSWORD }}
+          SA_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
+        run: |
+          missing=""
+          [ -z "$FW_ID" ]  && missing="$missing FOODIST_JOURNAL_USER_ID"
+          [ -z "$FW_PW" ]  && missing="$missing FOODIST_JOURNAL_PASSWORD"
+          [ -z "$SA_B64" ] && missing="$missing GOOGLE_SERVICE_ACCOUNT_JSON_B64"
+          if [ -n "$missing" ]; then
+            echo "::error::以下のSecretsが未設定です:$missing （リポジトリの Settings > Secrets and variables > Actions で登録してください）"
+            exit 1
+          fi
+
+      - name: サービスアカウントJSONの復元
+        env:
+          SA_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
+        run: |
+          mkdir -p credentials
+          echo "$SA_B64" | base64 -d > credentials/service_account.json
+          python -c "import json; json.load(open('credentials/service_account.json'))" \
+            || { echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON_B64 のデコード結果が正しいJSONではありません"; exit 1; }
+
+      # 現行コードは headless=False（画面表示前提）のため xvfb（仮想ディスプレイ）上で実行する
+      - name: FW（Fooding Journal）取得
+        if: github.event_name == 'schedule' || inputs.target == 'fw' || inputs.target == 'both'
+        env:
+          FOODIST_JOURNAL_USER_ID: ${{ secrets.FOODIST_JOURNAL_USER_ID }}
+          FOODIST_JOURNAL_PASSWORD: ${{ secrets.FOODIST_JOURNAL_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+        run: |
+          ARGS=""
+          MONTH="${{ inputs.month }}"
+          [ -n "$MONTH" ] && ARGS="--month $MONTH"
+          xvfb-run -a python main.py --foodist-only $ARGS
+
+      - name: インフォマート取得
+        if: github.event_name == 'workflow_dispatch' && (inputs.target == 'infomart' || inputs.target == 'both')
+        env:
+          INFOMART_USER_ID: ${{ secrets.INFOMART_USER_ID }}
+          INFOMART_PASSWORD: ${{ secrets.INFOMART_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+        run: |
+          if [ -z "$INFOMART_USER_ID" ] || [ -z "$INFOMART_PASSWORD" ]; then
+            echo "::error::INFOMART_USER_ID / INFOMART_PASSWORD が未設定です"
+            exit 1
+          fi
+          ARGS=""
+          MONTH="${{ inputs.month }}"
+          [ -n "$MONTH" ] && ARGS="--month $MONTH"
+          xvfb-run -a python main.py $ARGS
+
+      # 成否に関わらずログ・スクリーンショットを保存（失敗時の原因調査用）
+      - name: ログ・スクリーンショットの保存
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: run-${{ github.run_number }}-logs
+          path: |
+            logs/
+            screenshots/
+            downloads/
+          if-no-files-found: ignore
+          retention-days: 14
