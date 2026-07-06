@@ -277,7 +277,10 @@ class AutomationPipeline:
                 self.fj_scraper.run_all(target_month, stores)
                 logger.info("Foodist Journal 取得完了")
             except Exception as e:
+                # 握りつぶすと終了コード0（成功）になり、GUI/batが「完了」と誤報告するため
+                # 必ず失敗として伝播させる
                 logger.error(f"Foodist Journal 取得エラー: {e}")
+                raise RuntimeError(f"Foodist Journal 取得に失敗しました: {e}") from e
         else:
             logger.info("[STEP 4/4] Foodist Journal 取得をスキップ (--foodist または --foodist-only で有効化)")
 
