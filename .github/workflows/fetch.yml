@@ -59,9 +59,16 @@ jobs:
           SA_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
         run: |
           mkdir -p credentials
-          echo "$SA_B64" | base64 -d > credentials/service_account.json
+          # 貼り付け時に混入しがちな空白・改行(CR/LF)を除去してからデコードする。
+          # Base64化せず生のJSONが登録されていた場合はそのまま使う。
+          if printf '%s' "$SA_B64" | grep -q '"private_key"'; then
+            printf '%s' "$SA_B64" > credentials/service_account.json
+          else
+            printf '%s' "$SA_B64" | tr -d ' \t\r\n' | base64 -d > credentials/service_account.json 2>/dev/null \
+              || { echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON_B64 をBase64として読めませんでした。docs/cloud-setup.md のPowerShellコマンドで再取得し、Secretを登録し直してください"; exit 1; }
+          fi
           python -c "import json; json.load(open('credentials/service_account.json'))" \
-            || { echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON_B64 のデコード結果が正しいJSONではありません"; exit 1; }
+            || { echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON_B64 の内容が正しいJSONになりません。Secretを登録し直してください"; exit 1; }
 
       # 現行コードは headless=False（画面表示前提）のため xvfb（仮想ディスプレイ）上で実行する
       - name: FW（Fooding Journal）取得
