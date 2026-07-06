@@ -10,7 +10,7 @@
  * 5. 発行されたURLを社内に共有
  *
  * 【再取得ボタンの初期設定（管理者のみ・1回だけ）】
- * 画面右上「⟳ データ再取得」→「初期設定」に GitHub トークンを貼り付け。
+ * 画面の取込ボタン →「初期設定」に GitHub トークンを貼り付け。
  * トークンの作り方: https://github.com/settings/personal-access-tokens/new
  *   Repository access: Only select repositories → amami-cell/-
  *   Permissions > Repository permissions > Actions: Read and write
@@ -27,6 +27,7 @@ const METRIC_SHEETS = {
 };
 
 const INVENTORY_SHEET = '月次集計';
+const LOSS_SHEET = 'ロス記録';
 
 const GH_OWNER = 'amami-cell';
 const GH_REPO = '-';
@@ -69,11 +70,11 @@ function doGet() {
 
 // ─── データ提供 ───────────────────────────────────────────────────────────────
 
-/** 全データを返す（5分キャッシュ）。クライアントは月・店舗の切替をローカルで行う。 */
+/** 全データを返す（5分キャッシュ）。月・店舗・F/D切替はクライアント側で行う。 */
 function getDashboardData(forceRefresh) {
   const cache = CacheService.getScriptCache();
   if (!forceRefresh) {
-    const hit = cache.get('dash_v1');
+    const hit = cache.get('dash_v2');
     if (hit) return JSON.parse(hit);
   }
 
@@ -85,8 +86,7 @@ function getDashboardData(forceRefresh) {
   Object.keys(METRIC_SHEETS).forEach(function (key) {
     const sheet = ss.getSheetByName(METRIC_SHEETS[key]);
     if (!sheet) return;
-    const values = sheet.getDataRange().getValues();
-    values.forEach(function (row) {
+    sheet.getDataRange().getValues().forEach(function (row) {
       const ym = String(row[0] || '').trim();
       const store = String(row[1] || '').trim();
       const val = Number(row[2]) || 0;
@@ -120,6 +120,30 @@ function getDashboardData(forceRefresh) {
         drink: Number(row[3]) || 0,
         supplies: Number(row[4]) || 0,
       };
+      monthsSet[ym] = true;
+    });
+  }
+
+  // ロス記録: [ID, 年月, 店舗, 種別, 区分, 内容, 金額, 登録日時]
+  const losses = {};  // losses[ym][storeKey] = [{id, kind, cat, memo, amount, ts}]
+  const lossSheet = ss.getSheetByName(LOSS_SHEET);
+  if (lossSheet) {
+    lossSheet.getDataRange().getValues().forEach(function (row, i) {
+      if (i === 0) return; // ヘッダー
+      const id = String(row[0] || '').trim();
+      const ym = String(row[1] || '').trim();
+      const store = String(row[2] || '').trim();
+      if (!id || !/^\d{4}-\d{2}$/.test(ym) || !store) return;
+      if (!losses[ym]) losses[ym] = {};
+      if (!losses[ym][store]) losses[ym][store] = [];
+      losses[ym][store].push({
+        id: id,
+        kind: String(row[3] || ''),
+        cat: String(row[4] || ''),
+        memo: String(row[5] || ''),
+        amount: Number(row[6]) || 0,
+        ts: String(row[7] || ''),
+      });
     });
   }
 
@@ -139,14 +163,90 @@ function getDashboardData(forceRefresh) {
     stores: stores,
     metrics: metrics,
     inventory: inventory,
+    losses: losses,
   };
 
   try {
-    cache.put('dash_v1', JSON.stringify(out), 300);
+    cache.put('dash_v2', JSON.stringify(out), 300);
   } catch (e) {
-    // キャッシュ上限超過時は素通し（毎回シートから読む）
+    // キャッシュ上限超過時は素通し
   }
   return out;
+}
+
+// ─── ロス記録の追加・削除 ─────────────────────────────────────────────────────
+
+function lossSheet_(ss) {
+  let sh = ss.getSheetByName(LOSS_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(LOSS_SHEET);
+    sh.appendRow(['ID', '年月', '店舗', '種別', '区分', '内容', '金額', '登録日時']);
+  }
+  return sh;
+}
+
+/**
+ * ロスを1件登録する。
+ * @param {string} storeKey FWシート店舗名
+ * @param {string} ym 'YYYY-MM'
+ * @param {string} kind '廃棄ロス' | '必要ロス'
+ * @param {string} cat 'フード' | 'ドリンク'
+ * @param {string} memo 内容
+ * @param {number} amount 金額（円）
+ */
+function addLoss(storeKey, ym, kind, cat, memo, amount) {
+  storeKey = String(storeKey || '').trim();
+  ym = String(ym || '').trim();
+  memo = String(memo || '').trim().slice(0, 200);
+  amount = Number(amount);
+  if (!storeKey) return { ok: false, message: '店舗が不正です' };
+  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '月の形式が不正です' };
+  if (['廃棄ロス', '必要ロス'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
+  if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: '区分が不正です' };
+  if (!memo) return { ok: false, message: '内容を入力してください' };
+  if (!isFinite(amount) || amount <= 0) return { ok: false, message: '金額は1円以上で入力してください' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = lossSheet_(ss);
+    const rec = {
+      id: Utilities.getUuid(),
+      kind: kind, cat: cat, memo: memo, amount: Math.round(amount),
+      ts: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
+    };
+    sh.appendRow([rec.id, ym, storeKey, rec.kind, rec.cat, rec.memo, rec.amount, rec.ts]);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, rec: rec };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** ロスを1件削除する。 */
+function deleteLoss(id) {
+  id = String(id || '').trim();
+  if (!id) return { ok: false, message: 'IDが不正です' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName(LOSS_SHEET);
+    if (!sh) return { ok: false, message: 'ロス記録シートがありません' };
+    const ids = sh.getRange(1, 1, sh.getLastRow(), 1).getValues();
+    for (let i = ids.length - 1; i >= 1; i--) {
+      if (String(ids[i][0]).trim() === id) {
+        sh.deleteRow(i + 1);
+        CacheService.getScriptCache().remove('dash_v2');
+        return { ok: true };
+      }
+    }
+    return { ok: false, message: '該当のロス記録が見つかりません（既に削除済みの可能性）' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ─── クラウド再取得（GitHub Actions 起動）──────────────────────────────────────
@@ -191,7 +291,8 @@ function triggerCloudFetch(target, month) {
 
   const code = resp.getResponseCode();
   if (code === 204) {
-    return { ok: true, message: month + ' の取得を開始しました。5〜15分後に「最新に更新」を押してください。' };
+    const label = target === 'fw' ? 'FW取込' : (target === 'infomart' ? 'インフォマート取込' : 'FW＋インフォマート取込');
+    return { ok: true, message: month + ' の' + label + '（全店舗）を開始しました。5〜15分後に「最新に更新」を押してください。' };
   }
   if (code === 401 || code === 403) {
     return { ok: false, needSetup: true, message: '認証エラー（トークンの期限切れ・権限不足の可能性）。初期設定からトークンを登録し直してください。' };
