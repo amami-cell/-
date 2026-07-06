@@ -426,7 +426,8 @@ def main() -> int:
             target_month=target_month,
             stores=stores,
             skip_download=args.aggregate_only or skip_infomart,
-            skip_upload=args.download_only or args.aggregate_only or skip_infomart,
+            skip_upload=(args.download_only or args.aggregate_only or skip_infomart
+                         or os.environ.get("SKIP_DRIVE_UPLOAD") == "1"),
             skip_aggregate=args.download_only or skip_infomart,
             run_foodist=run_foodist,
         )

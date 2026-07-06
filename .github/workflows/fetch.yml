@@ -17,8 +17,9 @@ on:
           - check
         default: fw
   schedule:
-    # 毎月3日 09:00 JST (= 00:00 UTC) に前月分のFW確定データを取得
-    - cron: "0 0 3 * *"
+    # 毎月3〜5日 09:00 JST (= 00:00 UTC) に前月分のFW＋インフォマートを自動取得
+    # （同月・同店舗は上書きされるため、毎日最新の値に置き換わる）
+    - cron: "0 0 3-5 * *"
 
 env:
   TZ: Asia/Tokyo
@@ -97,11 +98,13 @@ jobs:
           xvfb-run -a python main.py --foodist-only $ARGS
 
       - name: インフォマート取得
-        if: github.event_name == 'workflow_dispatch' && (inputs.target == 'infomart' || inputs.target == 'both')
+        if: github.event_name == 'schedule' || inputs.target == 'infomart' || inputs.target == 'both'
         env:
           INFOMART_USER_ID: ${{ secrets.INFOMART_USER_ID }}
           INFOMART_PASSWORD: ${{ secrets.INFOMART_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+          # サービスアカウントはDriveに保存不可（Google仕様）のためアップロードを省略
+          SKIP_DRIVE_UPLOAD: "1"
         run: |
           if [ -z "$INFOMART_USER_ID" ] || [ -z "$INFOMART_PASSWORD" ]; then
             echo "::error::INFOMART_USER_ID / INFOMART_PASSWORD が未設定です"
