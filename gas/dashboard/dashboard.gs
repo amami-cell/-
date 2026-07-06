@@ -28,6 +28,7 @@ const METRIC_SHEETS = {
 
 const INVENTORY_SHEET = '月次集計';
 const LOSS_SHEET = 'ロス記録';
+const SETTINGS_SHEET = '店舗設定';
 
 const GH_OWNER = 'amami-cell';
 const GH_REPO = '-';
@@ -147,6 +148,18 @@ function getDashboardData(forceRefresh) {
     });
   }
 
+  // 店舗設定: [店舗, 理論原価2%込み, 更新日時]
+  const storeFlags = {};
+  const setSheet = ss.getSheetByName(SETTINGS_SHEET);
+  if (setSheet) {
+    setSheet.getDataRange().getValues().forEach(function (row, i) {
+      if (i === 0) return;
+      const store = String(row[0] || '').trim();
+      if (!store) return;
+      storeFlags[store] = row[1] === true || String(row[1]).toUpperCase() === 'TRUE';
+    });
+  }
+
   const months = Object.keys(monthsSet).sort();
   const stores = Object.keys(storesSet).sort().map(function (key) {
     const idx = key.indexOf('_');
@@ -164,6 +177,7 @@ function getDashboardData(forceRefresh) {
     metrics: metrics,
     inventory: inventory,
     losses: losses,
+    storeFlags: storeFlags,
   };
 
   try {
@@ -287,6 +301,37 @@ function deleteLoss(id) {
       }
     }
     return { ok: false, message: '該当のロス記録が見つかりません（既に削除済みの可能性）' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ─── 店舗設定（理論原価2%込みフラグ）─────────────────────────────────────────
+
+/**
+ * 店舗ごとの「FWの理論原価に2%込み済み」フラグを保存する。
+ * @param {Object<string, boolean>} flags {店舗キー: true/false}
+ */
+function saveStoreFlags(flags) {
+  if (!flags || typeof flags !== 'object') return { ok: false, message: '設定が不正です' };
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sh = ss.getSheetByName(SETTINGS_SHEET);
+    if (!sh) {
+      sh = ss.insertSheet(SETTINGS_SHEET);
+    }
+    sh.clear();
+    const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+    const rows = [['店舗', '理論原価2%込み', '更新日時']];
+    Object.keys(flags).sort().forEach(function (key) {
+      rows.push([key, flags[key] === true, ts]);
+    });
+    sh.getRange(1, 1, rows.length, 3).setValues(rows);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, message: '保存しました' };
   } finally {
     lock.releaseLock();
   }

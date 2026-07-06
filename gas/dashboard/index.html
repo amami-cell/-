@@ -232,6 +232,11 @@
         <select id="monthSel"></select>
         <button class="small" id="mNext">▶</button>
         <span class="kind-badge" id="kindBadge" style="display:none">中間データ含む</span>
+        <div class="seg seg-sm" id="pctSeg" title="クレジット手数料2%を理論原価に乗せるかの表示切替">
+          <button data-p="incl" class="on">2%込み</button>
+          <button data-p="excl">2%なし</button>
+        </div>
+        <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙</button>
         <span class="spacer"></span>
         <button class="primary small" id="btnFwAll">⟳ FW取込</button>
         <button class="primary small" id="btnImAll">⟳ インフォマート取込</button>
@@ -282,6 +287,22 @@
         <div class="actions" style="margin-top:8px"><button id="btnSaveToken" class="small">トークンを保存</button></div>
       </div>
     </details>
+  </div>
+</div>
+
+<!-- 2%設定モーダル -->
+<div class="overlay" id="pctOverlay">
+  <div class="modal">
+    <h3>⚙ 理論原価2%（クレジット手数料）の設定</h3>
+    <p>会社ルールとして、理論原価には売上の2%（フード・ドリンクそれぞれ）を乗せます。<br>
+       <b>FWの理論原価にすでに2%が入っている店舗</b>にチェックを入れてください。<br>
+       チェックの無い店舗は「2%込み」表示のとき自動で＋2%されます。</p>
+    <div id="pctList" style="max-height:45vh;overflow-y:auto;border:1px solid var(--grid);border-radius:10px;padding:6px 10px;margin-bottom:12px"></div>
+    <div class="actions">
+      <button id="btnPctCancel">閉じる</button>
+      <button class="primary" id="btnPctSave">保存</button>
+    </div>
+    <div class="msg" id="pctMsg" style="margin-top:8px"></div>
   </div>
 </div>
 

@@ -115,6 +115,11 @@ jobs:
           [ -n "$MONTH" ] && ARGS="--month $MONTH"
           xvfb-run -a python main.py $ARGS
 
+      # FW Excelのセル構造調査（フード売上/ドリンク売上の位置特定用・xlsxがある時のみ）
+      - name: FW Excel構造スキャン
+        if: always()
+        run: python tools/excel_scan.py || echo "::warning::Excelスキャン失敗"
+
       # 書き込み結果の確認: 各シートの年月×種別ごとの行数と対象月のサンプルを表示
       - name: シート内容チェック
         if: always()
