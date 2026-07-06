@@ -43,25 +43,43 @@ jobs:
         env:
           FW_ID: ${{ secrets.FOODIST_JOURNAL_USER_ID }}
           FW_PW: ${{ secrets.FOODIST_JOURNAL_PASSWORD }}
+          SA_RAW: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SA_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
         run: |
           missing=""
-          [ -z "$FW_ID" ]  && missing="$missing FOODIST_JOURNAL_USER_ID"
-          [ -z "$FW_PW" ]  && missing="$missing FOODIST_JOURNAL_PASSWORD"
-          [ -z "$SA_B64" ] && missing="$missing GOOGLE_SERVICE_ACCOUNT_JSON_B64"
+          [ -z "$FW_ID" ] && missing="$missing FOODIST_JOURNAL_USER_ID"
+          [ -z "$FW_PW" ] && missing="$missing FOODIST_JOURNAL_PASSWORD"
+          [ -z "$SA_RAW" ] && [ -z "$SA_B64" ] && missing="$missing GOOGLE_SERVICE_ACCOUNT_JSON"
           if [ -n "$missing" ]; then
             echo "::error::以下のSecretsが未設定です:$missing （リポジトリの Settings > Secrets and variables > Actions で登録してください）"
             exit 1
           fi
 
+      # 推奨: GOOGLE_SERVICE_ACCOUNT_JSON に service_account.json の中身をそのまま貼る。
+      # 旧方式: GOOGLE_SERVICE_ACCOUNT_JSON_B64（Base64文字列）も引き続き使用可。
       - name: サービスアカウントJSONの復元
         env:
+          SA_RAW: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           SA_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
         run: |
           mkdir -p credentials
-          echo "$SA_B64" | base64 -d > credentials/service_account.json
-          python -c "import json; json.load(open('credentials/service_account.json'))" \
-            || { echo "::error::GOOGLE_SERVICE_ACCOUNT_JSON_B64 のデコード結果が正しいJSONではありません"; exit 1; }
+          if [ -n "$SA_RAW" ]; then
+            printf '%s' "$SA_RAW" > credentials/service_account.json
+          elif printf '%s' "$SA_B64" | grep -q '"private_key"'; then
+            # B64側に生JSONが貼られていた場合
+            printf '%s' "$SA_B64" > credentials/service_account.json
+          else
+            # 空白・改行・certutil形式のヘッダ行を除去してからデコード
+            printf '%s' "$SA_B64" | tr -d ' \t\r\n' | sed 's/-----[A-Za-z ]*-----//g' \
+              | base64 -d > credentials/service_account.json 2>/dev/null || {
+              len=$(printf '%s' "$SA_B64" | wc -c)
+              bad=$(printf '%s' "$SA_B64" | tr -d 'A-Za-z0-9+/=_\-. \t\r\n' | wc -c)
+              echo "::error::Base64デコード失敗（文字数=${len}, Base64以外の文字数=${bad}）。Secret GOOGLE_SERVICE_ACCOUNT_JSON に service_account.json の中身をそのまま貼る方式に切り替えてください（docs/cloud-setup.md 参照）"
+              exit 1
+            }
+          fi
+          python -c "import json; d=json.load(open('credentials/service_account.json')); assert 'private_key' in d" \
+            || { echo "::error::サービスアカウントJSONとして読めません。Secret GOOGLE_SERVICE_ACCOUNT_JSON に service_account.json の中身をそのまま貼り直してください"; exit 1; }
 
       # 現行コードは headless=False（画面表示前提）のため xvfb（仮想ディスプレイ）上で実行する
       - name: FW（Fooding Journal）取得
