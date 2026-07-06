@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>棚卸ダッシュボード</title>
+<style>
+  :root {
+    --surface: #fcfcfb;
+    --page: #f9f9f7;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --s1: #2a78d6;          /* 系列1: 青（売上・実績） */
+    --ctx: #898781;         /* 文脈系列: 理論値 */
+    --good: #006300;        /* 良い方向の差分テキスト */
+    --bad: #d03b3b;         /* 悪い方向の差分テキスト */
+    --accent: #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19;
+      --page: #0d0d0d;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --border: rgba(255,255,255,0.10);
+      --s1: #3987e5;
+      --good: #0ca30c;
+      --bad: #e66767;
+      --accent: #3987e5;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
+    background: var(--page); color: var(--ink); font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 16px 16px 64px; }
+
+  /* ── ヘッダー ── */
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  header h1 { font-size: 20px; font-weight: 700; }
+  .updated { color: var(--muted); font-size: 12px; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 14px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  /* ── フィルター行（すべての内容の上・1行）── */
+  .filters {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .filters label { color: var(--ink-2); font-size: 13px; }
+  select, input[type="month"] {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink);
+  }
+  .navbtn { padding: 6px 10px; border-radius: 8px; }
+  .kind-badge {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--ink-2); vertical-align: middle;
+  }
+
+  /* ── カード ── */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 14px; font-weight: 600; color: var(--ink-2); margin-bottom: 12px; }
+  .dimmed { opacity: .5; pointer-events: none; }
+
+  /* ── KPIタイル ── */
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 760px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .tile .label { font-size: 12px; color: var(--ink-2); }
+  .tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+  .tile .delta { font-size: 12px; margin-top: 2px; color: var(--ink-2); }
+  .delta.up-good, .delta.down-good { color: var(--good); }
+  .delta.up-bad, .delta.down-bad { color: var(--bad); }
+
+  /* ── ランキング（横バー）── */
+  .rank-row { display: grid; grid-template-columns: 168px 1fr 92px; align-items: center; gap: 8px; padding: 3px 0; }
+  @media (max-width: 560px) { .rank-row { grid-template-columns: 118px 1fr 84px; } }
+  .rank-name { font-size: 12px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rank-track { position: relative; height: 16px; }
+  .rank-bar {
+    position: absolute; left: 0; top: 0; height: 16px; background: var(--s1);
+    border-radius: 0 4px 4px 0; min-width: 2px; transition: filter .1s;
+  }
+  .rank-row:hover .rank-bar { filter: brightness(1.15); }
+  .rank-val { font-size: 12px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ── テーブル ── */
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 10px; white-space: nowrap; }
+  thead th {
+    text-align: right; color: var(--muted); font-weight: 500; font-size: 12px;
+    border-bottom: 1px solid var(--axis); cursor: pointer; user-select: none;
+  }
+  thead th:first-child { text-align: left; }
+  tbody td { border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; }
+  tbody td:first-child { text-align: left; }
+  tbody tr:hover { background: rgba(128,128,128,.06); }
+  .pos { color: var(--bad); }   /* 実 > 理論 = ロス超過 */
+  .neg { color: var(--good); }
+  .sort-mark { font-size: 10px; }
+
+  /* ── チャート ── */
+  .charts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .charts2 { grid-template-columns: 1fr; } }
+  .chart-box { position: relative; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+  .legend .key { display: inline-block; width: 18px; height: 2px; vertical-align: middle; margin-right: 6px; border-radius: 1px; }
+  svg text { font-family: inherit; }
+  .tooltip {
+    position: absolute; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.15); min-width: 130px;
+  }
+  .tooltip .tt-title { color: var(--muted); margin-bottom: 3px; }
+  .tooltip .tt-row { display: flex; align-items: center; gap: 6px; }
+  .tooltip .tt-key { width: 12px; height: 2px; border-radius: 1px; flex: none; }
+  .tooltip .tt-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tooltip .tt-name { color: var(--ink-2); }
+
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+
+  /* ── モーダル ── */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none;
+    align-items: center; justify-content: center; padding: 16px; z-index: 100;
+  }
+  .overlay.show { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; padding: 20px; width: 100%; max-width: 420px; }
+  .modal h3 { font-size: 16px; margin-bottom: 12px; }
+  .modal .row { margin-bottom: 12px; }
+  .modal .row label { display: block; font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+  .radio-row { display: flex; gap: 14px; font-size: 13px; }
+  .radio-row label { display: flex; align-items: center; gap: 5px; color: var(--ink); }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+  .msg { font-size: 12px; margin-top: 8px; min-height: 18px; }
+  .msg.ok { color: var(--good); }
+  .msg.err { color: var(--bad); }
+  input[type="text"], input[type="password"] {
+    font: inherit; width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink);
+  }
+
+  /* ── ローディング ── */
+  #loading { text-align: center; color: var(--muted); padding: 80px 0; }
+  .spin {
+    display: inline-block; width: 26px; height: 26px; border: 3px solid var(--grid);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>棚卸ダッシュボード</h1>
+    <span class="updated" id="updatedAt"></span>
+    <span class="spacer"></span>
+    <button id="btnReload" title="スプレッドシートから読み直す">最新に更新</button>
+    <button class="primary" id="btnFetch">⟳ データ再取得</button>
+  </header>
+
+  <div id="loading"><div class="spin"></div><div>読み込み中…</div></div>
+
+  <div id="app" style="display:none">
+    <!-- フィルター行 -->
+    <div class="filters">
+      <label>対象月</label>
+      <button class="navbtn" id="mPrev" aria-label="前の月">◀</button>
+      <select id="monthSel"></select>
+      <button class="navbtn" id="mNext" aria-label="次の月">▶</button>
+      <span class="kind-badge" id="kindBadge" style="display:none">中間データ含む</span>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpis" id="kpis"></div>
+
+    <!-- 店舗一覧 -->
+    <div class="card" id="tableCard">
+      <h2>店舗一覧（クリックで並べ替え）</h2>
+      <div class="table-scroll"><table id="storeTable">
+        <thead><tr id="tableHead"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table></div>
+    </div>
+
+    <!-- 売上ランキング -->
+    <div class="card">
+      <h2>売上ランキング</h2>
+      <div id="ranking"></div>
+    </div>
+
+    <!-- 店舗詳細 -->
+    <div class="card">
+      <div class="filters" style="margin-bottom:8px">
+        <h2 style="margin:0">店舗別の推移</h2>
+        <select id="storeSel" style="margin-left:8px"></select>
+      </div>
+
+      <div class="chart-box" style="margin-bottom:16px">
+        <h2 style="font-weight:500">売上（月次）</h2>
+        <div id="salesChart"></div>
+      </div>
+
+      <div class="charts2">
+        <div class="chart-box">
+          <h2 style="font-weight:500">フード原価率</h2>
+          <div class="legend"><span><span class="key" style="background:var(--s1)"></span>実原価率</span><span><span class="key" style="background:var(--ctx)"></span>理論原価率</span></div>
+          <div id="foodChart"></div>
+        </div>
+        <div class="chart-box">
+          <h2 style="font-weight:500">ドリンク原価率</h2>
+          <div class="legend"><span><span class="key" style="background:var(--s1)"></span>実原価率</span><span><span class="key" style="background:var(--ctx)"></span>理論原価率</span></div>
+          <div id="drinkChart"></div>
+        </div>
+      </div>
+
+      <details>
+        <summary>表で見る（月別データ）</summary>
+        <div class="table-scroll"><table id="detailTable"></table></div>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- データ再取得モーダル -->
+<div class="overlay" id="fetchOverlay">
+  <div class="modal">
+    <h3>⟳ データ再取得</h3>
+    <p style="font-size:12px;color:var(--ink-2);margin-bottom:12px">
+      クラウド上でFW／インフォマートから取り直し、シートを最新の値に置き換えます（5〜15分）。
+    </p>
+    <div class="row">
+      <label>取得対象</label>
+      <div class="radio-row">
+        <label><input type="radio" name="tgt" value="fw" checked>FW（売上・仕入・理論）</label>
+        <label><input type="radio" name="tgt" value="infomart">インフォマート（棚卸）</label>
+        <label><input type="radio" name="tgt" value="both">両方</label>
+      </div>
+    </div>
+    <div class="row">
+      <label>対象月</label>
+      <input type="month" id="fetchMonth">
+    </div>
+    <div class="actions">
+      <button id="btnFetchCancel">閉じる</button>
+      <button class="primary" id="btnFetchRun">実行</button>
+    </div>
+    <div class="msg" id="fetchMsg"></div>
+    <details id="tokenSetup">
+      <summary>初期設定（管理者用・トークン登録）</summary>
+      <div class="row" style="margin-top:8px">
+        <input type="password" id="tokenInput" placeholder="github_pat_...">
+        <div class="actions" style="margin-top:8px"><button id="btnSaveToken">トークンを保存</button></div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var DATA = null;
+  var curMonth = '';
+  var curStore = '';
+  var sortKey = 'sales';
+  var sortAsc = false;
+
+  var CSS = getComputedStyle(document.documentElement);
+  function cssVar(name) { return CSS.getPropertyValue(name).trim(); }
+
+  // ── 書式 ─────────────────────────────────────────────
+  function yen(v) { return '¥' + Math.round(v).toLocaleString('ja-JP'); }
+  function yenCompact(v) {
+    if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + '億円';
+    if (Math.abs(v) >= 1e4) return Math.round(v / 1e4).toLocaleString('ja-JP') + '万円';
+    return yen(v);
+  }
+  function pct(v) { return (v * 100).toFixed(1) + '%'; }
+  function pt(v) { return (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + 'pt'; }
+
+  // ── 集計 ─────────────────────────────────────────────
+  function rowOf(storeKey, ym) {
+    var m = (DATA.metrics[ym] || {})[storeKey];
+    if (!m) return null;
+    var inv = (DATA.inventory[ym] || {})[storeKey] || null;
+    var sales = m.sales || 0;
+    var r = {
+      sales: sales,
+      fp: m.foodPurchase || 0, dp: m.drinkPurchase || 0,
+      ft: m.foodTheory || 0, dt: m.drinkTheory || 0,
+      kind: m.kind || '',
+      inv: inv ? (inv.food + inv.drink + inv.supplies) : null,
+      invFood: inv ? inv.food : null, invDrink: inv ? inv.drink : null,
+    };
+    r.fRate = sales ? r.fp / sales : 0;
+    r.dRate = sales ? r.dp / sales : 0;
+    r.ftRate = sales ? r.ft / sales : 0;
+    r.dtRate = sales ? r.dt / sales : 0;
+    r.fDiff = r.fRate - r.ftRate;
+    r.dDiff = r.dRate - r.dtRate;
+    return r;
+  }
+
+  function totalsOf(ym) {
+    var t = { sales: 0, fp: 0, dp: 0, ft: 0, dt: 0, inv: 0, hasInv: false, interim: false };
+    DATA.stores.forEach(function (s) {
+      var r = rowOf(s.key, ym);
+      if (!r) return;
+      t.sales += r.sales; t.fp += r.fp; t.dp += r.dp; t.ft += r.ft; t.dt += r.dt;
+      if (r.inv !== null) { t.inv += r.inv; t.hasInv = true; }
+      if (r.kind === '中間') t.interim = true;
+    });
+    t.fRate = t.sales ? t.fp / t.sales : 0;
+    t.dRate = t.sales ? t.dp / t.sales : 0;
+    return t;
+  }
+
+  function prevYm(ym) {
+    var i = DATA.months.indexOf(ym);
+    return i > 0 ? DATA.months[i - 1] : null;
+  }
+
+  // ── KPI ──────────────────────────────────────────────
+  function tile(label, value, deltaText, deltaClass) {
+    var d = document.createElement('div');
+    d.className = 'tile';
+    var l = document.createElement('div'); l.className = 'label'; l.textContent = label;
+    var v = document.createElement('div'); v.className = 'value'; v.textContent = value;
+    d.appendChild(l); d.appendChild(v);
+    if (deltaText) {
+      var dl = document.createElement('div'); dl.className = 'delta ' + (deltaClass || '');
+      dl.textContent = deltaText; d.appendChild(dl);
+    }
+    return d;
+  }
+
+  function renderKPIs() {
+    var box = document.getElementById('kpis');
+    box.textContent = '';
+    var t = totalsOf(curMonth);
+    var p = prevYm(curMonth) ? totalsOf(prevYm(curMonth)) : null;
+
+    // 売上: 増=良
+    var salesDelta = '', salesCls = '';
+    if (p && p.sales) {
+      var g = (t.sales - p.sales) / p.sales;
+      salesDelta = (g >= 0 ? '▲ +' : '▼ ') + (g * 100).toFixed(1) + '%（前月比）';
+      salesCls = g >= 0 ? 'up-good' : 'down-bad';
+    }
+    box.appendChild(tile('総売上', yenCompact(t.sales), salesDelta, salesCls));
+
+    // 原価率: 減=良
+    ['fRate', 'dRate'].forEach(function (k, i) {
+      var label = i === 0 ? 'フード原価率（全社）' : 'ドリンク原価率（全社）';
+      var deltaText = '', cls = '';
+      if (p) {
+        var d = t[k] - p[k];
+        deltaText = pt(d) + '（前月比）';
+        cls = d <= 0 ? 'down-good' : 'up-bad';
+      }
+      box.appendChild(tile(label, pct(t[k]), deltaText, cls));
+    });
+
+    box.appendChild(tile('棚卸資産（全社）', t.hasInv ? yenCompact(t.inv) : '—',
+      t.hasInv ? '' : 'この月の棚卸データ未取得', ''));
+
+    document.getElementById('kindBadge').style.display = t.interim ? '' : 'none';
+  }
+
+  // ── ランキング ────────────────────────────────────────
+  function renderRanking() {
+    var box = document.getElementById('ranking');
+    box.textContent = '';
+    var rows = DATA.stores.map(function (s) {
+      var r = rowOf(s.key, curMonth);
+      return r ? { name: s.name, sales: r.sales } : null;
+    }).filter(Boolean).sort(function (a, b) { return b.sales - a.sales; });
+    var max = rows.length ? rows[0].sales : 1;
+    rows.forEach(function (r) {
+      var row = document.createElement('div'); row.className = 'rank-row';
+      var n = document.createElement('div'); n.className = 'rank-name'; n.textContent = r.name; n.title = r.name;
+      var track = document.createElement('div'); track.className = 'rank-track';
+      var bar = document.createElement('div'); bar.className = 'rank-bar';
+      bar.style.width = Math.max(1, r.sales / max * 100) + '%';
+      track.appendChild(bar);
+      var v = document.createElement('div'); v.className = 'rank-val'; v.textContent = yenCompact(r.sales);
+      row.appendChild(n); row.appendChild(track); row.appendChild(v);
+      box.appendChild(row);
+    });
+    if (!rows.length) { box.textContent = 'この月のデータはありません'; box.style.color = 'var(--muted)'; }
+  }
+
+  // ── 店舗一覧テーブル ──────────────────────────────────
+  var COLS = [
+    { k: 'name',  t: '店舗',        f: null },
+    { k: 'sales', t: '売上',        f: yen },
+    { k: 'fRate', t: 'F原価率',     f: pct },
+    { k: 'fDiff', t: 'F差(実-理論)', f: pt, diff: true },
+    { k: 'dRate', t: 'D原価率',     f: pct },
+    { k: 'dDiff', t: 'D差(実-理論)', f: pt, diff: true },
+    { k: 'inv',   t: '棚卸高',      f: function (v) { return v === null ? '—' : yen(v); } },
+  ];
+
+  function renderTable() {
+    var head = document.getElementById('tableHead');
+    head.textContent = '';
+    COLS.forEach(function (c) {
+      var th = document.createElement('th');
+      th.textContent = c.t;
+      if (sortKey === c.k) {
+        var m = document.createElement('span'); m.className = 'sort-mark';
+        m.textContent = sortAsc ? ' ▲' : ' ▼'; th.appendChild(m);
+      }
+      th.onclick = function () {
+        if (sortKey === c.k) sortAsc = !sortAsc; else { sortKey = c.k; sortAsc = (c.k === 'name'); }
+        renderTable();
+      };
+      head.appendChild(th);
+    });
+
+    var rows = DATA.stores.map(function (s) {
+      var r = rowOf(s.key, curMonth);
+      if (!r) return null;
+      r.name = s.name; r.key = s.key;
+      return r;
+    }).filter(Boolean);
+
+    rows.sort(function (a, b) {
+      var x = a[sortKey], y = b[sortKey];
+      if (x === null) x = -Infinity; if (y === null) y = -Infinity;
+      if (typeof x === 'string') return sortAsc ? x.localeCompare(y, 'ja') : y.localeCompare(x, 'ja');
+      return sortAsc ? x - y : y - x;
+    });
+
+    var body = document.getElementById('tableBody');
+    body.textContent = '';
+    rows.forEach(function (r) {
+      var tr = document.createElement('tr');
+      COLS.forEach(function (c) {
+        var td = document.createElement('td');
+        var v = r[c.k];
+        td.textContent = c.f ? c.f(v) : v;
+        if (c.diff && typeof v === 'number') td.className = v > 0.0005 ? 'pos' : (v < -0.0005 ? 'neg' : '');
+        tr.appendChild(td);
+      });
+      tr.style.cursor = 'pointer';
+      tr.onclick = function () {
+        curStore = r.key;
+        document.getElementById('storeSel').value = r.key;
+        renderDetail();
+        document.getElementById('salesChart').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      };
+      body.appendChild(tr);
+    });
+  }
+
+  // ── 折れ線チャート（SVG）──────────────────────────────
+  // series: [{name, color, values(月順・nullあり), area}]
+  function lineChart(container, months, series, fmtVal) {
+    container.textContent = '';
+    var W = container.clientWidth || 480, H = 220;
+    var padL = 52, padR = 14, padT = 12, padB = 26;
+    var iw = W - padL - padR, ih = H - padT - padB;
+
+    var all = [];
+    series.forEach(function (s) { s.values.forEach(function (v) { if (v !== null) all.push(v); }); });
+    if (!all.length) { container.textContent = 'データなし'; container.style.color = 'var(--muted)'; return; }
+    var maxV = Math.max.apply(null, all) * 1.12 || 1;
+    // きれいな目盛り
+    var step = Math.pow(10, Math.floor(Math.log10(maxV / 4)));
+    var mult = [1, 2, 2.5, 5, 10].find(function (m) { return maxV / (step * m) <= 4.5; }) || 10;
+    step = step * mult;
+    maxV = Math.ceil(maxV / step) * step;
+
+    function X(i) { return padL + (months.length === 1 ? iw / 2 : i / (months.length - 1) * iw); }
+    function Y(v) { return padT + ih - v / maxV * ih; }
+
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('width', '100%');
+    svg.style.display = 'block';
+
+    // グリッド＋Y目盛り（実線ヘアライン）
+    for (var v = 0; v <= maxV + 1e-9; v += step) {
+      var gy = Y(v);
+      var ln = document.createElementNS(NS, 'line');
+      ln.setAttribute('x1', padL); ln.setAttribute('x2', W - padR);
+      ln.setAttribute('y1', gy); ln.setAttribute('y2', gy);
+      ln.setAttribute('stroke', v === 0 ? cssVar('--axis') : cssVar('--grid'));
+      ln.setAttribute('stroke-width', '1');
+      svg.appendChild(ln);
+      var tx = document.createElementNS(NS, 'text');
+      tx.setAttribute('x', padL - 6); tx.setAttribute('y', gy + 4);
+      tx.setAttribute('text-anchor', 'end'); tx.setAttribute('font-size', '10');
+      tx.setAttribute('fill', cssVar('--muted'));
+      tx.style.fontVariantNumeric = 'tabular-nums';
+      tx.textContent = fmtVal(v, true);
+      svg.appendChild(tx);
+    }
+    // X目盛り（間引き）
+    var skip = Math.ceil(months.length / 7);
+    months.forEach(function (m, i) {
+      if (i % skip !== 0 && i !== months.length - 1) return;
+      var tx = document.createElementNS(NS, 'text');
+      tx.setAttribute('x', X(i)); tx.setAttribute('y', H - 8);
+      tx.setAttribute('text-anchor', 'middle'); tx.setAttribute('font-size', '10');
+      tx.setAttribute('fill', cssVar('--muted'));
+      tx.textContent = m.slice(2).replace('-', '/');
+      svg.appendChild(tx);
+    });
+
+    // 面ウォッシュ → 線 → 終端マーカー
+    series.forEach(function (s) {
+      var pts = [];
+      s.values.forEach(function (v, i) { if (v !== null) pts.push([X(i), Y(v), i]); });
+      if (!pts.length) return;
+      if (s.area) {
+        var d0 = 'M' + pts.map(function (p) { return p[0] + ',' + p[1]; }).join(' L') +
+                 ' L' + pts[pts.length - 1][0] + ',' + Y(0) + ' L' + pts[0][0] + ',' + Y(0) + ' Z';
+        var ar = document.createElementNS(NS, 'path');
+        ar.setAttribute('d', d0); ar.setAttribute('fill', s.color); ar.setAttribute('opacity', '0.1');
+        svg.appendChild(ar);
+      }
+      var p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', 'M' + pts.map(function (q) { return q[0] + ',' + q[1]; }).join(' L'));
+      p.setAttribute('fill', 'none'); p.setAttribute('stroke', s.color);
+      p.setAttribute('stroke-width', '2'); p.setAttribute('stroke-linejoin', 'round'); p.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(p);
+      var last = pts[pts.length - 1];
+      var c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', last[0]); c.setAttribute('cy', last[1]); c.setAttribute('r', '4');
+      c.setAttribute('fill', s.color); c.setAttribute('stroke', cssVar('--surface')); c.setAttribute('stroke-width', '2');
+      svg.appendChild(c);
+      s._pts = pts; s._last = last;
+    });
+
+    // 終端の直接ラベル（重なるときは上下に逃がす）
+    var lasts = series.filter(function (s) { return s._last; })
+      .sort(function (a, b) { return a._last[1] - b._last[1]; });
+    var prevY = -99;
+    lasts.forEach(function (s) {
+      var y = Math.max(s._last[1], prevY + 13);
+      prevY = y;
+      var tx = document.createElementNS(NS, 'text');
+      tx.setAttribute('x', s._last[0] - 6); tx.setAttribute('y', y - 8);
+      tx.setAttribute('text-anchor', 'end'); tx.setAttribute('font-size', '11');
+      tx.setAttribute('fill', cssVar('--ink-2'));
+      tx.style.fontVariantNumeric = 'tabular-nums';
+      tx.textContent = fmtVal(s.values[s.values.length - 1] !== null ? s.values[s.values.length - 1] : s._last[1], false);
+      svg.appendChild(tx);
+    });
+
+    // ── クロスヘア＋ツールチップ ──
+    var vline = document.createElementNS(NS, 'line');
+    vline.setAttribute('y1', padT); vline.setAttribute('y2', padT + ih);
+    vline.setAttribute('stroke', cssVar('--axis')); vline.setAttribute('stroke-width', '1');
+    vline.style.display = 'none';
+    svg.appendChild(vline);
+
+    var hit = document.createElementNS(NS, 'rect');
+    hit.setAttribute('x', padL); hit.setAttribute('y', padT);
+    hit.setAttribute('width', iw); hit.setAttribute('height', ih);
+    hit.setAttribute('fill', 'transparent');
+    svg.appendChild(hit);
+
+    var tip = document.getElementById('tooltip');
+    function showTip(evt) {
+      var rect = svg.getBoundingClientRect();
+      var relX = (evt.clientX - rect.left) / rect.width * W;
+      var idx = Math.round((relX - padL) / (iw / Math.max(1, months.length - 1)));
+      idx = Math.min(months.length - 1, Math.max(0, idx));
+      vline.setAttribute('x1', X(idx)); vline.setAttribute('x2', X(idx));
+      vline.style.display = '';
+      tip.textContent = '';
+      var t = document.createElement('div'); t.className = 'tt-title'; t.textContent = months[idx];
+      tip.appendChild(t);
+      series.forEach(function (s) {
+        var v = s.values[idx];
+        var row = document.createElement('div'); row.className = 'tt-row';
+        var k = document.createElement('span'); k.className = 'tt-key'; k.style.background = s.color;
+        var val = document.createElement('span'); val.className = 'tt-val';
+        val.textContent = v === null ? '—' : fmtVal(v, false);
+        var nm = document.createElement('span'); nm.className = 'tt-name'; nm.textContent = s.name;
+        row.appendChild(k); row.appendChild(val); row.appendChild(nm);
+        tip.appendChild(row);
+      });
+      tip.style.display = 'block';
+      var px = evt.clientX + 14, py = evt.clientY + 14;
+      if (px + tip.offsetWidth > window.innerWidth - 8) px = evt.clientX - tip.offsetWidth - 14;
+      tip.style.left = (px + window.scrollX) + 'px';
+      tip.style.top = (py + window.scrollY) + 'px';
+    }
+    hit.addEventListener('pointermove', showTip);
+    hit.addEventListener('pointerleave', function () {
+      tip.style.display = 'none'; vline.style.display = 'none';
+    });
+
+    container.appendChild(svg);
+  }
+
+  // ── 店舗詳細 ─────────────────────────────────────────
+  function renderDetail() {
+    var months = DATA.months;
+    function seriesOf(fn) {
+      return months.map(function (ym) {
+        var r = rowOf(curStore, ym);
+        return r ? fn(r) : null;
+      });
+    }
+    var s1 = cssVar('--s1'), ctx = cssVar('--ctx');
+
+    lineChart(document.getElementById('salesChart'), months,
+      [{ name: '売上', color: s1, values: seriesOf(function (r) { return r.sales; }), area: true }],
+      function (v, tick) { return tick ? Math.round(v / 1e4).toLocaleString('ja-JP') + '万' : yenCompact(v); });
+
+    lineChart(document.getElementById('foodChart'), months, [
+      { name: '実原価率', color: s1, values: seriesOf(function (r) { return r.fRate; }) },
+      { name: '理論原価率', color: ctx, values: seriesOf(function (r) { return r.ftRate; }) },
+    ], function (v) { return pct(v); });
+
+    lineChart(document.getElementById('drinkChart'), months, [
+      { name: '実原価率', color: s1, values: seriesOf(function (r) { return r.dRate; }) },
+      { name: '理論原価率', color: ctx, values: seriesOf(function (r) { return r.dtRate; }) },
+    ], function (v) { return pct(v); });
+
+    // 表ツイン（チャートの表ビュー）
+    var tbl = document.getElementById('detailTable');
+    tbl.textContent = '';
+    var thead = document.createElement('thead'); var trh = document.createElement('tr');
+    ['月', '売上', 'F原価率', 'F理論', 'D原価率', 'D理論', '棚卸高', '種別'].forEach(function (h) {
+      var th = document.createElement('th'); th.textContent = h; trh.appendChild(th);
+    });
+    thead.appendChild(trh); tbl.appendChild(thead);
+    var tb = document.createElement('tbody');
+    months.forEach(function (ym) {
+      var r = rowOf(curStore, ym);
+      if (!r) return;
+      var tr = document.createElement('tr');
+      [ym, yen(r.sales), pct(r.fRate), pct(r.ftRate), pct(r.dRate), pct(r.dtRate),
+       r.inv === null ? '—' : yen(r.inv), r.kind].forEach(function (v, i) {
+        var td = document.createElement('td'); td.textContent = v;
+        if (i === 0) td.style.textAlign = 'left';
+        tr.appendChild(td);
+      });
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+  }
+
+  // ── 全体描画 ─────────────────────────────────────────
+  function renderAll() {
+    document.getElementById('updatedAt').textContent = '取得: ' + DATA.updatedAt;
+    var mSel = document.getElementById('monthSel');
+    mSel.textContent = '';
+    DATA.months.forEach(function (m) {
+      var o = document.createElement('option'); o.value = m; o.textContent = m; mSel.appendChild(o);
+    });
+    mSel.value = curMonth;
+
+    var sSel = document.getElementById('storeSel');
+    sSel.textContent = '';
+    DATA.stores.forEach(function (s) {
+      var o = document.createElement('option'); o.value = s.key; o.textContent = s.name; sSel.appendChild(o);
+    });
+    if (!curStore || !DATA.stores.some(function (s) { return s.key === curStore; })) {
+      curStore = DATA.stores.length ? DATA.stores[0].key : '';
+    }
+    sSel.value = curStore;
+
+    renderKPIs();
+    renderTable();
+    renderRanking();
+    renderDetail();
+  }
+
+  function load(force) {
+    var app = document.getElementById('app');
+    if (DATA) app.classList.add('dimmed');
+    google.script.run
+      .withSuccessHandler(function (d) {
+        DATA = d;
+        if (!curMonth || DATA.months.indexOf(curMonth) < 0) {
+          curMonth = DATA.months[DATA.months.length - 1] || '';
+        }
+        document.getElementById('loading').style.display = 'none';
+        app.style.display = '';
+        app.classList.remove('dimmed');
+        renderAll();
+      })
+      .withFailureHandler(function (e) {
+        document.getElementById('loading').textContent = '読み込みに失敗しました: ' + e.message;
+      })
+      .getDashboardData(!!force);
+  }
+
+  // ── イベント ─────────────────────────────────────────
+  document.getElementById('monthSel').onchange = function () {
+    curMonth = this.value; renderKPIs(); renderTable(); renderRanking();
+  };
+  document.getElementById('mPrev').onclick = function () {
+    var i = DATA.months.indexOf(curMonth);
+    if (i > 0) { curMonth = DATA.months[i - 1]; document.getElementById('monthSel').value = curMonth; renderKPIs(); renderTable(); renderRanking(); }
+  };
+  document.getElementById('mNext').onclick = function () {
+    var i = DATA.months.indexOf(curMonth);
+    if (i < DATA.months.length - 1) { curMonth = DATA.months[i + 1]; document.getElementById('monthSel').value = curMonth; renderKPIs(); renderTable(); renderRanking(); }
+  };
+  document.getElementById('storeSel').onchange = function () { curStore = this.value; renderDetail(); };
+  document.getElementById('btnReload').onclick = function () { load(true); };
+  window.addEventListener('resize', function () { if (DATA) renderDetail(); });
+
+  // ── 再取得モーダル ────────────────────────────────────
+  var overlay = document.getElementById('fetchOverlay');
+  document.getElementById('btnFetch').onclick = function () {
+    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+    document.getElementById('fetchMonth').value =
+      d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2);
+    document.getElementById('fetchMsg').textContent = '';
+    overlay.classList.add('show');
+  };
+  document.getElementById('btnFetchCancel').onclick = function () { overlay.classList.remove('show'); };
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.classList.remove('show'); });
+
+  document.getElementById('btnFetchRun').onclick = function () {
+    var target = document.querySelector('input[name="tgt"]:checked').value;
+    var month = document.getElementById('fetchMonth').value;
+    var msg = document.getElementById('fetchMsg');
+    var btn = this;
+    btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = '起動中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.needSetup) document.getElementById('tokenSetup').open = true;
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
+      })
+      .triggerCloudFetch(target, month);
+  };
+
+  document.getElementById('btnSaveToken').onclick = function () {
+    var token = document.getElementById('tokenInput').value;
+    var msg = document.getElementById('fetchMsg');
+    google.script.run
+      .withSuccessHandler(function (res) {
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) document.getElementById('tokenInput').value = '';
+      })
+      .saveGithubToken(token);
+  };
+
+  load(false);
+})();
+</script>
+</body>
+</html>

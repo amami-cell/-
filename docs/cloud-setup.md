@@ -41,18 +41,18 @@ GitHub リポジトリ → **Actions** タブ → **棚卸データ自動取得*
 自動取得する。同月・同店舗のデータは上書きされるため、期間中は毎日最新の値に
 置き換わる（店舗の締めが遅れても5日までに自動で反映される）。
 
-### スプレッドシートからの再取得ボタン
+### ダッシュボードからの再取得ボタン
 
-シートのメニュー **📊 棚卸管理 > ☁️ FW再取得 / ☁️ インフォマート再取得** から、
-月（YYYY-MM）を指定してクラウド取得を起動できる（5〜15分でシート反映）。
+ダッシュボード（`gas/dashboard/` 参照）の「⟳ データ再取得」ボタンから、
+月（YYYY-MM）と対象（FW／インフォマート／両方）を指定してクラウド取得を
+起動できる（5〜15分でシート反映）。スプレッドシートは純粋なデータベースとして
+扱い、操作UIはすべてダッシュボードに集約する。
 
-初期設定（1回だけ）:
+初期設定（管理者・1回だけ）:
 1. https://github.com/settings/personal-access-tokens/new でトークンを作成
    - Repository access: Only select repositories → `amami-cell/-`
    - Permissions > Repository permissions > **Actions: Read and write**
-2. `gas/cloud_fetch.gs` をスプレッドシートの Apps Script に追加し、
-   `gas/inventory_update.gs` の onOpen() を最新版に置き換える
-3. メニュー **⚙️ クラウド実行の初期設定** でトークンを貼り付け
+2. ダッシュボードの再取得モーダル内「初期設定」にトークンを貼り付けて保存
 
 ## 3. 失敗時の調査
 

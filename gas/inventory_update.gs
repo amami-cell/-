@@ -89,10 +89,6 @@ const STORE_MAP = {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('📊 棚卸管理')
-    .addItem('☁️ FW再取得（クラウド実行）', 'runCloudFetchFW')
-    .addItem('☁️ インフォマート再取得（クラウド実行）', 'runCloudFetchInfomart')
-    .addSeparator()
-    .addItem('⚙️ クラウド実行の初期設定', 'setupCloudFetchToken')
     .addItem('管理ツールを開く', 'showLaunchCommand_')
     .addToUi();
 }
