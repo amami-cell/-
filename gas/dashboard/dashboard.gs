@@ -76,18 +76,21 @@ function doGet() {
 // プロパティに保存し、画面コードには出ない。管理者はいつでも変更できる。
 
 const PASSCODE_PROP = 'DASH_PASSCODE';
+const DEFAULT_PASSCODE = '8888';   // 未変更時の初期パスワード（画面の🔒からいつでも変更可）
 
-/** サーバ内部用: 合言葉が一致するか（未設定なら素通し）。 */
-function verifyPass_(pass) {
-  const p = PropertiesService.getScriptProperties().getProperty(PASSCODE_PROP);
-  if (!p) return true;
-  return String(pass || '') === p;
+/** 現在有効なパスワード。未設定なら初期値 8888。 */
+function currentPass_() {
+  return PropertiesService.getScriptProperties().getProperty(PASSCODE_PROP) || DEFAULT_PASSCODE;
 }
 
-/** 合言葉が設定済みか（ログイン画面を出すか）をクライアントに返す。 */
+/** サーバ内部用: 合言葉が一致するか。 */
+function verifyPass_(pass) {
+  return String(pass || '') === currentPass_();
+}
+
+/** 合言葉は常に有効（初期値8888）なので必ずログイン画面を出す。 */
 function getPasscodeStatus() {
-  const p = PropertiesService.getScriptProperties().getProperty(PASSCODE_PROP);
-  return { set: !!p };
+  return { set: true };
 }
 
 /** 合言葉の照合。 */
@@ -95,19 +98,14 @@ function verifyPasscode(pass) {
   return { ok: verifyPass_(pass) };
 }
 
-/**
- * 合言葉を変更する。設定済みなら現在の合言葉が必要。
- * 未設定なら誰でも初回設定できる（初期設定用）。
- */
+/** 合言葉を変更する。現在の合言葉（初期は8888）が必要。 */
 function changePasscode(current, next) {
-  const props = PropertiesService.getScriptProperties();
-  const cur = props.getProperty(PASSCODE_PROP);
-  if (cur && String(current || '') !== cur) {
+  if (String(current || '') !== currentPass_()) {
     return { ok: false, message: '現在のパスワードが違います' };
   }
   next = String(next || '').trim();
   if (next.length < 4) return { ok: false, message: 'パスワードは4文字以上にしてください' };
-  props.setProperty(PASSCODE_PROP, next);
+  PropertiesService.getScriptProperties().setProperty(PASSCODE_PROP, next);
   return { ok: true, message: 'パスワードを変更しました' };
 }
 
