@@ -67,4 +67,10 @@ jobs:
             echo "::error::WebアプリのデプロイIDが見つかりません。Apps Scriptで一度「ウェブアプリ」としてデプロイ済みか確認し、必要なら Secret CLASP_DEPLOYMENT_ID を登録してください"
             exit 1
           fi
-          clasp deploy -i "$DID" -d "auto-deploy" && echo "✅ 反映しました（deploymentId=$DID）"
+          # deploy（URL更新）はオーナーのアカウント権限が必要。失敗しても push（コード反映）は
+          # 済んでいるので、ジョブは成功扱いにし、手動デプロイが必要な旨だけ警告する。
+          if clasp deploy -i "$DID" -d "auto-deploy"; then
+            echo "✅ 反映しました（deploymentId=$DID）"
+          else
+            echo "::warning::コードのアップロードは成功しましたが、Webアプリの公開（URL更新）はスキップされました。Apps Scriptで『デプロイを管理→新バージョン』を1回押すか、オーナーアカウントで clasp login し直してください。"
+          fi
