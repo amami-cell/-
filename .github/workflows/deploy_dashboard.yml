@@ -1,0 +1,70 @@
+name: ダッシュボード自動デプロイ
+
+# gas/dashboard 配下（dashboard.gs / index.html）を変更して main に入れると、
+# clasp で Apps Script プロジェクトへ自動反映し、同じURLのWebアプリを更新する。
+# 手動実行（Actionsの Run workflow / API）でも動く。
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'gas/dashboard/**'
+      - '.github/workflows/deploy_dashboard.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: clasp をインストール
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: Secrets の確認
+        env:
+          RC: ${{ secrets.CLASPRC_JSON }}
+          SID: ${{ secrets.CLASP_SCRIPT_ID }}
+        run: |
+          miss=""
+          [ -z "$RC" ]  && miss="$miss CLASPRC_JSON"
+          [ -z "$SID" ] && miss="$miss CLASP_SCRIPT_ID"
+          if [ -n "$miss" ]; then
+            echo "::error::未設定のSecrets:$miss （docs/dashboard-autodeploy.md の手順で登録してください）"
+            exit 1
+          fi
+
+      - name: 認証情報を復元
+        env:
+          RC: ${{ secrets.CLASPRC_JSON }}
+        run: printf '%s' "$RC" > "$HOME/.clasprc.json"
+
+      - name: .clasp.json を作成
+        working-directory: gas/dashboard
+        env:
+          SID: ${{ secrets.CLASP_SCRIPT_ID }}
+        run: printf '{"scriptId":"%s","rootDir":"."}' "$SID" > .clasp.json
+
+      - name: コードをアップロード
+        working-directory: gas/dashboard
+        run: clasp push -f
+
+      - name: Webアプリを更新（同じURLに反映）
+        working-directory: gas/dashboard
+        env:
+          DID: ${{ secrets.CLASP_DEPLOYMENT_ID }}
+        run: |
+          # デプロイIDが未設定なら既存のWebアプリ（@HEAD以外）を自動検出
+          if [ -z "$DID" ]; then
+            DID=$(clasp deployments | grep -v '@HEAD' | grep -oE 'AKfyc[A-Za-z0-9_-]+' | head -1 || true)
+          fi
+          if [ -z "$DID" ]; then
+            echo "::error::WebアプリのデプロイIDが見つかりません。Apps Scriptで一度「ウェブアプリ」としてデプロイ済みか確認し、必要なら Secret CLASP_DEPLOYMENT_ID を登録してください"
+            exit 1
+          fi
+          clasp deploy -i "$DID" -d "auto-deploy" && echo "✅ 反映しました（deploymentId=$DID）"
