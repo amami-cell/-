@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>棚卸ダッシュボード</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --page: #f9f9f7;
+    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+    --accent: #2a78d6; --good: #006300; --bad: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --page: #0d0d0d;
+      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+      --accent: #3987e5; --good: #0ca30c; --bad: #e66767;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
+    background: var(--page); color: var(--ink); font-size: 14px; line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 14px 14px 64px; }
+
+  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  header h1 { font-size: 18px; font-weight: 700; }
+  .updated { color: var(--muted); font-size: 11px; }
+  .spacer { flex: 1; }
+
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--border);
+    background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 13px;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.small { font-size: 12px; padding: 4px 10px; }
+  button:disabled { opacity: .5; cursor: default; }
+  select {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink); max-width: 240px;
+  }
+
+  /* F/D/FD 切替（最上部・両画面共通） */
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .seg button { border: none; border-radius: 0; padding: 7px 16px; color: var(--ink-2); background: transparent; }
+  .seg button.on { background: var(--accent); color: #fff; font-weight: 600; }
+
+  .filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filters label { color: var(--ink-2); font-size: 13px; }
+  .kind-badge {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--ink-2);
+  }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .card h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 10px; }
+  .dimmed { opacity: .5; pointer-events: none; }
+
+  /* 在庫回転日数ヒーロー */
+  .hero { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  .hero .big { font-size: 52px; font-weight: 700; line-height: 1.1; }
+  .hero .big small { font-size: 22px; font-weight: 600; color: var(--ink-2); }
+  .hero .sub { color: var(--muted); font-size: 12px; }
+  .hero .hlabel { font-size: 13px; color: var(--ink-2); width: 100%; }
+  @media (max-width: 480px) {
+    .hero .big { font-size: 40px; }
+    .hero .big small { font-size: 18px; }
+  }
+
+  /* 店舗リスト（一覧画面・横はみ出しなし） */
+  .seg-sm button { padding: 5px 14px; font-size: 13px; }
+  .srow {
+    border: 1px solid var(--border); border-radius: 12px; background: var(--page);
+    padding: 12px 14px; margin-bottom: 10px; cursor: pointer;
+    transition: border-color .1s, box-shadow .1s;
+  }
+  .srow:hover { border-color: var(--accent); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+  .sr-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .sr-name { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sr-vals { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sr-vals.three { grid-template-columns: 1fr 1fr 1fr; }
+  .mini {
+    border: 1px solid var(--grid); border-radius: 10px; background: var(--surface);
+    padding: 8px 12px;
+  }
+  .mini .mv { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .mini .mv.big { font-size: 18px; }
+  .mini .mv.muted { color: var(--muted); font-weight: 500; font-size: 14px; }
+  .mini .ml { font-size: 11px; color: var(--muted); margin-bottom: 1px; }
+  .mini .mr { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .mini .mr.accent { color: var(--accent); font-weight: 700; font-size: 13px; }
+  @media (max-width: 480px) { .mini { padding: 7px 9px; } .mini .mv { font-size: 14px; } .mini .mv.big { font-size: 16px; } }
+
+  /* テーブル */
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 7px 9px; white-space: nowrap; }
+  thead th {
+    text-align: right; color: var(--muted); font-weight: 500; font-size: 12px;
+    border-bottom: 1px solid var(--axis); cursor: pointer; user-select: none;
+  }
+  thead th:first-child { text-align: left; }
+  tbody td { border-bottom: 1px solid var(--grid); text-align: right; font-variant-numeric: tabular-nums; }
+  tbody td:first-child { text-align: left; }
+  tbody tr:hover { background: rgba(128,128,128,.06); }
+  .pos { color: var(--bad); }
+  .neg { color: var(--good); }
+  .sort-mark { font-size: 10px; }
+
+  /* 月ブロック（店舗画面） */
+  .mhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .mhead .ym { font-size: 17px; font-weight: 700; }
+  .turn-chip {
+    font-size: 13px; padding: 3px 12px; border-radius: 999px;
+    background: var(--accent); color: #fff; font-weight: 600;
+  }
+  .items {
+    width: 100%; font-size: 13px; border-collapse: separate; border-spacing: 0;
+    border: 1px solid var(--grid); border-radius: 10px; overflow: hidden; background: var(--page);
+  }
+  .items td { border-bottom: 1px solid var(--grid); padding: 6px 8px; }
+  .items tr:last-child td { border-bottom: none; }
+  .items td.lbl { color: var(--ink-2); overflow-wrap: anywhere; }
+  .items td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .items td.rate { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); font-size: 12px; }
+  .items tr.head td { color: var(--muted); font-size: 11px; background: var(--surface); white-space: nowrap; }
+  .items tr.strong td { font-weight: 600; background: var(--surface); }
+  @media (max-width: 680px) {
+    .items { font-size: 12px; }
+    .items td { padding: 6px 5px; }
+  }
+  @media (max-width: 420px) {
+    .items { font-size: 11px; }
+    .items td { padding: 5px 4px; }
+    .items td.rate { font-size: 10px; }
+  }
+
+  /* ロス */
+  .loss-list { margin-top: 8px; }
+  .loss-item {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    padding: 4px 0; border-bottom: 1px dashed var(--grid);
+  }
+  .loss-item .cat { color: var(--muted); flex: none; }
+  .loss-item .memo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .loss-item .amt { font-variant-numeric: tabular-nums; }
+  .loss-item .del { color: var(--muted); background: none; border: none; padding: 2px 6px; font-size: 12px; }
+  .loss-item .del:hover { color: var(--bad); }
+  .loss-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .loss-form {
+    margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
+    display: grid; gap: 8px;
+  }
+  .loss-form .title { font-size: 13px; font-weight: 600; }
+  .loss-form .frow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .loss-form input[type="text"], .loss-form input[type="number"] {
+    font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--ink);
+  }
+  .loss-form input[type="text"] { flex: 1; min-width: 160px; }
+  .loss-form input[type="number"] { width: 130px; }
+  .radio-row { display: flex; gap: 12px; font-size: 13px; }
+  .radio-row label { display: flex; align-items: center; gap: 4px; }
+
+  .msg { font-size: 12px; min-height: 16px; }
+  .msg.ok { color: var(--good); }
+  .msg.err { color: var(--bad); }
+
+  /* モーダル */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none;
+    align-items: center; justify-content: center; padding: 16px; z-index: 100;
+  }
+  .overlay.show { display: flex; }
+  .modal { background: var(--surface); border-radius: 14px; padding: 20px; width: 100%; max-width: 400px; }
+  .modal h3 { font-size: 15px; margin-bottom: 8px; }
+  .modal p { font-size: 13px; color: var(--ink-2); margin-bottom: 12px; }
+  .modal .actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .modal input[type="password"] {
+    font: inherit; width: 100%; padding: 7px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink);
+  }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+
+  #loading { text-align: center; color: var(--muted); padding: 80px 0; }
+  .spin {
+    display: inline-block; width: 26px; height: 26px; border: 3px solid var(--grid);
+    border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>棚卸ダッシュボード</h1>
+    <span class="updated" id="updatedAt"></span>
+    <span class="spacer"></span>
+    <button id="btnPass" class="small" title="パスワードの変更">🔒</button>
+    <button id="btnReload" class="small">最新に更新</button>
+  </header>
+
+  <div id="loading"><div class="spin"></div><div>読み込み中…</div></div>
+
+  <!-- ログイン画面（合言葉が設定されている場合のみ表示）-->
+  <div id="loginView" style="display:none; max-width:360px; margin:60px auto; text-align:center">
+    <div style="font-size:40px; margin-bottom:8px">🔒</div>
+    <h2 style="font-size:18px; margin-bottom:6px">棚卸ダッシュボード</h2>
+    <p style="color:var(--ink-2); font-size:13px; margin-bottom:16px">閲覧用パスワードを入力してください</p>
+    <input type="password" id="loginPass" placeholder="パスワード"
+      style="font:inherit; width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--ink); text-align:center; margin-bottom:10px">
+    <button class="primary" id="btnLogin" style="width:100%; padding:10px">ひらく</button>
+    <div class="msg" id="loginMsg" style="margin-top:8px"></div>
+  </div>
+
+  <div id="app" style="display:none">
+    <!-- F/D/FD 切替（最上部・共通） -->
+    <div class="filters">
+      <div class="seg" id="fdSeg">
+        <button data-mode="F">フード</button>
+        <button data-mode="D">ドリンク</button>
+        <button data-mode="FD" class="on">FD合算</button>
+      </div>
+      <span class="spacer"></span>
+      <span id="storeNav" style="display:none">
+        <button id="btnBack" class="small">← 店舗一覧</button>
+        <select id="storeSel"></select>
+      </span>
+    </div>
+
+    <!-- ═══ 一覧画面 ═══ -->
+    <div id="listView">
+      <div class="filters">
+        <label>対象月</label>
+        <button class="small" id="mPrev">◀</button>
+        <select id="monthSel"></select>
+        <button class="small" id="mNext">▶</button>
+        <span class="kind-badge" id="kindBadge" style="display:none">中間データ含む</span>
+        <div class="seg seg-sm" id="pctSeg" title="クレジット手数料2%を理論原価に乗せるかの表示切替">
+          <button data-p="incl" class="on">2%込み</button>
+          <button data-p="excl">2%なし</button>
+        </div>
+        <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙</button>
+        <span class="spacer"></span>
+        <button class="primary small" id="btnFwAll">⟳ FW取込</button>
+        <button class="primary small" id="btnImAll">⟳ インフォマート取込</button>
+      </div>
+
+      <div class="card hero-card">
+        <div class="hero" id="heroList"></div>
+      </div>
+
+      <div class="card">
+        <div class="filters" style="margin-bottom:10px">
+          <div class="seg seg-sm" id="metricSeg">
+            <button data-m="inv" class="on">棚卸</button>
+            <button data-m="cost">原価・ロス</button>
+          </div>
+          <span class="spacer"></span>
+          <label>並べ替え</label>
+          <select id="sortSel"></select>
+        </div>
+        <div id="storeList"></div>
+      </div>
+    </div>
+
+    <!-- ═══ 店舗画面 ═══ -->
+    <div id="storeView" style="display:none">
+      <div class="card hero-card">
+        <div class="hero" id="heroStore"></div>
+      </div>
+      <div id="monthBlocks"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 取込確認モーダル -->
+<div class="overlay" id="fetchOverlay">
+  <div class="modal">
+    <h3 id="fetchTitle"></h3>
+    <p id="fetchDesc"></p>
+    <div class="actions">
+      <button id="btnFetchCancel">閉じる</button>
+      <button class="primary" id="btnFetchRun">実行</button>
+    </div>
+    <div class="msg" id="fetchMsg" style="margin-top:8px"></div>
+    <details id="tokenSetup">
+      <summary>初期設定（管理者用・トークン登録）</summary>
+      <div style="margin-top:8px">
+        <input type="password" id="tokenInput" placeholder="github_pat_...">
+        <div class="actions" style="margin-top:8px"><button id="btnSaveToken" class="small">トークンを保存</button></div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<!-- 2%設定モーダル -->
+<div class="overlay" id="pctOverlay">
+  <div class="modal">
+    <h3>⚙ 理論原価2%（クレジット手数料）の設定</h3>
+    <p>会社ルールとして、理論原価には売上の2%（フード・ドリンクそれぞれ）を乗せます。<br>
+       <b>FWの理論原価にすでに2%が入っている店舗</b>にチェックを入れてください。<br>
+       チェックの無い店舗は「2%込み」表示のとき自動で＋2%されます。</p>
+    <div id="pctList" style="max-height:45vh;overflow-y:auto;border:1px solid var(--grid);border-radius:10px;padding:6px 10px;margin-bottom:12px"></div>
+    <div class="actions">
+      <button id="btnPctCancel">閉じる</button>
+      <button class="primary" id="btnPctSave">保存</button>
+    </div>
+    <div class="msg" id="pctMsg" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- パスワード変更モーダル -->
+<div class="overlay" id="passOverlay">
+  <div class="modal">
+    <h3>🔒 閲覧パスワードの変更</h3>
+    <p style="font-size:13px;color:var(--ink-2)">このダッシュボードを開くときのパスワードを設定・変更します。</p>
+    <div style="margin:10px 0">
+      <label style="display:block; font-size:12px; color:var(--ink-2); margin-bottom:4px">現在のパスワード（初回設定時は空欄でOK）</label>
+      <input type="password" id="passCurrent" style="font:inherit; width:100%; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink)">
+    </div>
+    <div style="margin:10px 0">
+      <label style="display:block; font-size:12px; color:var(--ink-2); margin-bottom:4px">新しいパスワード（4文字以上）</label>
+      <input type="password" id="passNext" style="font:inherit; width:100%; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink)">
+    </div>
+    <div class="actions">
+      <button id="btnPassCancel">閉じる</button>
+      <button class="primary" id="btnPassSave">保存</button>
+    </div>
+    <div class="msg" id="passMsg" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var DATA = null;
+  var view = 'list';          // 'list' | 'store'
+  var fdMode = 'FD';          // 'F' | 'D' | 'FD'
+  var pct2View = 'incl';      // 'incl'=2%込み表示 | 'excl'=2%なし表示
+  var curMonth = '';
+  var curStore = '';
+  var sortKey = 'turnover';
+  var sortAsc = false;
+  var openForm = null;        // {ym, kind} 入力フォームを開いている場所
+  var expandedLoss = null;    // {ym, kind} 内訳を開いているロス行
+  var PASS = '';              // 閲覧パスワード（localStorageに保存）
+  try { PASS = localStorage.getItem('dashPass') || ''; } catch (e) {}
+
+  // ── 書式 ─────────────────────────────────────────────
+  function yen(v) { return '¥' + Math.round(v).toLocaleString('ja-JP'); }
+  function yenCompact(v) {
+    if (Math.abs(v) >= 1e8) return (v / 1e8).toFixed(2) + '億円';
+    if (Math.abs(v) >= 1e4) return Math.round(v / 1e4).toLocaleString('ja-JP') + '万円';
+    return yen(v);
+  }
+  function pct(v) { return (v * 100).toFixed(1) + '%'; }
+  function days1(v) { return v.toFixed(1); }
+  function daysInMonth(ym) {
+    var y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    return new Date(y, m, 0).getDate();
+  }
+  function calPrevYm(ym) {
+    var y = +ym.slice(0, 4), m = +ym.slice(5, 7) - 1;
+    if (m === 0) { m = 12; y--; }
+    return y + '-' + ('0' + m).slice(-2);
+  }
+  function modeLabel() { return fdMode === 'F' ? 'フード' : fdMode === 'D' ? 'ドリンク' : 'FD合算'; }
+
+  // ── 集計（mode = 'F' | 'D' | 'FD'）─────────────────────
+  function invOfM(ym, storeKey, mode) {
+    var inv = (DATA.inventory[ym] || {})[storeKey];
+    if (!inv) return null;
+    return mode === 'F' ? inv.food : mode === 'D' ? inv.drink : inv.food + inv.drink;
+  }
+  function lossesOfM(ym, storeKey, mode) {
+    var all = ((DATA.losses[ym] || {})[storeKey]) || [];
+    if (mode === 'FD') return all;
+    var cat = mode === 'F' ? 'フード' : 'ドリンク';
+    return all.filter(function (l) { return l.cat === cat; });
+  }
+  function calcM(storeKey, ym, mode) {
+    var m = (DATA.metrics[ym] || {})[storeKey];
+    var invCur = invOfM(ym, storeKey, mode);
+    if (!m && invCur === null) return null;
+    m = m || {};
+    var d = daysInMonth(ym);
+    var sales = m.sales || 0;
+    var purchase = mode === 'F' ? (m.foodPurchase || 0) : mode === 'D' ? (m.drinkPurchase || 0)
+                 : (m.foodPurchase || 0) + (m.drinkPurchase || 0);
+    var theory = mode === 'F' ? (m.foodTheory || 0) : mode === 'D' ? (m.drinkTheory || 0)
+               : (m.foodTheory || 0) + (m.drinkTheory || 0);
+    // クレジット手数料2%: 理論原価に F売上×2% / D売上×2% を乗せる会社ルール。
+    // storeFlags[店舗]=true は「FWの理論原価に2%込み済み」。表示切替に合わせて加減算する。
+    var fs = m.foodSales || 0, ds = m.drinkSales || 0;
+    var pct2 = mode === 'F' ? fs * 0.02 : mode === 'D' ? ds * 0.02 : (fs + ds) * 0.02;
+    var inc2 = !!((DATA.storeFlags || {})[storeKey]);
+    if (pct2View === 'incl' && !inc2) theory += pct2;
+    else if (pct2View === 'excl' && inc2) theory -= pct2;
+    var invPrev = invOfM(calPrevYm(ym), storeKey, mode);
+    var ls = lossesOfM(ym, storeKey, mode);
+    var need = 0, waste = 0;
+    ls.forEach(function (l) { if (l.kind === '必要ロス') need += l.amount; else if (l.kind === '廃棄ロス') waste += l.amount; });
+    var actual = (invPrev !== null && invCur !== null) ? invPrev + purchase - invCur : null;
+    var unknown = actual !== null ? actual - theory - need - waste : null;
+    // 在庫回転日数 = 棚卸金額 ÷ 1日理論原価（= 月理論原価 ÷ 月日数）
+    var turnover = (invCur !== null && theory > 0) ? invCur / (theory / d) : null;
+    return {
+      ym: ym, days: d, kind: m.kind || '',
+      sales: sales, purchase: purchase, theory: theory,
+      invPrev: invPrev, invCur: invCur,
+      actual: actual, need: need, waste: waste, unknown: unknown,
+      losses: ls, turnover: turnover,
+      purchaseRate: sales ? purchase / sales : null,
+      actualRate: (sales && actual !== null) ? actual / sales : null,
+      theoryRate: sales ? theory / sales : null,
+      unknownRate: (sales && unknown !== null) ? unknown / sales : null,
+    };
+  }
+  function calc(storeKey, ym) { return calcM(storeKey, ym, fdMode); }
+  function totalsOf(ym) {
+    var t = { sales: 0, purchase: 0, theory: 0, inv: 0, hasInv: false, interim: false,
+              need: 0, waste: 0, unknown: null, days: daysInMonth(ym) };
+    DATA.stores.forEach(function (s) {
+      var r = calc(s.key, ym);
+      if (!r) return;
+      t.sales += r.sales; t.purchase += r.purchase; t.theory += r.theory;
+      t.need += r.need; t.waste += r.waste;
+      if (r.unknown !== null) t.unknown = (t.unknown || 0) + r.unknown;
+      if (r.invCur !== null) { t.inv += r.invCur; t.hasInv = true; }
+      if (r.kind === '中間') t.interim = true;
+    });
+    t.turnover = (t.hasInv && t.theory > 0) ? t.inv / (t.theory / t.days) : null;
+    return t;
+  }
+
+  // ── ヒーロー（在庫回転日数）──────────────────────────
+  function renderHero(el, turnover, inv, theory, d, sub) {
+    el.textContent = '';
+    var lbl = document.createElement('div'); lbl.className = 'hlabel';
+    lbl.textContent = '在庫回転日数（' + modeLabel() + '）— 何日分の在庫を抱えているか';
+    var big = document.createElement('div'); big.className = 'big';
+    if (turnover === null) {
+      big.textContent = '—';
+    } else {
+      big.textContent = days1(turnover);
+      var sm = document.createElement('small'); sm.textContent = ' 日分';
+      big.appendChild(sm);
+    }
+    var s = document.createElement('div'); s.className = 'sub';
+    s.textContent = turnover === null
+      ? '計算に必要なデータ（棚卸高・理論原価）が未取得です'
+      : sub + '： 棚卸高 ' + yenCompact(inv) + ' ÷ 1日理論原価 ' + yenCompact(theory / d);
+    el.appendChild(lbl); el.appendChild(big); el.appendChild(s);
+  }
+
+  // ── 一覧画面 ─────────────────────────────────────────
+  var listMetric = 'inv';   // 'inv'=棚卸 | 'cost'=原価・ロス
+  var SORTS = {
+    inv: [
+      { k: 'turnover', t: '在庫回転日数が多い順' },
+      { k: 'invCur',   t: '当月棚卸が多い順' },
+      { k: 'name',     t: '店舗名順' },
+    ],
+    cost: [
+      { k: 'unknown', t: '不明ロスが大きい順' },
+      { k: 'actual',  t: '実使用金額が多い順' },
+      { k: 'theory',  t: '理論原価が多い順' },
+      { k: 'name',    t: '店舗名順' },
+    ],
+  };
+
+  function refreshSortOptions() {
+    var sel = document.getElementById('sortSel');
+    sel.textContent = '';
+    SORTS[listMetric].forEach(function (o) {
+      var op = document.createElement('option'); op.value = o.k; op.textContent = o.t;
+      sel.appendChild(op);
+    });
+    if (!SORTS[listMetric].some(function (o) { return o.k === sortKey; })) {
+      sortKey = SORTS[listMetric][0].k;
+    }
+    sel.value = sortKey;
+  }
+
+  function mini(label, valText, subText, opts) {
+    opts = opts || {};
+    var d = document.createElement('div'); d.className = 'mini';
+    var l = document.createElement('div'); l.className = 'ml'; l.textContent = label;
+    var v = document.createElement('div');
+    v.className = 'mv' + (opts.big ? ' big' : '') + (opts.muted ? ' muted' : '');
+    if (opts.cls) v.classList.add(opts.cls);
+    v.textContent = valText;
+    d.appendChild(l); d.appendChild(v);
+    if (subText) {
+      var rt = document.createElement('div'); rt.className = 'mr' + (opts.subCls ? ' ' + opts.subCls : '');
+      rt.textContent = subText;
+      d.appendChild(rt);
+    }
+    return d;
+  }
+
+  function renderList() {
+    var t = totalsOf(curMonth);
+
+    // 全社ロス合計（必要・廃棄・不明 × 売上比）を横3列で表示
+    var hb = document.getElementById('heroList');
+    hb.textContent = '';
+    var lt = document.createElement('div');
+    lt.style.cssText = 'font-size:13px;color:var(--ink-2);margin-bottom:8px';
+    lt.textContent = 'ロス合計（全社・' + curMonth + '・' + modeLabel() + '）';
+    hb.appendChild(lt);
+    var w3 = document.createElement('div'); w3.className = 'sr-vals three';
+    w3.appendChild(mini('必要ロス', yen(t.need),
+      t.sales ? '売上比 ' + pct(t.need / t.sales) : ''));
+    w3.appendChild(mini('廃棄ロス', yen(t.waste),
+      t.sales ? '売上比 ' + pct(t.waste / t.sales) : ''));
+    w3.appendChild(mini('不明ロス', t.unknown === null ? '—' : yen(t.unknown),
+      (t.unknown !== null && t.sales) ? '売上比 ' + pct(t.unknown / t.sales) : '',
+      { cls: t.unknown === null ? '' : (t.unknown > 0 ? 'pos' : 'neg') }));
+    hb.appendChild(w3);
+
+    document.getElementById('kindBadge').style.display = t.interim ? '' : 'none';
+    refreshSortOptions();
+
+    var rows = DATA.stores.map(function (s) {
+      var r = calc(s.key, curMonth);
+      if (!r) return null;
+      r.name = s.name; r.key = s.key;
+      return r;
+    }).filter(Boolean);
+
+    rows.sort(function (a, b) {
+      if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
+      var x = a[sortKey], y = b[sortKey];
+      if (x === null || x === undefined) x = -Infinity;
+      if (y === null || y === undefined) y = -Infinity;
+      return y - x;   // 金額・日数は多い順
+    });
+
+    var box = document.getElementById('storeList');
+    box.textContent = '';
+    rows.forEach(function (r) {
+      var row = document.createElement('div'); row.className = 'srow';
+
+      var top = document.createElement('div'); top.className = 'sr-top';
+      var nm = document.createElement('span'); nm.className = 'sr-name'; nm.textContent = r.name;
+      top.appendChild(nm);
+      if (r.kind === '中間') {
+        var kb = document.createElement('span'); kb.className = 'kind-badge'; kb.textContent = '中間';
+        top.appendChild(kb);
+      }
+      if ((DATA.storeFlags || {})[r.key]) {
+        var pb = document.createElement('span'); pb.className = 'kind-badge'; pb.textContent = '2%込済';
+        top.appendChild(pb);
+      }
+      row.appendChild(top);
+
+      var vals = document.createElement('div');
+      if (listMetric === 'inv') {
+        var pv = calc(r.key, calPrevYm(curMonth));
+        var prevTurn = pv ? pv.turnover : null;
+        vals.className = 'sr-vals';
+        vals.appendChild(mini('当月棚卸（' + curMonth.slice(5) + '月）',
+          r.invCur === null ? '— 未取得' : yen(r.invCur),
+          r.turnover === null ? '' : '在庫 ' + days1(r.turnover) + '日分',
+          { big: true, subCls: 'accent' }));
+        vals.appendChild(mini('前月棚卸',
+          r.invPrev === null ? '—' : yen(r.invPrev),
+          prevTurn === null ? '' : '在庫 ' + days1(prevTurn) + '日分',
+          { muted: true }));
+      } else {
+        vals.className = 'sr-vals three';
+        vals.appendChild(mini('実使用金額',
+          r.actual === null ? '—' : yen(r.actual),
+          r.actualRate !== null ? '売上比 ' + pct(r.actualRate) : ''));
+        vals.appendChild(mini('理論原価',
+          yen(r.theory),
+          r.theoryRate !== null ? '売上比 ' + pct(r.theoryRate) : ''));
+        vals.appendChild(mini('不明ロス',
+          r.unknown === null ? '—' : yen(r.unknown),
+          r.unknownRate !== null ? '売上比 ' + pct(r.unknownRate) : '',
+          { cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') }));
+      }
+      row.appendChild(vals);
+
+      row.onclick = function () { openStore(r.key); };
+      box.appendChild(row);
+    });
+
+    if (!rows.length) {
+      var e = document.createElement('div'); e.className = 'empty';
+      e.textContent = 'この月のデータはありません';
+      box.appendChild(e);
+    }
+  }
+
+  // ── 店舗画面 ─────────────────────────────────────────
+  function fdCells(tr, r, getter, clsFn, withRate) {
+    var v = r ? getter(r) : null;
+    var td = document.createElement('td'); td.className = 'num';
+    td.textContent = v === null ? '—' : yen(v);
+    if (clsFn && v !== null) { var c = clsFn(v); if (c) td.classList.add(c); }
+    tr.appendChild(td);
+    if (withRate) {
+      var tdr = document.createElement('td'); tdr.className = 'rate';
+      tdr.textContent = (v !== null && r && r.sales) ? pct(v / r.sales) : '';
+      tr.appendChild(tdr);
+    }
+  }
+
+  /** 仕入項目 × FD合計（売上比つき）/食材費(F)/飲料費(D) の表を作る */
+  function buildFdTable(rFD, rF, rD, ym) {
+    var tbl = document.createElement('table');
+    tbl.className = 'items';
+
+    var trh = document.createElement('tr'); trh.className = 'head';
+    [['仕入項目', 'lbl'],
+     ['ＦＤ合計', 'num'], ['売上比', 'rate'],
+     ['食材費(F)', 'num'], ['飲料費(D)', 'num']].forEach(function (hc) {
+      var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0];
+      trh.appendChild(td);
+    });
+    tbl.appendChild(trh);
+
+    var ROWS = [
+      { label: '前月棚金', get: function (r) { return r.invPrev; } },
+      { label: '当月仕入', get: function (r) { return r.purchase; } },
+      { label: '当月棚金', get: function (r) { return r.invCur; } },
+      { label: '当月実使用', get: function (r) { return r.actual; }, strong: true },
+      { label: '理論原価', get: function (r) { return r.theory; } },
+      { label: '必要ロス', get: function (r) { return r.need; }, loss: '必要ロス', indent: true },
+      { label: '廃棄ロス', get: function (r) { return r.waste; }, loss: '廃棄ロス', indent: true },
+      { label: '不明ロス', get: function (r) { return r.unknown; }, strong: true,
+        clsFn: function (v) { return v > 0 ? 'pos' : 'neg'; } },
+    ];
+
+    ROWS.forEach(function (row) {
+      var tr = document.createElement('tr');
+      if (row.strong) tr.className = 'strong';
+      var lbl = document.createElement('td'); lbl.className = 'lbl';
+      if (row.indent) lbl.style.paddingLeft = '1.4em';
+      if (row.loss) {
+        var count = rFD.losses.filter(function (l) { return l.kind === row.loss; }).length;
+        var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === row.loss);
+        lbl.textContent = (isOpen ? '▾ ' : '▸ ') + row.label + '（' + count + '件）';
+        tr.style.cursor = 'pointer';
+        tr.onclick = function () {
+          expandedLoss = isOpen ? null : { ym: ym, kind: row.loss };
+          renderStore();
+        };
+      } else {
+        lbl.textContent = row.label;
+      }
+      tr.appendChild(lbl);
+      fdCells(tr, rFD, row.get, row.clsFn, true);
+      fdCells(tr, rF, row.get, row.clsFn, false);
+      fdCells(tr, rD, row.get, row.clsFn, false);
+      tbl.appendChild(tr);
+    });
+    return tbl;
+  }
+
+  function renderStore() {
+    var name = '';
+    DATA.stores.forEach(function (s) { if (s.key === curStore) name = s.name; });
+
+    // ヒーロー: 最新月
+    var latest = null;
+    for (var i = DATA.months.length - 1; i >= 0; i--) {
+      var r0 = calc(curStore, DATA.months[i]);
+      if (r0) { latest = r0; break; }
+    }
+    var heroEl = document.getElementById('heroStore');
+    if (latest) {
+      renderHero(heroEl, latest.turnover, latest.invCur || 0, latest.theory, latest.days, name + ' ' + latest.ym);
+    } else {
+      heroEl.textContent = 'データがありません';
+    }
+
+    var box = document.getElementById('monthBlocks');
+    box.textContent = '';
+
+    DATA.months.slice().reverse().forEach(function (ym) {
+      var rFD = calcM(curStore, ym, 'FD');
+      if (!rFD) return;
+      var rF = calcM(curStore, ym, 'F');
+      var rD = calcM(curStore, ym, 'D');
+      var r = fdMode === 'F' ? rF : fdMode === 'D' ? rD : rFD;
+
+      var card = document.createElement('div'); card.className = 'card';
+
+      // ── ヘッダー行 ──
+      var h = document.createElement('div'); h.className = 'mhead';
+      var ymEl = document.createElement('span'); ymEl.className = 'ym'; ymEl.textContent = ym;
+      h.appendChild(ymEl);
+      if (rFD.kind === '中間') {
+        var kb = document.createElement('span'); kb.className = 'kind-badge'; kb.textContent = '中間';
+        h.appendChild(kb);
+      }
+      if (r && r.turnover !== null) {
+        var chip = document.createElement('span'); chip.className = 'turn-chip';
+        chip.textContent = '在庫 ' + days1(r.turnover) + '日分';
+        h.appendChild(chip);
+      }
+      var salesEl = document.createElement('span');
+      salesEl.style.cssText = 'font-size:13px;color:var(--ink-2)';
+      salesEl.textContent = '売上 ' + yen(rFD.sales);
+      h.appendChild(salesEl);
+      var sp = document.createElement('span'); sp.className = 'spacer'; h.appendChild(sp);
+      [['fw', '⟳ FW取込'], ['infomart', '⟳ インフォマート取込']].forEach(function (b) {
+        var btn = document.createElement('button'); btn.className = 'small';
+        btn.textContent = b[1];
+        btn.onclick = function () { openFetchModal(b[0], ym); };
+        h.appendChild(btn);
+      });
+      card.appendChild(h);
+
+      // ── 棚卸項目（FD合計・F・D × 売上比）──
+      card.appendChild(buildFdTable(rFD, rF, rD, ym));
+
+      // ── ロス内訳（合計行をタップで開閉）──
+      if (expandedLoss && expandedLoss.ym === ym) {
+        var kindSel = expandedLoss.kind;
+        var list = rFD.losses.filter(function (l) { return l.kind === kindSel; });
+        var ll = document.createElement('div'); ll.className = 'loss-list';
+        var lt = document.createElement('div');
+        lt.style.cssText = 'font-size:12px;color:var(--muted);margin:8px 0 2px';
+        lt.textContent = '📋 ' + kindSel + 'の内訳（' + list.length + '件）';
+        ll.appendChild(lt);
+        if (!list.length) {
+          var em = document.createElement('div'); em.className = 'empty';
+          em.textContent = 'まだ登録がありません。下のボタンから入力できます。';
+          ll.appendChild(em);
+        }
+        list.forEach(function (l) {
+          var it = document.createElement('div'); it.className = 'loss-item';
+          var c1 = document.createElement('span'); c1.className = 'cat'; c1.textContent = l.cat;
+          var c2 = document.createElement('span'); c2.className = 'memo'; c2.textContent = l.memo;
+          var c3 = document.createElement('span'); c3.className = 'amt'; c3.textContent = yen(l.amount);
+          var del = document.createElement('button'); del.className = 'del'; del.textContent = '✕';
+          del.title = '削除';
+          del.onclick = function (ev) { ev.stopPropagation(); removeLoss(l, ym, del); };
+          it.appendChild(c1); it.appendChild(c2); it.appendChild(c3); it.appendChild(del);
+          ll.appendChild(it);
+        });
+        card.appendChild(ll);
+      }
+
+      // ── ロス入力ボタン＋フォーム ──
+      var lb = document.createElement('div'); lb.className = 'loss-btns';
+      ['廃棄ロス', '必要ロス'].forEach(function (kind) {
+        var btn = document.createElement('button'); btn.className = 'small';
+        btn.textContent = '＋ ' + kind + 'を入力';
+        btn.onclick = function () {
+          openForm = (openForm && openForm.ym === ym && openForm.kind === kind) ? null : { ym: ym, kind: kind };
+          renderStore();
+        };
+        lb.appendChild(btn);
+      });
+      card.appendChild(lb);
+
+      if (openForm && openForm.ym === ym) {
+        card.appendChild(buildLossForm(ym, openForm.kind));
+      }
+
+      box.appendChild(card);
+    });
+
+    if (!box.children.length) {
+      var e = document.createElement('div'); e.className = 'card empty';
+      e.textContent = 'この店舗のデータはまだありません';
+      box.appendChild(e);
+    }
+  }
+
+  function buildLossForm(ym, kind) {
+    var f = document.createElement('div'); f.className = 'loss-form';
+    var t = document.createElement('div'); t.className = 'title';
+    t.textContent = ym + ' の' + kind + 'を登録（複数まとめて入力OK）';
+    f.appendChild(t);
+
+    var itemsWrap = document.createElement('div');
+    itemsWrap.style.cssText = 'display:grid;gap:6px';
+    f.appendChild(itemsWrap);
+
+    function addRowUI() {
+      var row = document.createElement('div'); row.className = 'frow';
+      var cat = document.createElement('select');
+      ['フード', 'ドリンク'].forEach(function (c) {
+        var o = document.createElement('option'); o.value = c; o.textContent = c; cat.appendChild(o);
+      });
+      if (fdMode === 'D') cat.value = 'ドリンク';
+      var memo = document.createElement('input'); memo.type = 'text'; memo.placeholder = '内容（例：鮮魚廃棄）';
+      var amt = document.createElement('input'); amt.type = 'number'; amt.placeholder = '金額（円）'; amt.min = '1';
+      var del = document.createElement('button'); del.className = 'small'; del.textContent = '✕'; del.title = 'この行を消す';
+      del.onclick = function () {
+        if (itemsWrap.children.length > 1) row.remove();
+        else { memo.value = ''; amt.value = ''; }
+      };
+      row.appendChild(cat); row.appendChild(memo); row.appendChild(amt); row.appendChild(del);
+      itemsWrap.appendChild(row);
+      return { memo: memo };
+    }
+    var first = addRowUI();
+
+    var addBtn = document.createElement('button'); addBtn.className = 'small';
+    addBtn.textContent = '＋ 項目を追加';
+    addBtn.style.justifySelf = 'start';
+    addBtn.onclick = function () {
+      var r = addRowUI();
+      r.memo.focus();
+    };
+    f.appendChild(addBtn);
+
+    var act = document.createElement('div'); act.className = 'frow';
+    var save = document.createElement('button'); save.className = 'primary small'; save.textContent = '更新（まとめて登録）';
+    var cancel = document.createElement('button'); cancel.className = 'small'; cancel.textContent = 'とじる';
+    var msg = document.createElement('span'); msg.className = 'msg';
+    act.appendChild(save); act.appendChild(cancel); act.appendChild(msg);
+    f.appendChild(act);
+
+    cancel.onclick = function () { openForm = null; renderStore(); };
+    save.onclick = function () {
+      var items = [];
+      var bad = null;
+      Array.prototype.forEach.call(itemsWrap.children, function (row, i) {
+        var cat = row.querySelector('select').value;
+        var memo = row.querySelector('input[type="text"]').value.trim();
+        var amount = Number(row.querySelector('input[type="number"]').value);
+        if (!memo && !amount) return;   // 完全な空行は無視
+        if (!memo) { bad = (i + 1) + '行目の内容が空です'; return; }
+        if (!isFinite(amount) || amount <= 0) { bad = (i + 1) + '行目の金額が入っていません'; return; }
+        items.push({ cat: cat, memo: memo, amount: amount });
+      });
+      if (bad) { msg.className = 'msg err'; msg.textContent = bad; return; }
+      if (!items.length) { msg.className = 'msg err'; msg.textContent = '1件も入力されていません'; return; }
+      save.disabled = true;
+      msg.className = 'msg'; msg.textContent = items.length + '件を登録中…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          save.disabled = false;
+          if (!res.ok) { msg.className = 'msg err'; msg.textContent = res.message; return; }
+          if (!DATA.losses[ym]) DATA.losses[ym] = {};
+          if (!DATA.losses[ym][curStore]) DATA.losses[ym][curStore] = [];
+          res.recs.forEach(function (rec) { DATA.losses[ym][curStore].push(rec); });
+          openForm = null;
+          expandedLoss = { ym: ym, kind: kind };   // 登録後は内訳を開いて確認できる状態に
+          renderStore();
+        })
+        .withFailureHandler(function (e) {
+          save.disabled = false;
+          msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
+        })
+        .addLosses(PASS, curStore, ym, kind, items);
+    };
+    setTimeout(function () { first.memo.focus(); }, 0);
+    return f;
+  }
+
+  function removeLoss(rec, ym, btn) {
+    if (!confirm('「' + rec.memo + '」 ' + yen(rec.amount) + ' を削除しますか？')) return;
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res.ok) { alert(res.message); btn.disabled = false; return; }
+        var arr = (DATA.losses[ym] || {})[curStore] || [];
+        var i = arr.findIndex(function (x) { return x.id === rec.id; });
+        if (i >= 0) arr.splice(i, 1);
+        renderStore();
+      })
+      .withFailureHandler(function (e) { alert('エラー: ' + e.message); btn.disabled = false; })
+      .deleteLoss(PASS, rec.id);
+  }
+
+  // ── 画面切替・全体描画 ────────────────────────────────
+  function openStore(key) {
+    curStore = key; view = 'store'; openForm = null;
+    document.getElementById('storeSel').value = key;
+    renderAll();
+    window.scrollTo({ top: 0 });
+  }
+
+  function renderAll() {
+    document.getElementById('updatedAt').textContent = '取得: ' + DATA.updatedAt;
+    document.getElementById('listView').style.display = view === 'list' ? '' : 'none';
+    document.getElementById('storeView').style.display = view === 'store' ? '' : 'none';
+    document.getElementById('storeNav').style.display = view === 'store' ? '' : 'none';
+    if (view === 'list') renderList(); else renderStore();
+  }
+
+  function initSelectors() {
+    var mSel = document.getElementById('monthSel');
+    mSel.textContent = '';
+    DATA.months.forEach(function (m) {
+      var o = document.createElement('option'); o.value = m; o.textContent = m; mSel.appendChild(o);
+    });
+    mSel.value = curMonth;
+
+    var sSel = document.getElementById('storeSel');
+    sSel.textContent = '';
+    DATA.stores.forEach(function (s) {
+      var o = document.createElement('option'); o.value = s.key; o.textContent = s.name; sSel.appendChild(o);
+    });
+    if (curStore) sSel.value = curStore;
+  }
+
+  function showLogin() {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginView').style.display = '';
+    setTimeout(function () { document.getElementById('loginPass').focus(); }, 0);
+  }
+
+  function load(force) {
+    var app = document.getElementById('app');
+    if (DATA) app.classList.add('dimmed');
+    google.script.run
+      .withSuccessHandler(function (d) {
+        if (d && d.authError) { showLogin(); return; }
+        DATA = d;
+        if (!curMonth || DATA.months.indexOf(curMonth) < 0) {
+          curMonth = DATA.months[DATA.months.length - 1] || '';
+        }
+        if (!curStore && DATA.stores.length) curStore = DATA.stores[0].key;
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('loginView').style.display = 'none';
+        app.style.display = '';
+        app.classList.remove('dimmed');
+        initSelectors();
+        renderAll();
+      })
+      .withFailureHandler(function (e) {
+        document.getElementById('loading').textContent = '読み込みに失敗しました: ' + e.message;
+      })
+      .getDashboardData(PASS, !!force);
+  }
+
+  // ── イベント ─────────────────────────────────────────
+  document.getElementById('fdSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    fdMode = b.dataset.mode;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderAll();
+  });
+  document.getElementById('pctSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    pct2View = b.dataset.p;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderAll();
+  });
+
+  // ── 2%設定モーダル ───────────────────────────────────
+  var pctOverlay = document.getElementById('pctOverlay');
+  document.getElementById('btnPctSetup').onclick = function () {
+    var list = document.getElementById('pctList');
+    list.textContent = '';
+    DATA.stores.forEach(function (s) {
+      var lab = document.createElement('label');
+      lab.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--grid);font-size:13px;cursor:pointer';
+      var cb = document.createElement('input'); cb.type = 'checkbox';
+      cb.dataset.key = s.key;
+      cb.checked = !!((DATA.storeFlags || {})[s.key]);
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(s.name));
+      list.appendChild(lab);
+    });
+    document.getElementById('pctMsg').textContent = '';
+    pctOverlay.classList.add('show');
+  };
+  document.getElementById('btnPctCancel').onclick = function () { pctOverlay.classList.remove('show'); };
+  pctOverlay.addEventListener('click', function (e) { if (e.target === pctOverlay) pctOverlay.classList.remove('show'); });
+  document.getElementById('btnPctSave').onclick = function () {
+    var flags = {};
+    document.querySelectorAll('#pctList input[type="checkbox"]').forEach(function (cb) {
+      flags[cb.dataset.key] = cb.checked;
+    });
+    var btn = this;
+    var msg = document.getElementById('pctMsg');
+    btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) {
+          DATA.storeFlags = flags;
+          pctOverlay.classList.remove('show');
+          renderAll();
+        }
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
+      })
+      .saveStoreFlags(PASS, flags);
+  };
+
+  document.getElementById('metricSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    listMetric = b.dataset.m;
+    sortKey = SORTS[listMetric][0].k;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderList();
+  });
+  document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
+  document.getElementById('monthSel').onchange = function () { curMonth = this.value; renderList(); };
+  document.getElementById('mPrev').onclick = function () {
+    var i = DATA.months.indexOf(curMonth);
+    if (i > 0) { curMonth = DATA.months[i - 1]; document.getElementById('monthSel').value = curMonth; renderList(); }
+  };
+  document.getElementById('mNext').onclick = function () {
+    var i = DATA.months.indexOf(curMonth);
+    if (i < DATA.months.length - 1) { curMonth = DATA.months[i + 1]; document.getElementById('monthSel').value = curMonth; renderList(); }
+  };
+  document.getElementById('btnBack').onclick = function () { view = 'list'; renderAll(); };
+  document.getElementById('storeSel').onchange = function () { curStore = this.value; openForm = null; renderStore(); };
+  document.getElementById('btnReload').onclick = function () { load(true); };
+  document.getElementById('btnFwAll').onclick = function () { openFetchModal('fw', curMonth); };
+  document.getElementById('btnImAll').onclick = function () { openFetchModal('infomart', curMonth); };
+
+  // ── ログイン ─────────────────────────────────────────
+  function doLogin() {
+    var v = document.getElementById('loginPass').value;
+    var msg = document.getElementById('loginMsg');
+    msg.className = 'msg'; msg.textContent = '確認中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.ok) {
+          PASS = v;
+          try { localStorage.setItem('dashPass', v); } catch (e) {}
+          document.getElementById('loginView').style.display = 'none';
+          document.getElementById('loading').style.display = '';
+          load(false);
+        } else {
+          msg.className = 'msg err'; msg.textContent = 'パスワードが違います';
+        }
+      })
+      .withFailureHandler(function (e) { msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; })
+      .verifyPasscode(v);
+  }
+  document.getElementById('btnLogin').onclick = doLogin;
+  document.getElementById('loginPass').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // ── パスワード変更 ───────────────────────────────────
+  var passOverlay = document.getElementById('passOverlay');
+  document.getElementById('btnPass').onclick = function () {
+    document.getElementById('passCurrent').value = '';
+    document.getElementById('passNext').value = '';
+    document.getElementById('passMsg').textContent = '';
+    passOverlay.classList.add('show');
+  };
+  document.getElementById('btnPassCancel').onclick = function () { passOverlay.classList.remove('show'); };
+  passOverlay.addEventListener('click', function (e) { if (e.target === passOverlay) passOverlay.classList.remove('show'); });
+  document.getElementById('btnPassSave').onclick = function () {
+    var cur = document.getElementById('passCurrent').value;
+    var next = document.getElementById('passNext').value;
+    var msg = document.getElementById('passMsg');
+    var btn = this;
+    btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) {
+          PASS = next;
+          try { localStorage.setItem('dashPass', next); } catch (e) {}
+          setTimeout(function () { passOverlay.classList.remove('show'); }, 900);
+        }
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; })
+      .changePasscode(cur, next);
+  };
+
+  // ── 取込モーダル ─────────────────────────────────────
+  var overlay = document.getElementById('fetchOverlay');
+  var pendingFetch = null;   // {target, ym}
+
+  function openFetchModal(target, ym) {
+    pendingFetch = { target: target, ym: ym };
+    var label = target === 'fw' ? 'FW取込' : 'インフォマート取込';
+    var what = target === 'fw' ? '売上・仕入・理論原価' : '棚卸金額';
+    document.getElementById('fetchTitle').textContent = '⟳ ' + label + '（' + ym + '）';
+    document.getElementById('fetchDesc').textContent =
+      ym + ' の' + what + 'を、全店舗ぶんクラウドで再集計してシートを最新に置き換えます（5〜15分）。よろしいですか？';
+    var msg = document.getElementById('fetchMsg');
+    msg.className = 'msg'; msg.textContent = '';
+    document.getElementById('btnFetchRun').style.display = '';
+    overlay.classList.add('show');
+  }
+
+  document.getElementById('btnFetchCancel').onclick = function () { overlay.classList.remove('show'); };
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.classList.remove('show'); });
+
+  document.getElementById('btnFetchRun').onclick = function () {
+    if (!pendingFetch) return;
+    var btn = this;
+    var msg = document.getElementById('fetchMsg');
+    btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = '起動中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) btn.style.display = 'none';
+        if (res.needSetup) document.getElementById('tokenSetup').open = true;
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
+      })
+      .triggerCloudFetch(PASS, pendingFetch.target, pendingFetch.ym);
+  };
+
+  document.getElementById('btnSaveToken').onclick = function () {
+    var token = document.getElementById('tokenInput').value;
+    var msg = document.getElementById('fetchMsg');
+    google.script.run
+      .withSuccessHandler(function (res) {
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) document.getElementById('tokenInput').value = '';
+      })
+      .saveGithubToken(PASS, token);
+  };
+
+  load(false);
+})();
+</script>
+</body>
+</html>

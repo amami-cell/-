@@ -165,6 +165,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="--foodist-all の開始月 (YYYY-MM形式)。例: 2026-01",
     )
     parser.add_argument(
+        "--to",
+        dest="to_month",
+        type=str,
+        default=None,
+        metavar="YYYY-MM",
+        help="--foodist-all の終了月 (YYYY-MM形式)。未指定は当月まで。",
+    )
+    parser.add_argument(
         "--clear-sheets",
         action="store_true",
         help="--foodist-all 実行前に5つの指標シートの全データを削除してから書き込む",
@@ -375,16 +383,20 @@ def main() -> int:
                 return 1
             from_month = parse_month(args.from_month)
             current_month = date.today().replace(day=1)
+            if args.to_month:
+                end_month = min(parse_month(args.to_month), current_month)
+            else:
+                end_month = current_month
 
             months: list[date] = []
             m = from_month
-            while m <= current_month:
+            while m <= end_month:
                 months.append(m)
                 next_month_num = m.month + 1
                 next_year = m.year + (1 if next_month_num > 12 else 0)
                 m = date(next_year, next_month_num % 12 or 12, 1)
 
-            logger.info(f"Foodist Journal 一括取得: {from_month.strftime('%Y-%m')} 〜 {current_month.strftime('%Y-%m')} ({len(months)} ヶ月)")
+            logger.info(f"Foodist Journal 一括取得: {from_month.strftime('%Y-%m')} 〜 {end_month.strftime('%Y-%m')} ({len(months)} ヶ月)")
 
             pipeline = AutomationPipeline(config)
 

@@ -45,6 +45,8 @@ REPORT_URL = (
 # (metric_key, Googleシート名) の順序リスト
 METRICS: list[tuple[str, str]] = [
     ("sales",          "売上"),
+    ("food_sales",     "F売上"),
+    ("drink_sales",    "D売上"),
     ("food_purchase",  "F食材費仕入"),
     ("drink_purchase", "D飲料費仕入"),
     ("food_theory",    "フード理論原価"),
@@ -54,6 +56,8 @@ METRICS: list[tuple[str, str]] = [
 # Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり
 CELL_MAP: dict[str, tuple[int, int]] = {
     "sales":          (14,  22),   # 売上実績
+    "food_sales":     (83,  22),   # フード売上 実績数値
+    "drink_sales":    (90,  22),   # ドリンク売上 実績数値
     "food_purchase":  (161, 13),   # 食材仕入高(F)
     "drink_purchase": (161, 20),   # 食材仕入高(D)
     "food_theory":    (164, 13),   # 理論原価(F)
