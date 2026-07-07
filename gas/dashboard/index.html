@@ -204,10 +204,22 @@
     <h1>棚卸ダッシュボード</h1>
     <span class="updated" id="updatedAt"></span>
     <span class="spacer"></span>
+    <button id="btnPass" class="small" title="パスワードの変更">🔒</button>
     <button id="btnReload" class="small">最新に更新</button>
   </header>
 
   <div id="loading"><div class="spin"></div><div>読み込み中…</div></div>
+
+  <!-- ログイン画面（合言葉が設定されている場合のみ表示）-->
+  <div id="loginView" style="display:none; max-width:360px; margin:60px auto; text-align:center">
+    <div style="font-size:40px; margin-bottom:8px">🔒</div>
+    <h2 style="font-size:18px; margin-bottom:6px">棚卸ダッシュボード</h2>
+    <p style="color:var(--ink-2); font-size:13px; margin-bottom:16px">閲覧用パスワードを入力してください</p>
+    <input type="password" id="loginPass" placeholder="パスワード"
+      style="font:inherit; width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--ink); text-align:center; margin-bottom:10px">
+    <button class="primary" id="btnLogin" style="width:100%; padding:10px">ひらく</button>
+    <div class="msg" id="loginMsg" style="margin-top:8px"></div>
+  </div>
 
   <div id="app" style="display:none">
     <!-- F/D/FD 切替（最上部・共通） -->
@@ -306,6 +318,27 @@
   </div>
 </div>
 
+<!-- パスワード変更モーダル -->
+<div class="overlay" id="passOverlay">
+  <div class="modal">
+    <h3>🔒 閲覧パスワードの変更</h3>
+    <p style="font-size:13px;color:var(--ink-2)">このダッシュボードを開くときのパスワードを設定・変更します。</p>
+    <div style="margin:10px 0">
+      <label style="display:block; font-size:12px; color:var(--ink-2); margin-bottom:4px">現在のパスワード（初回設定時は空欄でOK）</label>
+      <input type="password" id="passCurrent" style="font:inherit; width:100%; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink)">
+    </div>
+    <div style="margin:10px 0">
+      <label style="display:block; font-size:12px; color:var(--ink-2); margin-bottom:4px">新しいパスワード（4文字以上）</label>
+      <input type="password" id="passNext" style="font:inherit; width:100%; padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--ink)">
+    </div>
+    <div class="actions">
+      <button id="btnPassCancel">閉じる</button>
+      <button class="primary" id="btnPassSave">保存</button>
+    </div>
+    <div class="msg" id="passMsg" style="margin-top:8px"></div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
@@ -320,6 +353,8 @@
   var sortAsc = false;
   var openForm = null;        // {ym, kind} 入力フォームを開いている場所
   var expandedLoss = null;    // {ym, kind} 内訳を開いているロス行
+  var PASS = '';              // 閲覧パスワード（localStorageに保存）
+  try { PASS = localStorage.getItem('dashPass') || ''; } catch (e) {}
 
   // ── 書式 ─────────────────────────────────────────────
   function yen(v) { return '¥' + Math.round(v).toLocaleString('ja-JP'); }
@@ -826,7 +861,7 @@
           save.disabled = false;
           msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
         })
-        .addLosses(curStore, ym, kind, items);
+        .addLosses(PASS, curStore, ym, kind, items);
     };
     setTimeout(function () { first.memo.focus(); }, 0);
     return f;
@@ -844,7 +879,7 @@
         renderStore();
       })
       .withFailureHandler(function (e) { alert('エラー: ' + e.message); btn.disabled = false; })
-      .deleteLoss(rec.id);
+      .deleteLoss(PASS, rec.id);
   }
 
   // ── 画面切替・全体描画 ────────────────────────────────
@@ -879,17 +914,26 @@
     if (curStore) sSel.value = curStore;
   }
 
+  function showLogin() {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('loginView').style.display = '';
+    setTimeout(function () { document.getElementById('loginPass').focus(); }, 0);
+  }
+
   function load(force) {
     var app = document.getElementById('app');
     if (DATA) app.classList.add('dimmed');
     google.script.run
       .withSuccessHandler(function (d) {
+        if (d && d.authError) { showLogin(); return; }
         DATA = d;
         if (!curMonth || DATA.months.indexOf(curMonth) < 0) {
           curMonth = DATA.months[DATA.months.length - 1] || '';
         }
         if (!curStore && DATA.stores.length) curStore = DATA.stores[0].key;
         document.getElementById('loading').style.display = 'none';
+        document.getElementById('loginView').style.display = 'none';
         app.style.display = '';
         app.classList.remove('dimmed');
         initSelectors();
@@ -898,7 +942,7 @@
       .withFailureHandler(function (e) {
         document.getElementById('loading').textContent = '読み込みに失敗しました: ' + e.message;
       })
-      .getDashboardData(!!force);
+      .getDashboardData(PASS, !!force);
   }
 
   // ── イベント ─────────────────────────────────────────
@@ -961,7 +1005,7 @@
         btn.disabled = false;
         msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
       })
-      .saveStoreFlags(flags);
+      .saveStoreFlags(PASS, flags);
   };
 
   document.getElementById('metricSeg').addEventListener('click', function (e) {
@@ -987,6 +1031,63 @@
   document.getElementById('btnReload').onclick = function () { load(true); };
   document.getElementById('btnFwAll').onclick = function () { openFetchModal('fw', curMonth); };
   document.getElementById('btnImAll').onclick = function () { openFetchModal('infomart', curMonth); };
+
+  // ── ログイン ─────────────────────────────────────────
+  function doLogin() {
+    var v = document.getElementById('loginPass').value;
+    var msg = document.getElementById('loginMsg');
+    msg.className = 'msg'; msg.textContent = '確認中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (res && res.ok) {
+          PASS = v;
+          try { localStorage.setItem('dashPass', v); } catch (e) {}
+          document.getElementById('loginView').style.display = 'none';
+          document.getElementById('loading').style.display = '';
+          load(false);
+        } else {
+          msg.className = 'msg err'; msg.textContent = 'パスワードが違います';
+        }
+      })
+      .withFailureHandler(function (e) { msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; })
+      .verifyPasscode(v);
+  }
+  document.getElementById('btnLogin').onclick = doLogin;
+  document.getElementById('loginPass').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  // ── パスワード変更 ───────────────────────────────────
+  var passOverlay = document.getElementById('passOverlay');
+  document.getElementById('btnPass').onclick = function () {
+    document.getElementById('passCurrent').value = '';
+    document.getElementById('passNext').value = '';
+    document.getElementById('passMsg').textContent = '';
+    passOverlay.classList.add('show');
+  };
+  document.getElementById('btnPassCancel').onclick = function () { passOverlay.classList.remove('show'); };
+  passOverlay.addEventListener('click', function (e) { if (e.target === passOverlay) passOverlay.classList.remove('show'); });
+  document.getElementById('btnPassSave').onclick = function () {
+    var cur = document.getElementById('passCurrent').value;
+    var next = document.getElementById('passNext').value;
+    var msg = document.getElementById('passMsg');
+    var btn = this;
+    btn.disabled = true;
+    msg.className = 'msg'; msg.textContent = '保存中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        msg.className = 'msg ' + (res.ok ? 'ok' : 'err');
+        msg.textContent = res.message;
+        if (res.ok) {
+          PASS = next;
+          try { localStorage.setItem('dashPass', next); } catch (e) {}
+          setTimeout(function () { passOverlay.classList.remove('show'); }, 900);
+        }
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; })
+      .changePasscode(cur, next);
+  };
 
   // ── 取込モーダル ─────────────────────────────────────
   var overlay = document.getElementById('fetchOverlay');
@@ -1026,7 +1127,7 @@
         btn.disabled = false;
         msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
       })
-      .triggerCloudFetch(pendingFetch.target, pendingFetch.ym);
+      .triggerCloudFetch(PASS, pendingFetch.target, pendingFetch.ym);
   };
 
   document.getElementById('btnSaveToken').onclick = function () {
@@ -1038,7 +1139,7 @@
         msg.textContent = res.message;
         if (res.ok) document.getElementById('tokenInput').value = '';
       })
-      .saveGithubToken(token);
+      .saveGithubToken(PASS, token);
   };
 
   load(false);

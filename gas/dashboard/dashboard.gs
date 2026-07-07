@@ -71,10 +71,51 @@ function doGet() {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+// ─── パスワード（閲覧ロック）────────────────────────────────────────────────────
+// 「リンクを知っている全員」公開のため、合言葉で保護する。合言葉はスクリプト
+// プロパティに保存し、画面コードには出ない。管理者はいつでも変更できる。
+
+const PASSCODE_PROP = 'DASH_PASSCODE';
+
+/** サーバ内部用: 合言葉が一致するか（未設定なら素通し）。 */
+function verifyPass_(pass) {
+  const p = PropertiesService.getScriptProperties().getProperty(PASSCODE_PROP);
+  if (!p) return true;
+  return String(pass || '') === p;
+}
+
+/** 合言葉が設定済みか（ログイン画面を出すか）をクライアントに返す。 */
+function getPasscodeStatus() {
+  const p = PropertiesService.getScriptProperties().getProperty(PASSCODE_PROP);
+  return { set: !!p };
+}
+
+/** 合言葉の照合。 */
+function verifyPasscode(pass) {
+  return { ok: verifyPass_(pass) };
+}
+
+/**
+ * 合言葉を変更する。設定済みなら現在の合言葉が必要。
+ * 未設定なら誰でも初回設定できる（初期設定用）。
+ */
+function changePasscode(current, next) {
+  const props = PropertiesService.getScriptProperties();
+  const cur = props.getProperty(PASSCODE_PROP);
+  if (cur && String(current || '') !== cur) {
+    return { ok: false, message: '現在のパスワードが違います' };
+  }
+  next = String(next || '').trim();
+  if (next.length < 4) return { ok: false, message: 'パスワードは4文字以上にしてください' };
+  props.setProperty(PASSCODE_PROP, next);
+  return { ok: true, message: 'パスワードを変更しました' };
+}
+
 // ─── データ提供 ───────────────────────────────────────────────────────────────
 
 /** 全データを返す（5分キャッシュ）。月・店舗・F/D切替はクライアント側で行う。 */
-function getDashboardData(forceRefresh) {
+function getDashboardData(pass, forceRefresh) {
+  if (!verifyPass_(pass)) return { authError: true };
   const cache = CacheService.getScriptCache();
   if (!forceRefresh) {
     const hit = cache.get('dash_v2');
@@ -247,7 +288,8 @@ function addLoss(storeKey, ym, kind, cat, memo, amount) {
  * @param {string} kind '廃棄ロス' | '必要ロス'
  * @param {Array<{cat:string, memo:string, amount:number}>} items
  */
-function addLosses(storeKey, ym, kind, items) {
+function addLosses(pass, storeKey, ym, kind, items) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   storeKey = String(storeKey || '').trim();
   ym = String(ym || '').trim();
   if (!storeKey) return { ok: false, message: '店舗が不正です' };
@@ -284,7 +326,8 @@ function addLosses(storeKey, ym, kind, items) {
 }
 
 /** ロスを1件削除する。 */
-function deleteLoss(id) {
+function deleteLoss(pass, id) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   id = String(id || '').trim();
   if (!id) return { ok: false, message: 'IDが不正です' };
 
@@ -314,7 +357,8 @@ function deleteLoss(id) {
  * 店舗ごとの「FWの理論原価に2%込み済み」フラグを保存する。
  * @param {Object<string, boolean>} flags {店舗キー: true/false}
  */
-function saveStoreFlags(flags) {
+function saveStoreFlags(pass, flags) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   if (!flags || typeof flags !== 'object') return { ok: false, message: '設定が不正です' };
 
   const lock = LockService.getScriptLock();
@@ -345,7 +389,8 @@ function hasGithubToken() {
   return !!PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
 }
 
-function saveGithubToken(token) {
+function saveGithubToken(pass, token) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   token = String(token || '').trim();
   if (!token) return { ok: false, message: 'トークンが空です' };
   PropertiesService.getScriptProperties().setProperty('GITHUB_TOKEN', token);
@@ -357,7 +402,8 @@ function saveGithubToken(token) {
  * @param {string} target 'fw' | 'infomart' | 'both'
  * @param {string} month  'YYYY-MM'
  */
-function triggerCloudFetch(target, month) {
+function triggerCloudFetch(pass, target, month) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   if (['fw', 'infomart', 'both'].indexOf(target) < 0) {
     return { ok: false, message: '対象の指定が不正です' };
   }
