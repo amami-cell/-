@@ -2,6 +2,8 @@
 .env
 credentials/
 *.json
+# ただしダッシュボードのマニフェストはコミットする（clasp自動デプロイに必要・秘密情報なし）
+!gas/dashboard/appsscript.json
 
 # ダウンロードファイル（一時ファイル）
 downloads/
