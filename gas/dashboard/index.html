@@ -626,7 +626,8 @@
     var trh = document.createElement('tr'); trh.className = 'head';
     [['仕入項目', 'lbl'],
      ['ＦＤ合計', 'num'], ['売上比', 'rate'],
-     ['食材費(F)', 'num'], ['飲料費(D)', 'num']].forEach(function (hc) {
+     ['食材費(F)', 'num'], ['売上比', 'rate'],
+     ['飲料費(D)', 'num'], ['売上比', 'rate']].forEach(function (hc) {
       var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0];
       trh.appendChild(td);
     });
@@ -663,11 +664,13 @@
       }
       tr.appendChild(lbl);
       fdCells(tr, rFD, row.get, row.clsFn, true);
-      fdCells(tr, rF, row.get, row.clsFn, false);
-      fdCells(tr, rD, row.get, row.clsFn, false);
+      fdCells(tr, rF, row.get, row.clsFn, true);
+      fdCells(tr, rD, row.get, row.clsFn, true);
       tbl.appendChild(tr);
     });
-    return tbl;
+    var wrap = document.createElement('div'); wrap.className = 'table-scroll';
+    wrap.appendChild(tbl);
+    return wrap;
   }
 
   function renderStore() {
