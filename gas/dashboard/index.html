@@ -605,29 +605,13 @@
   }
 
   // ── 店舗画面 ─────────────────────────────────────────
-  function fdCells(tr, r, getter, clsFn, withRate) {
-    var v = r ? getter(r) : null;
-    var td = document.createElement('td'); td.className = 'num';
-    td.textContent = v === null ? '—' : yen(v);
-    if (clsFn && v !== null) { var c = clsFn(v); if (c) td.classList.add(c); }
-    tr.appendChild(td);
-    if (withRate) {
-      var tdr = document.createElement('td'); tdr.className = 'rate';
-      tdr.textContent = (v !== null && r && r.sales) ? pct(v / r.sales) : '';
-      tr.appendChild(tdr);
-    }
-  }
-
-  /** 仕入項目 × FD合計（売上比つき）/食材費(F)/飲料費(D) の表を作る */
-  function buildFdTable(rFD, rF, rD, ym) {
+  /** 仕入項目 × 金額 × 売上比 の3列表（上部のF/D/FD切替で表示を切替。横スクロールなし） */
+  function buildFdTable(r, ym) {
     var tbl = document.createElement('table');
     tbl.className = 'items';
 
     var trh = document.createElement('tr'); trh.className = 'head';
-    [['仕入項目', 'lbl'],
-     ['ＦＤ合計', 'num'], ['売上比', 'rate'],
-     ['食材費(F)', 'num'], ['売上比', 'rate'],
-     ['飲料費(D)', 'num'], ['売上比', 'rate']].forEach(function (hc) {
+    [['仕入項目', 'lbl'], [modeLabel(), 'num'], ['売上比', 'rate']].forEach(function (hc) {
       var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0];
       trh.appendChild(td);
     });
@@ -651,7 +635,7 @@
       var lbl = document.createElement('td'); lbl.className = 'lbl';
       if (row.indent) lbl.style.paddingLeft = '1.4em';
       if (row.loss) {
-        var count = rFD.losses.filter(function (l) { return l.kind === row.loss; }).length;
+        var count = r.losses.filter(function (l) { return l.kind === row.loss; }).length;
         var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === row.loss);
         lbl.textContent = (isOpen ? '▾ ' : '▸ ') + row.label + '（' + count + '件）';
         tr.style.cursor = 'pointer';
@@ -663,14 +647,20 @@
         lbl.textContent = row.label;
       }
       tr.appendChild(lbl);
-      fdCells(tr, rFD, row.get, row.clsFn, true);
-      fdCells(tr, rF, row.get, row.clsFn, true);
-      fdCells(tr, rD, row.get, row.clsFn, true);
+
+      var v = row.get(r);
+      var td = document.createElement('td'); td.className = 'num';
+      td.textContent = v === null ? '—' : yen(v);
+      if (row.clsFn && v !== null) { var c = row.clsFn(v); if (c) td.classList.add(c); }
+      tr.appendChild(td);
+
+      var tdr = document.createElement('td'); tdr.className = 'rate';
+      tdr.textContent = (v !== null && r.sales) ? pct(v / r.sales) : '';
+      tr.appendChild(tdr);
+
       tbl.appendChild(tr);
     });
-    var wrap = document.createElement('div'); wrap.className = 'table-scroll';
-    wrap.appendChild(tbl);
-    return wrap;
+    return tbl;
   }
 
   function renderStore() {
@@ -696,9 +686,7 @@
     DATA.months.slice().reverse().forEach(function (ym) {
       var rFD = calcM(curStore, ym, 'FD');
       if (!rFD) return;
-      var rF = calcM(curStore, ym, 'F');
-      var rD = calcM(curStore, ym, 'D');
-      var r = fdMode === 'F' ? rF : fdMode === 'D' ? rD : rFD;
+      var r = fdMode === 'FD' ? rFD : calcM(curStore, ym, fdMode);
 
       var card = document.createElement('div'); card.className = 'card';
 
@@ -728,13 +716,13 @@
       });
       card.appendChild(h);
 
-      // ── 棚卸項目（FD合計・F・D × 売上比）──
-      card.appendChild(buildFdTable(rFD, rF, rD, ym));
+      // ── 棚卸項目（上部のF/D/FD切替で表示。3列で横スクロールなし）──
+      card.appendChild(buildFdTable(r, ym));
 
       // ── ロス内訳（合計行をタップで開閉）──
       if (expandedLoss && expandedLoss.ym === ym) {
         var kindSel = expandedLoss.kind;
-        var list = rFD.losses.filter(function (l) { return l.kind === kindSel; });
+        var list = r.losses.filter(function (l) { return l.kind === kindSel; });
         var ll = document.createElement('div'); ll.className = 'loss-list';
         var lt = document.createElement('div');
         lt.style.cssText = 'font-size:12px;color:var(--muted);margin:8px 0 2px';
