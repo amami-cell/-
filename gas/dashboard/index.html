@@ -277,6 +277,12 @@
       <div class="card hero-card">
         <div class="hero" id="heroStore"></div>
       </div>
+      <div class="filters" style="margin-bottom:10px">
+        <div class="seg seg-sm" id="wideSeg" title="全表示は横スクロールでF/Dを同時に見られます">
+          <button data-w="0" class="on">かんたん表示</button>
+          <button data-w="1">全表示（横スクロール）</button>
+        </div>
+      </div>
       <div id="monthBlocks"></div>
     </div>
   </div>
@@ -346,6 +352,7 @@
   var DATA = null;
   var view = 'list';          // 'list' | 'store'
   var fdMode = 'FD';          // 'F' | 'D' | 'FD'
+  var storeWide = false;      // 店舗画面: false=3列かんたん表示 / true=全表示(横スクロール)
   var pct2View = 'incl';      // 'incl'=2%込み表示 | 'excl'=2%なし表示
   var curMonth = '';
   var curStore = '';
@@ -605,62 +612,91 @@
   }
 
   // ── 店舗画面 ─────────────────────────────────────────
-  /** 仕入項目 × 金額 × 売上比 の3列表（上部のF/D/FD切替で表示を切替。横スクロールなし） */
-  function buildFdTable(r, ym) {
-    var tbl = document.createElement('table');
-    tbl.className = 'items';
+  var FD_ROWS = [
+    { label: '前月棚金', get: function (r) { return r.invPrev; } },
+    { label: '当月仕入', get: function (r) { return r.purchase; } },
+    { label: '当月棚金', get: function (r) { return r.invCur; } },
+    { label: '当月実使用', get: function (r) { return r.actual; }, strong: true },
+    { label: '理論原価', get: function (r) { return r.theory; } },
+    { label: '必要ロス', get: function (r) { return r.need; }, loss: '必要ロス', indent: true },
+    { label: '廃棄ロス', get: function (r) { return r.waste; }, loss: '廃棄ロス', indent: true },
+    { label: '不明ロス', get: function (r) { return r.unknown; }, strong: true,
+      clsFn: function (v) { return v > 0 ? 'pos' : 'neg'; } },
+  ];
 
+  // 仕入項目ラベルのセル（ロス行はタップで内訳を開閉）。lossR = 件数の集計元
+  function fdLabelCell(row, ym, lossR) {
+    var lbl = document.createElement('td'); lbl.className = 'lbl';
+    if (row.indent) lbl.style.paddingLeft = '1.4em';
+    if (row.loss) {
+      var count = lossR.losses.filter(function (l) { return l.kind === row.loss; }).length;
+      var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === row.loss);
+      lbl.textContent = (isOpen ? '▾ ' : '▸ ') + row.label + '（' + count + '件）';
+      return { td: lbl, toggle: function () { expandedLoss = isOpen ? null : { ym: ym, kind: row.loss }; renderStore(); } };
+    }
+    lbl.textContent = row.label;
+    return { td: lbl, toggle: null };
+  }
+
+  // 金額セル＋（withRate時）売上比セルを tr に追加
+  function fdValueCells(tr, r, row, withRate) {
+    var v = r ? row.get(r) : null;
+    var td = document.createElement('td'); td.className = 'num';
+    td.textContent = v === null ? '—' : yen(v);
+    if (row.clsFn && v !== null) { var c = row.clsFn(v); if (c) td.classList.add(c); }
+    tr.appendChild(td);
+    if (withRate) {
+      var tdr = document.createElement('td'); tdr.className = 'rate';
+      tdr.textContent = (v !== null && r && r.sales) ? pct(v / r.sales) : '';
+      tr.appendChild(tdr);
+    }
+  }
+
+  /** かんたん表示: 仕入項目 × 金額 × 売上比 の3列表（横スクロールなし） */
+  function buildFdCompact(r, ym) {
+    var tbl = document.createElement('table'); tbl.className = 'items';
     var trh = document.createElement('tr'); trh.className = 'head';
     [['仕入項目', 'lbl'], [modeLabel(), 'num'], ['売上比', 'rate']].forEach(function (hc) {
-      var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0];
-      trh.appendChild(td);
+      var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0]; trh.appendChild(td);
     });
     tbl.appendChild(trh);
-
-    var ROWS = [
-      { label: '前月棚金', get: function (r) { return r.invPrev; } },
-      { label: '当月仕入', get: function (r) { return r.purchase; } },
-      { label: '当月棚金', get: function (r) { return r.invCur; } },
-      { label: '当月実使用', get: function (r) { return r.actual; }, strong: true },
-      { label: '理論原価', get: function (r) { return r.theory; } },
-      { label: '必要ロス', get: function (r) { return r.need; }, loss: '必要ロス', indent: true },
-      { label: '廃棄ロス', get: function (r) { return r.waste; }, loss: '廃棄ロス', indent: true },
-      { label: '不明ロス', get: function (r) { return r.unknown; }, strong: true,
-        clsFn: function (v) { return v > 0 ? 'pos' : 'neg'; } },
-    ];
-
-    ROWS.forEach(function (row) {
+    FD_ROWS.forEach(function (row) {
       var tr = document.createElement('tr');
       if (row.strong) tr.className = 'strong';
-      var lbl = document.createElement('td'); lbl.className = 'lbl';
-      if (row.indent) lbl.style.paddingLeft = '1.4em';
-      if (row.loss) {
-        var count = r.losses.filter(function (l) { return l.kind === row.loss; }).length;
-        var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === row.loss);
-        lbl.textContent = (isOpen ? '▾ ' : '▸ ') + row.label + '（' + count + '件）';
-        tr.style.cursor = 'pointer';
-        tr.onclick = function () {
-          expandedLoss = isOpen ? null : { ym: ym, kind: row.loss };
-          renderStore();
-        };
-      } else {
-        lbl.textContent = row.label;
-      }
-      tr.appendChild(lbl);
-
-      var v = row.get(r);
-      var td = document.createElement('td'); td.className = 'num';
-      td.textContent = v === null ? '—' : yen(v);
-      if (row.clsFn && v !== null) { var c = row.clsFn(v); if (c) td.classList.add(c); }
-      tr.appendChild(td);
-
-      var tdr = document.createElement('td'); tdr.className = 'rate';
-      tdr.textContent = (v !== null && r.sales) ? pct(v / r.sales) : '';
-      tr.appendChild(tdr);
-
+      var lc = fdLabelCell(row, ym, r);
+      if (lc.toggle) { tr.style.cursor = 'pointer'; tr.onclick = lc.toggle; }
+      tr.appendChild(lc.td);
+      fdValueCells(tr, r, row, true);
       tbl.appendChild(tr);
     });
     return tbl;
+  }
+
+  /** 全表示: 仕入項目｜FD合計｜売上比｜食材費(F)｜売上比｜飲料費(D)｜売上比 の7列表（横スクロール） */
+  function buildFdWide(rFD, rF, rD, ym) {
+    var tbl = document.createElement('table'); tbl.className = 'items';
+    var trh = document.createElement('tr'); trh.className = 'head';
+    [['仕入項目', 'lbl'],
+     ['ＦＤ合計', 'num'], ['売上比', 'rate'],
+     ['食材費(F)', 'num'], ['売上比', 'rate'],
+     ['飲料費(D)', 'num'], ['売上比', 'rate']].forEach(function (hc) {
+      var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0]; trh.appendChild(td);
+    });
+    tbl.appendChild(trh);
+    FD_ROWS.forEach(function (row) {
+      var tr = document.createElement('tr');
+      if (row.strong) tr.className = 'strong';
+      var lc = fdLabelCell(row, ym, rFD);
+      if (lc.toggle) { tr.style.cursor = 'pointer'; tr.onclick = lc.toggle; }
+      tr.appendChild(lc.td);
+      fdValueCells(tr, rFD, row, true);
+      fdValueCells(tr, rF, row, true);
+      fdValueCells(tr, rD, row, true);
+      tbl.appendChild(tr);
+    });
+    var wrap = document.createElement('div'); wrap.className = 'table-scroll';
+    wrap.appendChild(tbl);
+    return wrap;
   }
 
   function renderStore() {
@@ -686,7 +722,8 @@
     DATA.months.slice().reverse().forEach(function (ym) {
       var rFD = calcM(curStore, ym, 'FD');
       if (!rFD) return;
-      var r = fdMode === 'FD' ? rFD : calcM(curStore, ym, fdMode);
+      // 全表示は常にFD基準（ロス内訳・在庫日数・売上）、かんたん表示は上部トグルのモード
+      var r = (storeWide || fdMode === 'FD') ? rFD : calcM(curStore, ym, fdMode);
 
       var card = document.createElement('div'); card.className = 'card';
 
@@ -716,8 +753,12 @@
       });
       card.appendChild(h);
 
-      // ── 棚卸項目（上部のF/D/FD切替で表示。3列で横スクロールなし）──
-      card.appendChild(buildFdTable(r, ym));
+      // ── 棚卸項目（かんたん=3列 / 全表示=7列横スクロール）──
+      if (storeWide) {
+        card.appendChild(buildFdWide(rFD, calcM(curStore, ym, 'F'), calcM(curStore, ym, 'D'), ym));
+      } else {
+        card.appendChild(buildFdCompact(r, ym));
+      }
 
       // ── ロス内訳（合計行をタップで開閉）──
       if (expandedLoss && expandedLoss.ym === ym) {
@@ -950,6 +991,13 @@
     pct2View = b.dataset.p;
     this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
     renderAll();
+  });
+  document.getElementById('wideSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    storeWide = b.dataset.w === '1';
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderStore();
   });
 
   // ── 2%設定モーダル ───────────────────────────────────
