@@ -256,7 +256,7 @@ function addLoss(storeKey, ym, kind, cat, memo, amount) {
   amount = Number(amount);
   if (!storeKey) return { ok: false, message: '店舗が不正です' };
   if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '月の形式が不正です' };
-  if (['廃棄ロス', '必要ロス'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
+  if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
   if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: '区分が不正です' };
   if (!memo) return { ok: false, message: '内容を入力してください' };
   if (!isFinite(amount) || amount <= 0) return { ok: false, message: '金額は1円以上で入力してください' };
@@ -292,7 +292,7 @@ function addLosses(pass, storeKey, ym, kind, items) {
   ym = String(ym || '').trim();
   if (!storeKey) return { ok: false, message: '店舗が不正です' };
   if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '月の形式が不正です' };
-  if (['廃棄ロス', '必要ロス'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
+  if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
   if (!items || !items.length) return { ok: false, message: '入力された項目がありません' };
   if (items.length > 50) return { ok: false, message: '一度に登録できるのは50件までです' };
 
