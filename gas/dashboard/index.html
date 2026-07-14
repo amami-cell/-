@@ -345,6 +345,22 @@
   </div>
 </div>
 
+<!-- ロス入力モーダル（一覧画面から） -->
+<div class="overlay" id="lossOverlay">
+  <div class="modal">
+    <h3 id="lossTitle">ロス入力</h3>
+    <div class="seg seg-sm" id="lossKindSeg" style="margin-bottom:10px">
+      <button data-k="廃棄ロス" class="on">廃棄ロス</button>
+      <button data-k="必要ロス">必要ロス</button>
+    </div>
+    <div id="lossNote" class="msg" style="margin-bottom:6px"></div>
+    <div id="lossFormHost"></div>
+    <div class="actions" style="margin-top:10px">
+      <button id="btnLossClose">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
@@ -570,6 +586,12 @@
         var pb = document.createElement('span'); pb.className = 'kind-badge'; pb.textContent = '2%込済';
         top.appendChild(pb);
       }
+      var lbtn = document.createElement('button'); lbtn.className = 'small'; lbtn.textContent = '＋ロス入力';
+      lbtn.title = curMonth + ' のロスを入力';
+      lbtn.onclick = (function (key) {
+        return function (ev) { ev.stopPropagation(); openLossModal(key, curMonth); };
+      })(r.key);
+      top.appendChild(lbtn);
       row.appendChild(top);
 
       var vals = document.createElement('div');
@@ -802,7 +824,11 @@
       card.appendChild(lb);
 
       if (openForm && openForm.ym === ym) {
-        card.appendChild(buildLossForm(ym, openForm.kind));
+        var ofk = openForm.kind;
+        card.appendChild(buildLossForm(curStore, ym, ofk, {
+          onSaved: function () { openForm = null; expandedLoss = { ym: ym, kind: ofk }; renderStore(); },
+          onCancel: function () { openForm = null; renderStore(); }
+        }));
       }
 
       box.appendChild(card);
@@ -815,7 +841,7 @@
     }
   }
 
-  function buildLossForm(ym, kind) {
+  function buildLossForm(storeKey, ym, kind, opts) {
     var f = document.createElement('div'); f.className = 'loss-form';
     var t = document.createElement('div'); t.className = 'title';
     t.textContent = ym + ' の' + kind + 'を登録（複数まとめて入力OK）';
@@ -861,7 +887,7 @@
     act.appendChild(save); act.appendChild(cancel); act.appendChild(msg);
     f.appendChild(act);
 
-    cancel.onclick = function () { openForm = null; renderStore(); };
+    cancel.onclick = function () { opts.onCancel(); };
     save.onclick = function () {
       var items = [];
       var bad = null;
@@ -883,17 +909,15 @@
           save.disabled = false;
           if (!res.ok) { msg.className = 'msg err'; msg.textContent = res.message; return; }
           if (!DATA.losses[ym]) DATA.losses[ym] = {};
-          if (!DATA.losses[ym][curStore]) DATA.losses[ym][curStore] = [];
-          res.recs.forEach(function (rec) { DATA.losses[ym][curStore].push(rec); });
-          openForm = null;
-          expandedLoss = { ym: ym, kind: kind };   // 登録後は内訳を開いて確認できる状態に
-          renderStore();
+          if (!DATA.losses[ym][storeKey]) DATA.losses[ym][storeKey] = [];
+          res.recs.forEach(function (rec) { DATA.losses[ym][storeKey].push(rec); });
+          opts.onSaved(res.recs);
         })
         .withFailureHandler(function (e) {
           save.disabled = false;
           msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
         })
-        .addLosses(PASS, curStore, ym, kind, items);
+        .addLosses(PASS, storeKey, ym, kind, items);
     };
     setTimeout(function () { first.memo.focus(); }, 0);
     return f;
@@ -920,6 +944,40 @@
     document.getElementById('storeSel').value = key;
     renderAll();
     window.scrollTo({ top: 0 });
+  }
+
+  // ── ロス入力モーダル（一覧・店舗どちらからでも） ──
+  var lossModal = null;   // { storeKey, ym }
+  function renderLossForm() {
+    var host = document.getElementById('lossFormHost');
+    host.textContent = '';
+    var kind = document.querySelector('#lossKindSeg button.on').dataset.k;
+    host.appendChild(buildLossForm(lossModal.storeKey, lossModal.ym, kind, {
+      onSaved: function (recs) {
+        var note = document.getElementById('lossNote');
+        note.className = 'msg ok';
+        note.textContent = '✓ ' + recs.length + '件を登録しました（続けて入力できます）';
+        renderLossForm();                       // 空フォームに戻す
+        if (view === 'list') renderList(); else renderStore();
+      },
+      onCancel: function () { closeLossModal(); }
+    }));
+  }
+  function openLossModal(storeKey, ym) {
+    var name = '';
+    DATA.stores.forEach(function (s) { if (s.key === storeKey) name = s.name; });
+    lossModal = { storeKey: storeKey, ym: ym };
+    document.getElementById('lossTitle').textContent = name + '　' + ym + ' のロス入力';
+    var note = document.getElementById('lossNote'); note.textContent = ''; note.className = 'msg';
+    var seg = document.getElementById('lossKindSeg');
+    seg.querySelectorAll('button').forEach(function (x, i) { x.classList.toggle('on', i === 0); });
+    renderLossForm();
+    document.getElementById('lossOverlay').classList.add('show');
+  }
+  function closeLossModal() {
+    document.getElementById('lossOverlay').classList.remove('show');
+    lossModal = null;
+    if (view === 'list') renderList(); else renderStore();
   }
 
   function renderAll() {
@@ -1070,6 +1128,18 @@
   document.getElementById('btnReload').onclick = function () { load(true); };
   document.getElementById('btnFwAll').onclick = function () { openFetchModal('fw', curMonth); };
   document.getElementById('btnImAll').onclick = function () { openFetchModal('infomart', curMonth); };
+
+  // ── ロス入力モーダル ─────────────────────────────────
+  document.getElementById('lossKindSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    var note = document.getElementById('lossNote'); note.textContent = ''; note.className = 'msg';
+    renderLossForm();
+  });
+  document.getElementById('btnLossClose').onclick = closeLossModal;
+  document.getElementById('lossOverlay').addEventListener('click', function (e) {
+    if (e.target === this) closeLossModal();
+  });
 
   // ── ログイン ─────────────────────────────────────────
   function doLogin() {
