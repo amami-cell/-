@@ -352,6 +352,7 @@
     <div class="seg seg-sm" id="lossKindSeg" style="margin-bottom:10px">
       <button data-k="廃棄ロス" class="on">廃棄ロス</button>
       <button data-k="必要ロス">必要ロス</button>
+      <button data-k="理論原価">理論原価</button>
     </div>
     <div id="lossNote" class="msg" style="margin-bottom:6px"></div>
     <div id="lossFormHost"></div>
@@ -431,8 +432,13 @@
     else if (pct2View === 'excl' && inc2) theory -= pct2;
     var invPrev = invOfM(calPrevYm(ym), storeKey, mode);
     var ls = lossesOfM(ym, storeKey, mode);
-    var need = 0, waste = 0;
-    ls.forEach(function (l) { if (l.kind === '必要ロス') need += l.amount; else if (l.kind === '廃棄ロス') waste += l.amount; });
+    var need = 0, waste = 0, theoryAdj = 0;
+    ls.forEach(function (l) {
+      if (l.kind === '必要ロス') need += l.amount;
+      else if (l.kind === '廃棄ロス') waste += l.amount;
+      else if (l.kind === '理論原価') theoryAdj += l.amount;   // 手動で追加した理論原価（理由つき）
+    });
+    theory += theoryAdj;   // FW理論原価 ＋ 手動追加分
     var actual = (invPrev !== null && invCur !== null) ? invPrev + purchase - invCur : null;
     var unknown = actual !== null ? actual - theory - need - waste : null;
     // 在庫回転日数 = 棚卸金額 ÷ 1日理論原価（= 月理論原価 ÷ 月日数）
@@ -442,6 +448,7 @@
       sales: sales, purchase: purchase, theory: theory,
       invPrev: invPrev, invCur: invCur,
       actual: actual, need: need, waste: waste, unknown: unknown,
+      theoryAdj: theoryAdj,
       losses: ls, turnover: turnover,
       purchaseRate: sales ? purchase / sales : null,
       actualRate: (sales && actual !== null) ? actual / sales : null,
@@ -639,7 +646,7 @@
     { label: '当月仕入', get: function (r) { return r.purchase; } },
     { label: '当月棚金', get: function (r) { return r.invCur; } },
     { label: '当月実使用', get: function (r) { return r.actual; }, strong: true },
-    { label: '理論原価', get: function (r) { return r.theory; } },
+    { label: '理論原価', get: function (r) { return r.theory; }, loss: '理論原価' },
     { label: '必要ロス', get: function (r) { return r.need; }, loss: '必要ロス', indent: true },
     { label: '廃棄ロス', get: function (r) { return r.waste; }, loss: '廃棄ロス', indent: true },
     { label: '不明ロス', get: function (r) { return r.unknown; }, strong: true,
@@ -810,11 +817,13 @@
         card.appendChild(ll);
       }
 
-      // ── ロス入力ボタン＋フォーム ──
+      // ── ロス・理論原価 入力ボタン＋フォーム ──
       var lb = document.createElement('div'); lb.className = 'loss-btns';
-      ['廃棄ロス', '必要ロス'].forEach(function (kind) {
+      [['廃棄ロス', '＋ 廃棄ロスを入力'], ['必要ロス', '＋ 必要ロスを入力'],
+       ['理論原価', '＋ 理論原価を追加']].forEach(function (b) {
+        var kind = b[0];
         var btn = document.createElement('button'); btn.className = 'small';
-        btn.textContent = '＋ ' + kind + 'を入力';
+        btn.textContent = b[1];
         btn.onclick = function () {
           openForm = (openForm && openForm.ym === ym && openForm.kind === kind) ? null : { ym: ym, kind: kind };
           renderStore();
@@ -842,9 +851,12 @@
   }
 
   function buildLossForm(storeKey, ym, kind, opts) {
+    var isTheory = kind === '理論原価';
+    var memoPlaceholder = isTheory ? '理由（例：急な宴会の仕入）' : '内容（例：鮮魚廃棄）';
+    var amtPlaceholder = isTheory ? '追加する金額（円）' : '金額（円）';
     var f = document.createElement('div'); f.className = 'loss-form';
     var t = document.createElement('div'); t.className = 'title';
-    t.textContent = ym + ' の' + kind + 'を登録（複数まとめて入力OK）';
+    t.textContent = ym + ' の' + kind + (isTheory ? 'を追加（理由つき・複数OK）' : 'を登録（複数まとめて入力OK）');
     f.appendChild(t);
 
     var itemsWrap = document.createElement('div');
@@ -858,8 +870,8 @@
         var o = document.createElement('option'); o.value = c; o.textContent = c; cat.appendChild(o);
       });
       if (fdMode === 'D') cat.value = 'ドリンク';
-      var memo = document.createElement('input'); memo.type = 'text'; memo.placeholder = '内容（例：鮮魚廃棄）';
-      var amt = document.createElement('input'); amt.type = 'number'; amt.placeholder = '金額（円）'; amt.min = '1';
+      var memo = document.createElement('input'); memo.type = 'text'; memo.placeholder = memoPlaceholder;
+      var amt = document.createElement('input'); amt.type = 'number'; amt.placeholder = amtPlaceholder; amt.min = '1';
       var del = document.createElement('button'); del.className = 'small'; del.textContent = '✕'; del.title = 'この行を消す';
       del.onclick = function () {
         if (itemsWrap.children.length > 1) row.remove();
