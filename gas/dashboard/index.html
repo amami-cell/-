@@ -225,13 +225,18 @@
   </div>
 
   <div id="app" style="display:none">
-    <!-- F/D/FD 切替（最上部・共通） -->
-    <div class="filters">
+    <!-- 一覧: F/D/FD 切替（最上部） -->
+    <div class="filters" id="listModeBar">
       <div class="seg" id="fdSeg">
         <button data-mode="F">フード</button>
         <button data-mode="D">ドリンク</button>
         <button data-mode="FD" class="on">FD合算</button>
       </div>
+    </div>
+    <!-- 店舗: 店舗ナビ（枠外・最上部） -->
+    <div class="filters" id="storeNavBar" style="display:none">
+      <button id="btnBack" class="small">← 店舗一覧</button>
+      <select id="storeSel" style="flex:1; min-width:0"></select>
     </div>
 
     <!-- ═══ 一覧画面 ═══ -->
@@ -281,14 +286,18 @@
     <div id="storeView" style="display:none">
       <div class="ctrl-card">
         <div class="filters">
-          <button id="btnBack" class="small">← 店舗一覧</button>
-          <select id="storeSel" style="flex:1; min-width:0"></select>
-        </div>
-        <div class="filters" style="margin-bottom:0">
           <label class="grp">表示</label>
           <div class="seg seg-sm" id="wideSeg" title="全表示は横スクロールでF/Dを同時に見られます">
             <button data-w="0" class="on">かんたん表示</button>
             <button data-w="1">全表示（横スクロール）</button>
+          </div>
+        </div>
+        <div class="filters" id="storeModeRow" style="margin-bottom:0">
+          <label class="grp">種別</label>
+          <div class="seg seg-sm" id="fdSegStore">
+            <button data-mode="F">フード</button>
+            <button data-mode="D">ドリンク</button>
+            <button data-mode="FD" class="on">FD合算</button>
           </div>
         </div>
       </div>
@@ -754,6 +763,9 @@
     var name = '';
     DATA.stores.forEach(function (s) { if (s.key === curStore) name = s.name; });
 
+    // 種別（F/D/FD）は「かんたん表示」のときだけ出す（全表示は全部出るので不要）
+    document.getElementById('storeModeRow').style.display = storeWide ? 'none' : '';
+
     // ヒーロー: 最新月
     var latest = null;
     for (var i = DATA.months.length - 1; i >= 0; i--) {
@@ -995,7 +1007,20 @@
     document.getElementById('updatedAt').textContent = '取得: ' + DATA.updatedAt;
     document.getElementById('listView').style.display = view === 'list' ? '' : 'none';
     document.getElementById('storeView').style.display = view === 'store' ? '' : 'none';
+    document.getElementById('listModeBar').style.display = view === 'list' ? '' : 'none';
+    document.getElementById('storeNavBar').style.display = view === 'store' ? '' : 'none';
+    syncModeSegs();
     if (view === 'list') renderList(); else renderStore();
+  }
+
+  // F/D/FD 切替（一覧の #fdSeg と 店舗の #fdSegStore で共有）
+  function syncModeSegs() {
+    ['fdSeg', 'fdSegStore'].forEach(function (id) {
+      var seg = document.getElementById(id); if (!seg) return;
+      seg.querySelectorAll('button').forEach(function (x) {
+        x.classList.toggle('on', x.dataset.mode === fdMode);
+      });
+    });
   }
 
   function initSelectors() {
@@ -1046,13 +1071,15 @@
   }
 
   // ── イベント ─────────────────────────────────────────
-  document.getElementById('fdSeg').addEventListener('click', function (e) {
+  function onModeClick(e) {
     var b = e.target.closest('button');
     if (!b) return;
     fdMode = b.dataset.mode;
-    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    syncModeSegs();
     renderAll();
-  });
+  }
+  document.getElementById('fdSeg').addEventListener('click', onModeClick);
+  document.getElementById('fdSegStore').addEventListener('click', onModeClick);
   document.getElementById('pctSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;
