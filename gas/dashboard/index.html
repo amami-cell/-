@@ -784,17 +784,11 @@
         chip.textContent = '在庫 ' + days1(r.turnover) + '日分';
         h.appendChild(chip);
       }
+      var sp = document.createElement('span'); sp.className = 'spacer'; h.appendChild(sp);
       var salesEl = document.createElement('span');
-      salesEl.style.cssText = 'font-size:13px;color:var(--ink-2)';
+      salesEl.style.cssText = 'font-size:13px;color:var(--ink-2);white-space:nowrap';
       salesEl.textContent = '売上 ' + yen(rFD.sales);
       h.appendChild(salesEl);
-      var sp = document.createElement('span'); sp.className = 'spacer'; h.appendChild(sp);
-      [['fw', '⟳ FW取込'], ['infomart', '⟳ インフォマート取込']].forEach(function (b) {
-        var btn = document.createElement('button'); btn.className = 'small';
-        btn.textContent = b[1];
-        btn.onclick = function () { openFetchModal(b[0], ym); };
-        h.appendChild(btn);
-      });
       card.appendChild(h);
 
       // ── 棚卸項目（かんたん=3列 / 全表示=7列横スクロール）──
@@ -832,28 +826,13 @@
         card.appendChild(ll);
       }
 
-      // ── ロス・理論原価 入力ボタン＋フォーム ──
+      // ── 入力（ロス・理論原価をタブ付きモーダルで）──
       var lb = document.createElement('div'); lb.className = 'loss-btns';
-      [['廃棄ロス', '＋ 廃棄ロスを入力'], ['必要ロス', '＋ 必要ロスを入力'],
-       ['理論原価', '＋ 理論原価を追加']].forEach(function (b) {
-        var kind = b[0];
-        var btn = document.createElement('button'); btn.className = 'small';
-        btn.textContent = b[1];
-        btn.onclick = function () {
-          openForm = (openForm && openForm.ym === ym && openForm.kind === kind) ? null : { ym: ym, kind: kind };
-          renderStore();
-        };
-        lb.appendChild(btn);
-      });
+      var addBtn = document.createElement('button'); addBtn.className = 'small';
+      addBtn.textContent = '＋ ロス・理論原価を入力';
+      (function (ymC) { addBtn.onclick = function () { openLossModal(curStore, ymC); }; })(ym);
+      lb.appendChild(addBtn);
       card.appendChild(lb);
-
-      if (openForm && openForm.ym === ym) {
-        var ofk = openForm.kind;
-        card.appendChild(buildLossForm(curStore, ym, ofk, {
-          onSaved: function () { openForm = null; expandedLoss = { ym: ym, kind: ofk }; renderStore(); },
-          onCancel: function () { openForm = null; renderStore(); }
-        }));
-      }
 
       box.appendChild(card);
     });
