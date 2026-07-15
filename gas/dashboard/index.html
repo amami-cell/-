@@ -50,6 +50,9 @@
 
   .filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
   .filters label { color: var(--ink-2); font-size: 13px; }
+  .filters label.grp { min-width: 62px; font-weight: 600; color: var(--ink-2); }
+  .ctrl-card { background: var(--surface); border: 1px solid var(--grid); border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; }
+  .ctrl-card .filters { margin-bottom: 10px; }
   .kind-badge {
     display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
     border: 1px solid var(--border); color: var(--ink-2);
@@ -238,20 +241,27 @@
 
     <!-- ═══ 一覧画面 ═══ -->
     <div id="listView">
-      <div class="filters">
-        <label>対象月</label>
-        <button class="small" id="mPrev">◀</button>
-        <select id="monthSel"></select>
-        <button class="small" id="mNext">▶</button>
-        <span class="kind-badge" id="kindBadge" style="display:none">中間データ含む</span>
-        <div class="seg seg-sm" id="pctSeg" title="クレジット手数料2%を理論原価に乗せるかの表示切替">
-          <button data-p="incl" class="on">2%込み</button>
-          <button data-p="excl">2%なし</button>
+      <div class="ctrl-card">
+        <div class="filters">
+          <label class="grp">対象月</label>
+          <button class="small" id="mPrev">◀</button>
+          <select id="monthSel"></select>
+          <button class="small" id="mNext">▶</button>
+          <span class="kind-badge" id="kindBadge" style="display:none">中間データ含む</span>
         </div>
-        <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙</button>
-        <span class="spacer"></span>
-        <button class="primary small" id="btnFwAll">⟳ FW取込</button>
-        <button class="primary small" id="btnImAll">⟳ インフォマート取込</button>
+        <div class="filters">
+          <label class="grp">表示</label>
+          <div class="seg seg-sm" id="pctSeg" title="クレジット手数料2%を理論原価に乗せるかの表示切替">
+            <button data-p="incl" class="on">2%込み</button>
+            <button data-p="excl">2%なし</button>
+          </div>
+          <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙ 2%設定</button>
+        </div>
+        <div class="filters" style="margin-bottom:0">
+          <label class="grp">取込</label>
+          <button class="primary small" id="btnFwAll">⟳ FW</button>
+          <button class="primary small" id="btnImAll">⟳ インフォマート</button>
+        </div>
       </div>
 
       <div class="card hero-card">
@@ -293,6 +303,11 @@
   <div class="modal">
     <h3 id="fetchTitle"></h3>
     <p id="fetchDesc"></p>
+    <div style="margin:10px 0">
+      <label style="display:block;font-size:12px;color:var(--ink-2);margin-bottom:4px">実行パスワード</label>
+      <input type="password" id="fetchPass" placeholder="パスワード" autocomplete="off"
+        style="font:inherit;width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink)">
+    </div>
     <div class="actions">
       <button id="btnFetchCancel">閉じる</button>
       <button class="primary" id="btnFetchRun">実行</button>
@@ -887,8 +902,7 @@
     addBtn.textContent = '＋ 項目を追加';
     addBtn.style.justifySelf = 'start';
     addBtn.onclick = function () {
-      var r = addRowUI();
-      r.memo.focus();
+      addRowUI();   // 行を足すだけ（内容欄へフォーカス移動＝画面が飛ぶのはしない）
     };
     f.appendChild(addBtn);
 
@@ -931,7 +945,6 @@
         })
         .addLosses(PASS, storeKey, ym, kind, items);
     };
-    setTimeout(function () { first.memo.focus(); }, 0);
     return f;
   }
 
@@ -1223,6 +1236,7 @@
       ym + ' の' + what + 'を、全店舗ぶんクラウドで再集計してシートを最新に置き換えます（5〜15分）。よろしいですか？';
     var msg = document.getElementById('fetchMsg');
     msg.className = 'msg'; msg.textContent = '';
+    var fp = document.getElementById('fetchPass'); fp.value = '';
     document.getElementById('btnFetchRun').style.display = '';
     overlay.classList.add('show');
   }
@@ -1234,6 +1248,11 @@
     if (!pendingFetch) return;
     var btn = this;
     var msg = document.getElementById('fetchMsg');
+    var entered = document.getElementById('fetchPass').value;
+    if (String(entered) !== String(PASS)) {
+      msg.className = 'msg err'; msg.textContent = 'パスワードが違います';
+      return;
+    }
     btn.disabled = true;
     msg.className = 'msg'; msg.textContent = '起動中…';
     google.script.run
