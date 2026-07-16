@@ -132,7 +132,25 @@
   .rank-bar-wrap { flex: 1; height: 8px; background: var(--grid); border-radius: 999px; overflow: hidden; }
   .rank-bar { height: 100%; border-radius: 999px; background: var(--accent); transition: width .4s ease; }
   .rank-val { width: 78px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; flex: none; color: var(--ink-2); }
-  @media (max-width: 480px) { .rank-bar-wrap { display: none; } .rank-name { flex: 1; } }
+  .rank-val { color: var(--ink); font-weight: 600; }
+  .mv-list { display: grid; gap: 2px; }
+  .mv-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--grid); cursor: pointer; }
+  .mv-row:last-child { border-bottom: none; }
+  .mv-row .mv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+  .mv-row .mv-d { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
+  .mv-row .mv-sub { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+  /* 下タブバー */
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex; background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  .tabbar button {
+    flex: 1; border: none; border-radius: 0; background: transparent; color: var(--muted);
+    padding: 9px 4px 12px; font-size: 12px; font-weight: 600;
+  }
+  .tabbar button.on { color: var(--accent); }
 
   /* テーブル */
   .table-scroll { overflow-x: auto; }
@@ -300,11 +318,7 @@
 
       <div class="card hero-card">
         <div class="hero" id="heroList"></div>
-        <div id="companyTrend" style="margin-top:12px"></div>
       </div>
-
-      <div class="card" id="highlightCard" style="display:none"></div>
-      <div class="card" id="rankCard" style="display:none"></div>
 
       <div class="card">
         <div class="filters" style="margin-bottom:10px">
@@ -345,7 +359,29 @@
       </div>
       <div id="monthBlocks"></div>
     </div>
+
+    <!-- ═══ ハイライト画面（別タブ）═══ -->
+    <div id="highlightView" style="display:none">
+      <div class="ctrl-card">
+        <div class="filters" style="margin-bottom:0">
+          <label class="grp">対象月</label>
+          <button class="small" id="mPrev2">◀</button>
+          <select id="monthSel2"></select>
+          <button class="small" id="mNext2">▶</button>
+        </div>
+      </div>
+      <div class="card hero-card"><div id="companyTrend"></div></div>
+      <div class="card" id="highlightCard"></div>
+      <div class="card" id="moveCard"></div>
+      <div class="card" id="rankCard"></div>
+    </div>
   </div>
+
+  <!-- 下タブバー -->
+  <nav class="tabbar" id="tabbar" style="display:none">
+    <button data-tab="list" class="on">📋 一覧</button>
+    <button data-tab="highlight">🏆 ハイライト</button>
+  </nav>
 </div>
 
 <!-- 取込確認モーダル -->
@@ -733,20 +769,14 @@
     var list = rows.filter(def.ok).slice().sort(function (a, b) {
       return def.asc ? def.val(a) - def.val(b) : def.val(b) - def.val(a);
     });
-    var maxV = 0; list.forEach(function (r) { maxV = Math.max(maxV, Math.abs(def.val(r))); });
     var medals = ['🥇', '🥈', '🥉'];
-    list.slice(0, 8).forEach(function (r, i) {
+    list.forEach(function (r, i) {
       var row = document.createElement('div'); row.className = 'rank-row';
       var pos = document.createElement('div'); pos.className = 'rank-pos';
       pos.textContent = i < 3 ? medals[i] : (i + 1);
       var nm = document.createElement('div'); nm.className = 'rank-name'; nm.textContent = r.name;
-      var bw = document.createElement('div'); bw.className = 'rank-bar-wrap';
-      var bar = document.createElement('div'); bar.className = 'rank-bar';
-      bar.style.width = (maxV ? Math.max(4, Math.abs(def.val(r)) / maxV * 100) : 0) + '%';
-      bw.appendChild(bar);
       var val = document.createElement('div'); val.className = 'rank-val'; val.textContent = def.fmt(r);
-      row.appendChild(pos); row.appendChild(nm); row.appendChild(bw); row.appendChild(val);
-      row.style.cursor = 'pointer';
+      row.appendChild(pos); row.appendChild(nm); row.appendChild(val);
       row.onclick = (function (key) { return function () { openStore(key); }; })(r.key);
       card.appendChild(row);
     });
@@ -760,20 +790,89 @@
       return (t.sales && t.unknown !== null) ? (t.unknown / t.sales) * 100 : null;
     });
     var valid = vals.filter(function (v) { return v !== null; });
-    if (valid.length < 2) return;
+    if (valid.length < 2) { box.textContent = 'データが少なく推移を表示できません'; box.className = 'empty'; return; }
+    box.className = '';
     var wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap;border-top:1px solid var(--grid);padding-top:10px';
+    wrap.style.cssText = 'display:flex;align-items:center;gap:10px;flex-wrap:wrap';
     var lab = document.createElement('div');
-    lab.style.cssText = 'font-size:11px;color:var(--muted)';
-    lab.textContent = '全社 不明ロス率の推移（' + DATA.months[0] + '〜' + DATA.months[DATA.months.length - 1] + '）';
-    var spk = sparkline(vals, { w: 200, h: 34, sw: '2.4' });
+    lab.style.cssText = 'font-size:12px;color:var(--ink-2);font-weight:600';
+    lab.textContent = '📈 全社 不明ロス率の推移（' + DATA.months[0] + '〜' + DATA.months[DATA.months.length - 1] + '）';
+    var spk = sparkline(vals, { w: 200, h: 36, sw: '2.4' });
     var cur = vals[vals.length - 1];
     var now = document.createElement('div');
-    now.style.cssText = 'font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink-2)';
+    now.style.cssText = 'font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink-2)';
     now.textContent = cur === null ? '' : '今月 ' + cur.toFixed(1) + '%';
     wrap.appendChild(lab); var s2 = document.createElement('span'); s2.className = 'spacer'; wrap.appendChild(s2);
     wrap.appendChild(spk); wrap.appendChild(now);
     box.appendChild(wrap);
+  }
+
+  // 前月より悪化／改善した店舗（不明ロス率のポイント差）
+  function renderMovers(rows) {
+    var card = document.getElementById('moveCard');
+    card.textContent = '';
+    var movers = rows.map(function (r) {
+      var prev = calcM(r.key, calPrevYm(curMonth), fdMode);
+      if (!prev || prev.unknownRate === null || r.unknownRate === null) return null;
+      return { name: r.name, key: r.key, delta: (r.unknownRate - prev.unknownRate) * 100, cur: r.unknownRate, prev: prev.unknownRate };
+    }).filter(Boolean);
+    var worse = movers.filter(function (m) { return m.delta > 0.05; }).sort(function (a, b) { return b.delta - a.delta; }).slice(0, 5);
+    var better = movers.filter(function (m) { return m.delta < -0.05; }).sort(function (a, b) { return a.delta - b.delta; }).slice(0, 5);
+
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📊 前月からの変化（不明ロス率）';
+    card.appendChild(h);
+
+    function block(titleEmoji, title, arr, cls, sign) {
+      var t = document.createElement('div');
+      t.style.cssText = 'font-size:12px;font-weight:700;margin:6px 0 2px;color:var(--ink-2)';
+      t.textContent = titleEmoji + ' ' + title;
+      card.appendChild(t);
+      if (!arr.length) {
+        var e = document.createElement('div'); e.className = 'empty'; e.style.padding = '2px 0';
+        e.textContent = '該当なし';
+        card.appendChild(e); return;
+      }
+      var list = document.createElement('div'); list.className = 'mv-list';
+      arr.forEach(function (m) {
+        var row = document.createElement('div'); row.className = 'mv-row';
+        var nm = document.createElement('div'); nm.className = 'mv-name'; nm.textContent = m.name;
+        var sub = document.createElement('div'); sub.className = 'mv-sub';
+        sub.textContent = pct(m.prev) + '→' + pct(m.cur);
+        var d = document.createElement('div'); d.className = 'mv-d ' + cls;
+        d.textContent = sign + Math.abs(m.delta).toFixed(1) + 'pt';
+        row.appendChild(nm); row.appendChild(sub); row.appendChild(d);
+        row.onclick = (function (key) { return function () { openStore(key); }; })(m.key);
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+    }
+    block('📉', '悪化（要チェック）', worse, 'pos', '▲ ');
+    block('📈', '改善', better, 'neg', '▼ ');
+  }
+
+  function renderHighlightTab() {
+    var rows = computeStoreRows();
+    if (!rows.length) {
+      document.getElementById('companyTrend').textContent = 'この月のデータはありません';
+      document.getElementById('highlightCard').textContent = '';
+      document.getElementById('moveCard').textContent = '';
+      document.getElementById('rankCard').textContent = '';
+      return;
+    }
+    renderCompanyTrend();
+    renderHighlights(rows);
+    renderMovers(rows);
+    renderRanking(rows);
+  }
+
+  function computeStoreRows() {
+    return DATA.stores.map(function (s) {
+      var r = calc(s.key, curMonth);
+      if (!r) return null;
+      r.name = s.name; r.key = s.key;
+      return r;
+    }).filter(Boolean);
   }
 
   function renderList() {
@@ -799,13 +898,7 @@
     document.getElementById('kindBadge').style.display = t.interim ? '' : 'none';
     refreshSortOptions();
 
-    var rows = DATA.stores.map(function (s) {
-      var r = calc(s.key, curMonth);
-      if (!r) return null;
-      r.name = s.name; r.key = s.key;
-      return r;
-    }).filter(Boolean);
-
+    var rows = computeStoreRows();
     rows.sort(function (a, b) {
       if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
       var x = a[sortKey], y = b[sortKey];
@@ -813,16 +906,6 @@
       if (y === null || y === undefined) y = -Infinity;
       return y - x;   // 金額・日数は多い順
     });
-
-    if (rows.length) {
-      renderCompanyTrend();
-      renderHighlights(rows);
-      renderRanking(rows);
-    } else {
-      document.getElementById('companyTrend').textContent = '';
-      document.getElementById('highlightCard').style.display = 'none';
-      document.getElementById('rankCard').style.display = 'none';
-    }
 
     var box = document.getElementById('storeList');
     box.textContent = '';
@@ -883,18 +966,6 @@
           { cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') }));
       }
       row.appendChild(vals);
-
-      // 前月比＋不明ロス率の推移スパークライン
-      var trend = document.createElement('div'); trend.className = 'sr-trend';
-      var momc = momUnknownChip(r.key);
-      if (momc) trend.appendChild(momc);
-      var tsp = document.createElement('span'); tsp.className = 'spacer'; trend.appendChild(tsp);
-      var tl = document.createElement('span'); tl.className = 'tl'; tl.textContent = '不明ロス率の推移';
-      trend.appendChild(tl);
-      trend.appendChild(sparkline(
-        seriesFor(r.key, function (x) { return x.unknownRate !== null ? x.unknownRate * 100 : null; }),
-        { w: 88, h: 22 }));
-      row.appendChild(trend);
 
       row.onclick = function () { openStore(r.key); };
       box.appendChild(row);
@@ -1243,10 +1314,21 @@
     document.getElementById('updatedAt').textContent = '取得: ' + DATA.updatedAt;
     document.getElementById('listView').style.display = view === 'list' ? '' : 'none';
     document.getElementById('storeView').style.display = view === 'store' ? '' : 'none';
-    document.getElementById('listModeBar').style.display = view === 'list' ? '' : 'none';
+    document.getElementById('highlightView').style.display = view === 'highlight' ? '' : 'none';
+    // 最上部バー: F/D/FD は一覧・ハイライトで表示、店舗ナビは店舗のみ
+    var modeVis = (view === 'list' || view === 'highlight');
+    document.getElementById('listModeBar').style.display = modeVis ? '' : 'none';
     document.getElementById('storeNavBar').style.display = view === 'store' ? '' : 'none';
+    // 下タブバー: 一覧(店舗詳細含む) / ハイライト
+    document.getElementById('tabbar').style.display = '';
+    document.querySelectorAll('#tabbar button').forEach(function (b) {
+      var on = (b.dataset.tab === 'highlight') ? (view === 'highlight') : (view === 'list' || view === 'store');
+      b.classList.toggle('on', on);
+    });
     syncModeSegs();
-    if (view === 'list') renderList(); else renderStore();
+    if (view === 'highlight') renderHighlightTab();
+    else if (view === 'store') renderStore();
+    else renderList();
   }
 
   // F/D/FD 切替（一覧の #fdSeg と 店舗の #fdSegStore で共有）
@@ -1260,12 +1342,14 @@
   }
 
   function initSelectors() {
-    var mSel = document.getElementById('monthSel');
-    mSel.textContent = '';
-    DATA.months.forEach(function (m) {
-      var o = document.createElement('option'); o.value = m; o.textContent = m; mSel.appendChild(o);
+    ['monthSel', 'monthSel2'].forEach(function (id) {
+      var mSel = document.getElementById(id);
+      mSel.textContent = '';
+      DATA.months.forEach(function (m) {
+        var o = document.createElement('option'); o.value = m; o.textContent = m; mSel.appendChild(o);
+      });
+      mSel.value = curMonth;
     });
-    mSel.value = curMonth;
 
     var sSel = document.getElementById('storeSel');
     sSel.textContent = '';
@@ -1387,20 +1471,32 @@
     renderList();
   });
   document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
-  document.getElementById('monthSel').onchange = function () { curMonth = this.value; renderList(); };
-  document.getElementById('mPrev').onclick = function () {
-    var i = DATA.months.indexOf(curMonth);
-    if (i > 0) { curMonth = DATA.months[i - 1]; document.getElementById('monthSel').value = curMonth; renderList(); }
-  };
-  document.getElementById('mNext').onclick = function () {
-    var i = DATA.months.indexOf(curMonth);
-    if (i < DATA.months.length - 1) { curMonth = DATA.months[i + 1]; document.getElementById('monthSel').value = curMonth; renderList(); }
-  };
+  function setMonth(ym) {
+    curMonth = ym;
+    document.getElementById('monthSel').value = ym;
+    document.getElementById('monthSel2').value = ym;
+    if (view === 'highlight') renderHighlightTab(); else renderList();
+  }
+  function stepMonth(dir) {
+    var j = DATA.months.indexOf(curMonth) + dir;
+    if (j >= 0 && j < DATA.months.length) setMonth(DATA.months[j]);
+  }
+  document.getElementById('monthSel').onchange = function () { setMonth(this.value); };
+  document.getElementById('monthSel2').onchange = function () { setMonth(this.value); };
+  document.getElementById('mPrev').onclick = function () { stepMonth(-1); };
+  document.getElementById('mNext').onclick = function () { stepMonth(1); };
+  document.getElementById('mPrev2').onclick = function () { stepMonth(-1); };
+  document.getElementById('mNext2').onclick = function () { stepMonth(1); };
   document.getElementById('btnBack').onclick = function () { view = 'list'; renderAll(); };
   document.getElementById('storeSel').onchange = function () { curStore = this.value; openForm = null; renderStore(); };
   document.getElementById('btnReload').onclick = function () { load(true); };
   document.getElementById('btnFwAll').onclick = function () { openFetchModal('fw', curMonth); };
   document.getElementById('btnImAll').onclick = function () { openFetchModal('infomart', curMonth); };
+  document.getElementById('tabbar').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    view = (b.dataset.tab === 'highlight') ? 'highlight' : 'list';
+    renderAll(); window.scrollTo({ top: 0 });
+  });
 
   // ── ロス入力モーダル ─────────────────────────────────
   document.getElementById('lossKindSeg').addEventListener('click', function (e) {
