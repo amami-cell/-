@@ -5,25 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>棚卸ダッシュボード</title>
 <style>
+  /* すさび湯PWA準拠のダークテーマ（緑アクセント） */
   :root {
-    --surface: #fcfcfb; --page: #f9f9f7;
-    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-    --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
-    --accent: #2a78d6; --good: #006300; --bad: #d03b3b; --warn: #b8860b;
+    --surface: #181c23; --page: #0f1115;
+    --ink: #eaeef2; --ink-2: #b7c0cd; --muted: #9aa3b2;
+    --grid: #262c36; --axis: #39404d; --border: #2a313c;
+    --accent: #1f9d55; --accent-soft: #10301f; --accent-line: #1f4d33; --accent-ink: #7fd1a0;
+    --good: #7fd1a0; --bad: #e0675c; --warn: #e0a93b;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --surface: #1a1a19; --page: #0d0d0d;
-      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
-      --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
-      --accent: #3987e5; --good: #0ca30c; --bad: #e66767; --warn: #e0a92a;
-    }
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  button, select, input, textarea { touch-action: manipulation; }
   body {
-    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
     background: var(--page); color: var(--ink); font-size: 14px; line-height: 1.6;
-    overflow-x: hidden;
+    overflow-x: hidden; overscroll-behavior-y: contain;
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 14px 14px 96px; }
 
@@ -280,9 +275,34 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .empty { color: var(--muted); font-size: 13px; }
+
+  /* ── すさび湯風の操作感・仕上げ ── */
+  button { transition: transform .06s ease; }
+  button:active { transform: scale(.96); }
+  .seg button { transition: transform .1s ease, background .12s, color .12s; }
+  .seg button:active { transform: scale(.94); }
+  .seg button.on { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-line); font-weight: 700; }
+  button.primary { box-shadow: 0 4px 14px rgba(31,157,85,.28); }
+  .card, .ctrl-card { border-radius: 16px; box-shadow: 0 6px 16px rgba(0,0,0,.28); }
+  .srow { border-radius: 16px; transition: transform .08s ease, border-color .1s, box-shadow .1s; }
+  .srow:active { transform: scale(.985); }
+  .rank-row:active, .mv-row:active { opacity: .6; }
+  .turn-chip { background: var(--accent-soft); color: var(--accent-ink); }
+  .tabbar { background: rgba(15,17,21,.92); backdrop-filter: saturate(180%) blur(12px); }
+  .tabbar button.on { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
+  .kind-badge { border-color: var(--accent-line); }
+  .modal { border: 1px solid var(--grid); }
+  /* 引っ張って更新（pull-to-refresh） */
+  #ptr { position: fixed; top: calc(env(safe-area-inset-top) + 6px); left: 50%; margin-left: -19px; width: 38px; height: 38px;
+    border-radius: 50%; background: var(--surface); border: 1px solid var(--grid); display: flex; align-items: center; justify-content: center;
+    z-index: 60; opacity: 0; transform: translateY(-54px); box-shadow: 0 6px 18px rgba(0,0,0,.45); pointer-events: none; }
+  #ptr i { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(127,209,160,.3); border-top-color: var(--accent-ink); }
+  #ptr.spin i { animation: spin .6s linear infinite; }
+  #app { will-change: transform; }
 </style>
 </head>
 <body>
+<div id="ptr"><i></i></div>
 <div class="wrap">
   <header>
     <h1>棚卸ダッシュボード</h1>
@@ -398,10 +418,22 @@
           <button class="small" id="mNext2">▶</button>
         </div>
       </div>
-      <div class="card" id="pendingCard"></div>
       <div class="card" id="moveCard"></div>
       <div class="card" id="rankTurn"></div>
       <div class="card" id="rankLoss"></div>
+    </div>
+
+    <!-- ═══ ロス未入力（別タブ）═══ -->
+    <div id="pendingView" style="display:none">
+      <div class="ctrl-card">
+        <div class="filters" style="margin-bottom:0">
+          <label class="grp">対象月</label>
+          <button class="small" id="mPrev3">◀</button>
+          <select id="monthSel3"></select>
+          <button class="small" id="mNext3">▶</button>
+        </div>
+      </div>
+      <div class="card" id="pendingCard"></div>
     </div>
   </div>
 
@@ -409,6 +441,7 @@
   <nav class="tabbar" id="tabbar" style="display:none">
     <button data-tab="list" class="on">📋 一覧</button>
     <button data-tab="highlight">🏅 ランキング</button>
+    <button data-tab="pending">📝 未入力</button>
   </nav>
 </div>
 
@@ -879,13 +912,11 @@
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
-      document.getElementById('pendingCard').textContent = 'この月のデータはありません';
-      document.getElementById('moveCard').textContent = '';
+      document.getElementById('moveCard').textContent = 'この月のデータはありません';
       document.getElementById('rankTurn').textContent = '';
       document.getElementById('rankLoss').textContent = '';
       return;
     }
-    renderPending();
     renderMovers(rows);
     renderTurnRank(rows);
     renderLossRank(rows);
@@ -1368,18 +1399,22 @@
     document.getElementById('listView').style.display = view === 'list' ? '' : 'none';
     document.getElementById('storeView').style.display = view === 'store' ? '' : 'none';
     document.getElementById('highlightView').style.display = view === 'highlight' ? '' : 'none';
+    document.getElementById('pendingView').style.display = view === 'pending' ? '' : 'none';
     // 最上部バー: F/D/FD は一覧・ハイライトで表示、店舗ナビは店舗のみ
     var modeVis = (view === 'list' || view === 'highlight');
     document.getElementById('listModeBar').style.display = modeVis ? '' : 'none';
     document.getElementById('storeNavBar').style.display = view === 'store' ? '' : 'none';
-    // 下タブバー: 一覧(店舗詳細含む) / ハイライト
+    // 下タブバー: 一覧(店舗詳細含む) / ランキング / 未入力
     document.getElementById('tabbar').style.display = '';
     document.querySelectorAll('#tabbar button').forEach(function (b) {
-      var on = (b.dataset.tab === 'highlight') ? (view === 'highlight') : (view === 'list' || view === 'store');
+      var on = (b.dataset.tab === 'highlight') ? (view === 'highlight')
+             : (b.dataset.tab === 'pending') ? (view === 'pending')
+             : (view === 'list' || view === 'store');
       b.classList.toggle('on', on);
     });
     syncModeSegs();
     if (view === 'highlight') renderHighlightTab();
+    else if (view === 'pending') renderPending();
     else if (view === 'store') renderStore();
     else renderList();
   }
@@ -1395,7 +1430,7 @@
   }
 
   function initSelectors() {
-    ['monthSel', 'monthSel2'].forEach(function (id) {
+    ['monthSel', 'monthSel2', 'monthSel3'].forEach(function (id) {
       var mSel = document.getElementById(id);
       mSel.textContent = '';
       DATA.months.forEach(function (m) {
@@ -1419,12 +1454,12 @@
     setTimeout(function () { document.getElementById('loginPass').focus(); }, 0);
   }
 
-  function load(force) {
+  function load(force, done) {
     var app = document.getElementById('app');
     if (DATA) app.classList.add('dimmed');
     google.script.run
       .withSuccessHandler(function (d) {
-        if (d && d.authError) { showLogin(); return; }
+        if (d && d.authError) { showLogin(); if (done) done(); return; }
         DATA = d;
         if (!curMonth || DATA.months.indexOf(curMonth) < 0) {
           curMonth = DATA.months[DATA.months.length - 1] || '';
@@ -1436,12 +1471,59 @@
         app.classList.remove('dimmed');
         initSelectors();
         renderAll();
+        if (done) done();
       })
       .withFailureHandler(function (e) {
         document.getElementById('loading').textContent = '読み込みに失敗しました: ' + e.message;
+        if (done) done();
       })
       .getDashboardData(PASS, !!force);
   }
+
+  // ── 触覚フィードバック・引っ張って更新（すさび湯PWA準拠）──
+  function haptic(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+  (function () {
+    var ptr = document.getElementById('ptr'), appEl = document.getElementById('app');
+    if (!ptr || !appEl) return;
+    var arrow = ptr.querySelector('i');
+    var startY = null, ready = false, busy = false, TRIGGER = 70;
+    function atTop() { return (window.scrollY || document.documentElement.scrollTop || 0) <= 0; }
+    function setPull(dy) {
+      var y = Math.min(dy * 0.5, 120);
+      appEl.style.transition = 'none'; appEl.style.transform = 'translateY(' + y + 'px)';
+      ptr.style.transition = 'none'; ptr.style.opacity = String(Math.min(y / 32, 1));
+      ptr.style.transform = 'translateY(' + (Math.min(y, 92) - 46) + 'px)';
+      arrow.style.transform = 'rotate(' + Math.min(y * 3, 270) + 'deg)';
+      var nr = dy >= TRIGGER; if (nr && !ready) haptic(12); ready = nr;
+    }
+    function springBack() {
+      appEl.style.transition = 'transform .3s cubic-bezier(.2,.8,.3,1)'; appEl.style.transform = 'translateY(0)';
+      ptr.style.transition = 'transform .25s ease, opacity .25s ease'; ptr.style.opacity = '0'; ptr.style.transform = 'translateY(-54px)';
+      arrow.style.transform = '';
+    }
+    function refreshing() {
+      busy = true; ptr.classList.add('spin'); arrow.style.transform = '';
+      appEl.style.transition = 'transform .2s ease'; appEl.style.transform = 'translateY(54px)';
+      ptr.style.transition = 'transform .2s ease, opacity .2s ease'; ptr.style.opacity = '1'; ptr.style.transform = 'translateY(10px)';
+    }
+    document.addEventListener('touchstart', function (e) {
+      if (busy || e.touches.length !== 1 || document.querySelector('.overlay.show')) { startY = null; return; }
+      startY = atTop() ? e.touches[0].clientY : null;
+    }, { passive: true });
+    document.addEventListener('touchmove', function (e) {
+      if (busy || startY == null) return;
+      var dy = e.touches[0].clientY - startY;
+      if (dy > 0 && atTop()) { e.preventDefault(); setPull(dy); }
+      else { startY = null; ready = false; springBack(); }
+    }, { passive: false });
+    document.addEventListener('touchend', function () {
+      if (busy || startY == null) return;
+      var go = ready; startY = null; ready = false;
+      if (!go) { springBack(); return; }
+      haptic(25); refreshing();
+      load(true, function () { busy = false; ptr.classList.remove('spin'); springBack(); haptic(8); });
+    });
+  })();
 
   // ── イベント ─────────────────────────────────────────
   function onModeClick(e) {
@@ -1532,20 +1614,21 @@
   document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
   function setMonth(ym) {
     curMonth = ym;
-    document.getElementById('monthSel').value = ym;
-    document.getElementById('monthSel2').value = ym;
-    if (view === 'highlight') renderHighlightTab(); else renderList();
+    ['monthSel', 'monthSel2', 'monthSel3'].forEach(function (id) { document.getElementById(id).value = ym; });
+    if (view === 'highlight') renderHighlightTab();
+    else if (view === 'pending') renderPending();
+    else renderList();
   }
   function stepMonth(dir) {
     var j = DATA.months.indexOf(curMonth) + dir;
     if (j >= 0 && j < DATA.months.length) setMonth(DATA.months[j]);
   }
-  document.getElementById('monthSel').onchange = function () { setMonth(this.value); };
-  document.getElementById('monthSel2').onchange = function () { setMonth(this.value); };
-  document.getElementById('mPrev').onclick = function () { stepMonth(-1); };
-  document.getElementById('mNext').onclick = function () { stepMonth(1); };
-  document.getElementById('mPrev2').onclick = function () { stepMonth(-1); };
-  document.getElementById('mNext2').onclick = function () { stepMonth(1); };
+  ['monthSel', 'monthSel2', 'monthSel3'].forEach(function (id) {
+    document.getElementById(id).onchange = function () { setMonth(this.value); };
+  });
+  [['mPrev', -1], ['mNext', 1], ['mPrev2', -1], ['mNext2', 1], ['mPrev3', -1], ['mNext3', 1]].forEach(function (o) {
+    document.getElementById(o[0]).onclick = function () { stepMonth(o[1]); };
+  });
   document.getElementById('btnBack').onclick = function () { view = 'list'; renderAll(); };
   document.getElementById('storeSel').onchange = function () { curStore = this.value; openForm = null; renderStore(); };
   document.getElementById('btnReload').onclick = function () { load(true); };
@@ -1553,7 +1636,9 @@
   document.getElementById('btnImAll').onclick = function () { openFetchModal('infomart', curMonth); };
   document.getElementById('tabbar').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
-    view = (b.dataset.tab === 'highlight') ? 'highlight' : 'list';
+    haptic(8);
+    var tab = b.dataset.tab;
+    view = (tab === 'highlight') ? 'highlight' : (tab === 'pending') ? 'pending' : 'list';
     renderAll(); window.scrollTo({ top: 0 });
   });
 
