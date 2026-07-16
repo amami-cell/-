@@ -552,6 +552,18 @@
   }
   function pct(v) { return (v * 100).toFixed(1) + '%'; }
   function days1(v) { return v.toFixed(1); }
+  // 桁数が多い数字を枠内に自動縮小（はみ出し防止）
+  function fitNum(el, minPx) {
+    el.style.fontSize = '';
+    var size = parseFloat(getComputedStyle(el).fontSize) || 14, g = 0;
+    while (el.scrollWidth > el.clientWidth + 0.5 && size > (minPx || 10) && g++ < 16) {
+      size -= 0.5; el.style.fontSize = size + 'px';
+    }
+  }
+  function fitAll() {
+    document.querySelectorAll('.mini .mv, .mini .mr, .rank-val, .calc-grp .f-total, .items.compact td.num, .items.compact td.rate, .items.c5 td.num, .items.c5 td.rate')
+      .forEach(function (e) { fitNum(e, 9); });
+  }
   function daysInMonth(ym) {
     var y = +ym.slice(0, 4), m = +ym.slice(5, 7);
     return new Date(y, m, 0).getDate();
@@ -920,6 +932,7 @@
     renderMovers(rows);
     renderTurnRank(rows);
     renderLossRank(rows);
+    fitAll();
   }
 
   function computeStoreRows() {
@@ -1032,6 +1045,7 @@
       e.textContent = 'この月のデータはありません';
       box.appendChild(e);
     }
+    fitAll();
   }
 
   // ── 店舗画面 ─────────────────────────────────────────
@@ -1233,6 +1247,7 @@
       e.textContent = 'この店舗のデータはまだありません';
       box.appendChild(e);
     }
+    fitAll();
   }
 
   function buildLossForm(storeKey, ym, kind, opts) {
