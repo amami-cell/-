@@ -23,6 +23,7 @@
   body {
     font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
     background: var(--page); color: var(--ink); font-size: 14px; line-height: 1.6;
+    overflow-x: hidden;
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 14px 14px 96px; }
 
@@ -90,15 +91,16 @@
   .sr-vals.three { grid-template-columns: 1fr 1fr 1fr; }
   .mini {
     border: 1px solid var(--grid); border-radius: 10px; background: var(--surface);
-    padding: 8px 12px;
+    padding: 8px 12px; min-width: 0;
   }
-  .mini .mv { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-  .mini .mv.big { font-size: 18px; }
+  .mini .mv { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mini .mv.big { font-size: 17px; }
   .mini .mv.muted { color: var(--muted); font-weight: 500; font-size: 14px; }
-  .mini .ml { font-size: 11px; color: var(--muted); margin-bottom: 1px; }
-  .mini .mr { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .mini .ml { font-size: 11px; color: var(--muted); margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mini .mr { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 1px; white-space: nowrap; }
   .mini .mr.accent { color: var(--accent); font-weight: 700; font-size: 13px; }
-  @media (max-width: 480px) { .mini { padding: 7px 9px; } .mini .mv { font-size: 14px; } .mini .mv.big { font-size: 16px; } }
+  @media (max-width: 480px) { .mini { padding: 7px 9px; } .mini .mv { font-size: 13px; } .mini .mv.big { font-size: 15px; } .mini .mv.muted { font-size: 12px; } }
+  @media (max-width: 360px) { .mini .mv { font-size: 12px; } .mini .mv.big { font-size: 13px; } }
 
   /* 今月のハイライト（MVP表彰） */
   .card .cardh { font-size: 13px; font-weight: 700; color: var(--ink-2); margin-bottom: 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -154,7 +156,7 @@
   .tabbar button:active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
   /* テーブル */
-  .table-scroll { overflow-x: auto; }
+  .table-scroll { overflow-x: auto; max-width: 100%; }
   table { border-collapse: collapse; width: 100%; font-size: 13px; }
   th, td { padding: 7px 9px; white-space: nowrap; }
   thead th {
@@ -185,6 +187,11 @@
   .items td.lbl { color: var(--ink-2); overflow-wrap: anywhere; }
   .items td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .items td.rate { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); font-size: 12px; }
+  /* かんたん表: 3列を固定幅で詰めて整列（数字を左寄りに・横あふれ防止） */
+  .items.compact { table-layout: fixed; }
+  .items.compact td.lbl { width: 46%; }
+  .items.compact td.num { width: 33%; }
+  .items.compact td.rate { width: 21%; }
   .items tr.head td { color: var(--muted); font-size: 11px; background: var(--surface); white-space: nowrap; }
   .items tr.strong td { font-weight: 600; background: var(--surface); }
   @media (max-width: 680px) {
@@ -705,7 +712,19 @@
     return row;
   }
 
-  var turnAsc = true;   // 在庫回転ランキング: true=低い順 / false=高い順
+  var RANK_TOP = 5;
+  var turnAsc = true, turnOpen = false, lossOpen = false;
+  // 上位RANK_TOP件だけ表示し、多ければ「すべて表示／閉じる」ボタンを付ける
+  function appendRankRows(card, list, makeRow, open, onToggle) {
+    (open ? list : list.slice(0, RANK_TOP)).forEach(function (r) { card.appendChild(makeRow(r)); });
+    if (list.length > RANK_TOP) {
+      var wrap = document.createElement('div'); wrap.style.cssText = 'text-align:center;margin-top:8px';
+      var btn = document.createElement('button'); btn.className = 'small';
+      btn.textContent = open ? '▲ 上位だけ表示' : ('▼ すべて表示（' + list.length + '店舗）');
+      btn.onclick = onToggle;
+      wrap.appendChild(btn); card.appendChild(wrap);
+    }
+  }
   function renderTurnRank(rows) {
     var card = document.getElementById('rankTurn');
     card.textContent = '';
@@ -724,7 +743,8 @@
     var list = rows.filter(function (r) { return r.turnover !== null && r.invCur > 0; }).slice()
       .sort(function (a, b) { return turnAsc ? a.turnover - b.turnover : b.turnover - a.turnover; });
     if (!list.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'データがありません'; card.appendChild(e); return; }
-    list.forEach(function (r) { card.appendChild(rankRow(r.name, days1(r.turnover) + '日', r.key)); });
+    appendRankRows(card, list, function (r) { return rankRow(r.name, days1(r.turnover) + '日', r.key); },
+      turnOpen, function () { turnOpen = !turnOpen; renderTurnRank(rows); });
   }
 
   function renderLossRank(rows) {
@@ -745,10 +765,10 @@
         return a.unknownRate - b.unknownRate;    // 同じ差なら − が上位
       });
     if (!list.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'データがありません'; card.appendChild(e); return; }
-    list.forEach(function (r) {
+    appendRankRows(card, list, function (r) {
       var cls = r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg');
-      card.appendChild(rankRow(r.name, pct(r.unknownRate), r.key, cls));
-    });
+      return rankRow(r.name, pct(r.unknownRate), r.key, cls);
+    }, lossOpen, function () { lossOpen = !lossOpen; renderLossRank(rows); });
   }
 
   // 前月より悪化／改善した店舗（不明ロス率のポイント差）
@@ -882,7 +902,7 @@
         var pv = calc(r.key, calPrevYm(curMonth));
         var prevTurn = pv ? pv.turnover : null;
         vals.className = 'sr-vals three';
-        vals.appendChild(mini('当月棚卸（' + curMonth.slice(5) + '月）',
+        vals.appendChild(mini('当月棚卸',
           r.invCur === null ? '— 未取得' : yen(r.invCur),
           r.turnover === null ? '' : '在庫 ' + days1(r.turnover) + '日分',
           { big: true, subCls: 'accent' }));
@@ -963,7 +983,7 @@
 
   /** かんたん表示: 仕入項目 × 金額 × 売上比 の3列表（横スクロールなし） */
   function buildFdCompact(r, ym) {
-    var tbl = document.createElement('table'); tbl.className = 'items';
+    var tbl = document.createElement('table'); tbl.className = 'items compact';
     var trh = document.createElement('tr'); trh.className = 'head';
     [['仕入項目', 'lbl'], [modeLabel(), 'num'], ['売上比', 'rate']].forEach(function (hc) {
       var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0]; trh.appendChild(td);
@@ -978,7 +998,9 @@
       fdValueCells(tr, r, row, true);
       tbl.appendChild(tr);
     });
-    return tbl;
+    var wrap = document.createElement('div'); wrap.className = 'table-scroll';
+    wrap.appendChild(tbl);
+    return wrap;
   }
 
   /** 全表示: 仕入項目｜FD合計｜売上比｜食材費(F)｜売上比｜飲料費(D)｜売上比 の7列表（横スクロール） */
