@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>棚卸ダッシュボード</title>
 <style>
-  /* すさび湯PWA準拠のダークテーマ（緑アクセント） */
+  /* ピッチデック風の明るいテーマ（白ベース＋濃い緑アクセント） */
   :root {
-    --surface: #181c23; --page: #0f1115;
-    --ink: #eaeef2; --ink-2: #b7c0cd; --muted: #9aa3b2;
-    --grid: #262c36; --axis: #39404d; --border: #2a313c;
-    --accent: #1f9d55; --accent-soft: #10301f; --accent-line: #1f4d33; --accent-ink: #7fd1a0;
-    --good: #7fd1a0; --bad: #e0675c; --warn: #e0a93b;
+    --surface: #ffffff; --page: #f3f5ef;
+    --ink: #18231b; --ink-2: #4a544c; --muted: #8b938b;
+    --grid: #e5e8e0; --axis: #c7ccc2; --border: rgba(24,35,27,0.12);
+    --accent: #2f6b3e; --accent-soft: #e8f1ea; --accent-line: #c3ddc9; --accent-ink: #2f6b3e;
+    --good: #2f6b3e; --bad: #c0392b; --warn: #b07a12;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   button, select, input, textarea { touch-action: manipulation; }
@@ -282,21 +282,21 @@
   .seg button { transition: transform .1s ease, background .12s, color .12s; }
   .seg button:active { transform: scale(.94); }
   .seg button.on { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-line); font-weight: 700; }
-  button.primary { box-shadow: 0 4px 14px rgba(31,157,85,.28); }
-  .card, .ctrl-card { border-radius: 16px; box-shadow: 0 6px 16px rgba(0,0,0,.28); }
+  button.primary { box-shadow: 0 3px 10px rgba(47,107,62,.22); }
+  .card, .ctrl-card { border-radius: 16px; box-shadow: 0 1px 3px rgba(24,40,28,.06), 0 10px 22px rgba(24,40,28,.05); }
   .srow { border-radius: 16px; transition: transform .08s ease, border-color .1s, box-shadow .1s; }
   .srow:active { transform: scale(.985); }
-  .rank-row:active, .mv-row:active { opacity: .6; }
+  .rank-row:active, .mv-row:active { opacity: .55; }
   .turn-chip { background: var(--accent-soft); color: var(--accent-ink); }
-  .tabbar { background: rgba(15,17,21,.92); backdrop-filter: saturate(180%) blur(12px); }
+  .tabbar { background: rgba(255,255,255,.9); backdrop-filter: saturate(180%) blur(12px); box-shadow: 0 -4px 20px rgba(24,40,28,.06); }
   .tabbar button.on { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
   .kind-badge { border-color: var(--accent-line); }
   .modal { border: 1px solid var(--grid); }
   /* 引っ張って更新（pull-to-refresh） */
   #ptr { position: fixed; top: calc(env(safe-area-inset-top) + 6px); left: 50%; margin-left: -19px; width: 38px; height: 38px;
     border-radius: 50%; background: var(--surface); border: 1px solid var(--grid); display: flex; align-items: center; justify-content: center;
-    z-index: 60; opacity: 0; transform: translateY(-54px); box-shadow: 0 6px 18px rgba(0,0,0,.45); pointer-events: none; }
-  #ptr i { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(127,209,160,.3); border-top-color: var(--accent-ink); }
+    z-index: 60; opacity: 0; transform: translateY(-54px); box-shadow: 0 6px 18px rgba(24,40,28,.18); pointer-events: none; }
+  #ptr i { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(47,107,62,.25); border-top-color: var(--accent); }
   #ptr.spin i { animation: spin .6s linear infinite; }
   #app { will-change: transform; }
 </style>
