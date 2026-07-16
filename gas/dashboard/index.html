@@ -43,6 +43,8 @@
     font: inherit; padding: 6px 10px; border: 1px solid var(--border);
     border-radius: 8px; background: var(--surface); color: var(--ink); max-width: 240px;
   }
+  /* iOSは入力欄のフォントが16px未満だとフォーカス時に自動ズーム（＝画面がアップ）するので16pxに固定 */
+  input, select, textarea { font-size: 16px !important; }
 
   /* F/D/FD 切替（最上部・両画面共通） */
   .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
@@ -192,6 +194,16 @@
   .items.compact td.lbl { width: 46%; }
   .items.compact td.num { width: 33%; }
   .items.compact td.rate { width: 21%; }
+  /* かんたん表(F・D): 項目｜食材費(F)｜売上比｜飲料費(D)｜売上比 の5列 */
+  .items.c5 { table-layout: fixed; }
+  .items.c5 td { padding: 6px 4px; font-size: 11px; }
+  .items.c5 td.lbl { width: 22%; word-break: break-all; }
+  .items.c5 td.num { width: 24%; }
+  .items.c5 td.rate { width: 13%; font-size: 10px; }
+  .items.c5 tr.strong td { font-weight: 500; }
+  .items.c5 tr.strong td.lbl { font-weight: 600; }
+  .items.c5 tr.head td { font-size: 10px; }
+  @media (max-width: 380px) { .items.c5 td { font-size: 10px; padding: 6px 3px; } }
   .items tr.head td { color: var(--muted); font-size: 11px; background: var(--surface); white-space: nowrap; }
   .items tr.strong td { font-weight: 600; background: var(--surface); }
   @media (max-width: 680px) {
@@ -353,11 +365,10 @@
           </div>
         </div>
         <div class="filters" id="storeModeRow" style="margin-bottom:0">
-          <label class="grp">種別</label>
-          <div class="seg seg-sm" id="fdSegStore">
-            <button data-mode="F">フード</button>
-            <button data-mode="D">ドリンク</button>
-            <button data-mode="FD" class="on">FD合算</button>
+          <label class="grp">内訳</label>
+          <div class="seg seg-sm" id="compactSeg">
+            <button data-cv="FD" class="on">FD合計</button>
+            <button data-cv="split">F・D</button>
           </div>
         </div>
       </div>
@@ -378,6 +389,7 @@
           <button class="small" id="mNext2">▶</button>
         </div>
       </div>
+      <div class="card" id="pendingCard"></div>
       <div class="card" id="moveCard"></div>
       <div class="card" id="rankTurn"></div>
       <div class="card" id="rankLoss"></div>
@@ -477,7 +489,8 @@
   var DATA = null;
   var view = 'list';          // 'list' | 'store'
   var fdMode = 'FD';          // 'F' | 'D' | 'FD'
-  var storeWide = true;       // 店舗画面: false=3列かんたん表示 / true=全表示(横スクロール)【デフォルト】
+  var storeWide = true;       // 店舗画面: false=かんたん表示 / true=全表示(横スクロール)【デフォルト】
+  var compactView = 'FD';     // かんたん表示の内訳: 'FD'=FD合計3列 / 'split'=F・D5列
   var pct2View = 'incl';      // 'incl'=2%込み表示 | 'excl'=2%なし表示
   var curMonth = '';
   var curStore = '';
@@ -582,10 +595,10 @@
   }
 
   // ── ヒーロー（在庫回転日数）──────────────────────────
-  function renderHero(el, turnover, inv, theory, d, sub) {
+  function renderHero(el, turnover, inv, theory, d, sub, modeLbl) {
     el.textContent = '';
     var lbl = document.createElement('div'); lbl.className = 'hlabel';
-    lbl.textContent = '在庫回転日数（' + modeLabel() + '）— 何日分の在庫を抱えているか';
+    lbl.textContent = '在庫回転日数（' + (modeLbl || modeLabel()) + '）— 何日分の在庫を抱えているか';
     var big = document.createElement('div'); big.className = 'big';
     if (turnover === null) {
       big.textContent = '—';
@@ -684,10 +697,10 @@
   }
   function lossSignal(r) {
     if (!r || r.unknown === null || r.unknownRate === null) return { emoji: '⚪', label: 'データ待ち', cls: '' };
-    if (r.unknown <= 0) return { emoji: '🟢', label: '良好', cls: 'sig-good' };
-    var p = r.unknownRate * 100;
-    if (p < 2) return { emoji: '🟢', label: '良好', cls: 'sig-good' };
-    if (p < 5) return { emoji: '🟡', label: '注意', cls: 'sig-warn' };
+    // 不明ロス率の絶対値で判定: ±1%以下=良好 / 1〜2%=注意 / 2%超=要確認
+    var p = Math.abs(r.unknownRate) * 100;
+    if (p <= 1) return { emoji: '🟢', label: '良好', cls: 'sig-good' };
+    if (p <= 2) return { emoji: '🟡', label: '注意', cls: 'sig-warn' };
     return { emoji: '🔴', label: '要確認', cls: 'sig-bad' };
   }
   function momUnknownChip(storeKey) {
@@ -771,6 +784,45 @@
     }, lossOpen, function () { lossOpen = !lossOpen; renderLossRank(rows); });
   }
 
+  // ロス未入力の店舗（必要ロス・廃棄ロスの登録が0件）。月選択・その場で入力できる
+  var pendingOpen = false;
+  function renderPending() {
+    var card = document.getElementById('pendingCard');
+    card.textContent = '';
+    var pending = DATA.stores.filter(function (s) {
+      if (!calc(s.key, curMonth)) return false;   // その月にデータがある店舗のみ
+      var arr = ((DATA.losses[curMonth] || {})[s.key]) || [];
+      return !arr.some(function (l) { return l.kind === '必要ロス' || l.kind === '廃棄ロス'; });
+    });
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📝 ロス未入力の店舗（' + curMonth + '・' + pending.length + '店舗）';
+    card.appendChild(h);
+    if (!pending.length) {
+      var ok = document.createElement('div'); ok.className = 'empty';
+      ok.textContent = '全店舗が入力済みです ✅';
+      card.appendChild(ok); return;
+    }
+    var cap = document.createElement('div');
+    cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '必要ロス・廃棄ロスがまだ未登録の店舗。「＋入力」でその場で打てます。';
+    card.appendChild(cap);
+    (pendingOpen ? pending : pending.slice(0, RANK_TOP)).forEach(function (s) {
+      var row = document.createElement('div'); row.className = 'rank-row';
+      var nm = document.createElement('div'); nm.className = 'rank-name'; nm.textContent = s.name;
+      var btn = document.createElement('button'); btn.className = 'primary small'; btn.textContent = '＋入力';
+      btn.onclick = function () { openLossModal(s.key, curMonth); };
+      row.appendChild(nm); row.appendChild(btn);
+      card.appendChild(row);
+    });
+    if (pending.length > RANK_TOP) {
+      var wrap = document.createElement('div'); wrap.style.cssText = 'text-align:center;margin-top:8px';
+      var tb = document.createElement('button'); tb.className = 'small';
+      tb.textContent = pendingOpen ? '▲ 一部だけ表示' : ('▼ すべて表示（' + pending.length + '店舗）');
+      tb.onclick = function () { pendingOpen = !pendingOpen; renderPending(); };
+      wrap.appendChild(tb); card.appendChild(wrap);
+    }
+  }
+
   // 前月より悪化／改善した店舗（不明ロス率のポイント差）
   function renderMovers(rows) {
     var card = document.getElementById('moveCard');
@@ -818,11 +870,13 @@
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
-      document.getElementById('moveCard').textContent = 'この月のデータはありません';
+      document.getElementById('pendingCard').textContent = 'この月のデータはありません';
+      document.getElementById('moveCard').textContent = '';
       document.getElementById('rankTurn').textContent = '';
       document.getElementById('rankLoss').textContent = '';
       return;
     }
+    renderPending();
     renderMovers(rows);
     renderTurnRank(rows);
     renderLossRank(rows);
@@ -954,23 +1008,23 @@
   ];
 
   // 仕入項目ラベルのセル（ロス行はタップで内訳を開閉）。lossR = 件数の集計元
-  function fdLabelCell(row, ym, lossR) {
+  function fdLabelCell(row, ym, lossR, noCount) {
     var lbl = document.createElement('td'); lbl.className = 'lbl';
     if (row.indent) lbl.style.paddingLeft = '1.4em';
     if (row.loss) {
       var count = lossR.losses.filter(function (l) { return l.kind === row.loss; }).length;
       var isOpen = !!(expandedLoss && expandedLoss.ym === ym && expandedLoss.kind === row.loss);
-      lbl.textContent = (isOpen ? '▾ ' : '▸ ') + row.label + '（' + count + '件）';
+      lbl.textContent = (isOpen ? '▾ ' : '▸ ') + row.label + (noCount ? '' : '（' + count + '件）');
       return { td: lbl, toggle: function () { expandedLoss = isOpen ? null : { ym: ym, kind: row.loss }; renderStore(); } };
     }
     lbl.textContent = row.label;
     return { td: lbl, toggle: null };
   }
 
-  // 金額セル＋（withRate時）売上比セルを tr に追加
-  function fdValueCells(tr, r, row, withRate) {
+  // 金額セル＋（withRate時）売上比セルを tr に追加。numCls=金額セルの追加クラス
+  function fdValueCells(tr, r, row, withRate, numCls) {
     var v = r ? row.get(r) : null;
-    var td = document.createElement('td'); td.className = 'num';
+    var td = document.createElement('td'); td.className = 'num' + (numCls ? ' ' + numCls : '');
     td.textContent = v === null ? '—' : yen(v);
     if (row.clsFn && v !== null) { var c = row.clsFn(v); if (c) td.classList.add(c); }
     tr.appendChild(td);
@@ -981,21 +1035,28 @@
     }
   }
 
-  /** かんたん表示: 仕入項目 × 金額 × 売上比 の3列表（横スクロールなし） */
-  function buildFdCompact(r, ym) {
-    var tbl = document.createElement('table'); tbl.className = 'items compact';
+  /** かんたん表示: FD合計=3列（項目｜FD合計｜売上比）／ F・D=5列（項目｜食材費(F)｜売上比｜飲料費(D)｜売上比） */
+  function buildFdCompact(rFD, rF, rD, ym) {
+    var split = compactView === 'split';
+    var head = split
+      ? [['仕入項目', 'lbl'], ['食材費(F)', 'num'], ['売上比', 'rate'], ['飲料費(D)', 'num'], ['売上比', 'rate']]
+      : [['仕入項目', 'lbl'], ['FD合計', 'num'], ['売上比', 'rate']];
+    var tbl = document.createElement('table'); tbl.className = 'items ' + (split ? 'c5' : 'compact');
     var trh = document.createElement('tr'); trh.className = 'head';
-    [['仕入項目', 'lbl'], [modeLabel(), 'num'], ['売上比', 'rate']].forEach(function (hc) {
-      var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0]; trh.appendChild(td);
-    });
+    head.forEach(function (hc) { var td = document.createElement('td'); td.className = hc[1]; td.textContent = hc[0]; trh.appendChild(td); });
     tbl.appendChild(trh);
     FD_ROWS.forEach(function (row) {
       var tr = document.createElement('tr');
       if (row.strong) tr.className = 'strong';
-      var lc = fdLabelCell(row, ym, r);
+      var lc = fdLabelCell(row, ym, rFD, split);   // ロス件数はFD基準、5列は件数省略
       if (lc.toggle) { tr.style.cursor = 'pointer'; tr.onclick = lc.toggle; }
       tr.appendChild(lc.td);
-      fdValueCells(tr, r, row, true);
+      if (split) {
+        fdValueCells(tr, rF, row, true);   // 食材費(F)＋売上比
+        fdValueCells(tr, rD, row, true);   // 飲料費(D)＋売上比
+      } else {
+        fdValueCells(tr, rFD, row, true);  // FD合計＋売上比
+      }
       tbl.appendChild(tr);
     });
     var wrap = document.createElement('div'); wrap.className = 'table-scroll';
@@ -1034,18 +1095,18 @@
     var name = '';
     DATA.stores.forEach(function (s) { if (s.key === curStore) name = s.name; });
 
-    // 種別（F/D/FD）は「かんたん表示」のときだけ出す（全表示は全部出るので不要）
+    // FD合計/F・D の切替は「かんたん表示」のときだけ出す（全表示は全部出るので不要）
     document.getElementById('storeModeRow').style.display = storeWide ? 'none' : '';
 
-    // ヒーロー: 最新月
+    // ヒーロー: 最新月（店舗ページは常にFD合算基準）
     var latest = null;
     for (var i = DATA.months.length - 1; i >= 0; i--) {
-      var r0 = calc(curStore, DATA.months[i]);
+      var r0 = calcM(curStore, DATA.months[i], 'FD');
       if (r0) { latest = r0; break; }
     }
     var heroEl = document.getElementById('heroStore');
     if (latest) {
-      renderHero(heroEl, latest.turnover, latest.invCur || 0, latest.theory, latest.days, name + ' ' + latest.ym);
+      renderHero(heroEl, latest.turnover, latest.invCur || 0, latest.theory, latest.days, name + ' ' + latest.ym, 'FD合算');
     } else {
       heroEl.textContent = 'データがありません';
     }
@@ -1056,8 +1117,8 @@
     DATA.months.slice().reverse().forEach(function (ym) {
       var rFD = calcM(curStore, ym, 'FD');
       if (!rFD) return;
-      // 全表示は常にFD基準（ロス内訳・在庫日数・売上）、かんたん表示は上部トグルのモード
-      var r = (storeWide || fdMode === 'FD') ? rFD : calcM(curStore, ym, fdMode);
+      // 店舗ページは常にFD合算基準（在庫日数・売上・ロス内訳）
+      var r = rFD;
 
       var card = document.createElement('div'); card.className = 'card';
 
@@ -1081,11 +1142,11 @@
       h.appendChild(salesEl);
       card.appendChild(h);
 
-      // ── 棚卸項目（かんたん=3列 / 全表示=7列横スクロール）──
+      // ── 棚卸項目（かんたん=FDは5列/F・Dは3列 ／ 全表示=7列横スクロール）──
       if (storeWide) {
         card.appendChild(buildFdWide(rFD, calcM(curStore, ym, 'F'), calcM(curStore, ym, 'D'), ym));
       } else {
-        card.appendChild(buildFdCompact(r, ym));
+        card.appendChild(buildFdCompact(rFD, calcM(curStore, ym, 'F'), calcM(curStore, ym, 'D'), ym));
       }
 
       // ── ロス内訳（合計行をタップで開閉）──
@@ -1252,7 +1313,7 @@
         note.className = 'msg ok';
         note.textContent = '✓ ' + recs.length + '件を登録しました（続けて入力できます）';
         renderLossForm();                       // 空フォームに戻す
-        if (view === 'list') renderList(); else renderStore();
+        if (view === 'highlight') renderHighlightTab(); else if (view === 'store') renderStore(); else renderList();
       },
       onCancel: function () { closeLossModal(); }
     }));
@@ -1271,7 +1332,7 @@
   function closeLossModal() {
     document.getElementById('lossOverlay').classList.remove('show');
     lossModal = null;
-    if (view === 'list') renderList(); else renderStore();
+    if (view === 'highlight') renderHighlightTab(); else if (view === 'store') renderStore(); else renderList();
   }
 
   function renderAll() {
@@ -1295,9 +1356,9 @@
     else renderList();
   }
 
-  // F/D/FD 切替（一覧の #fdSeg と 店舗の #fdSegStore で共有）
+  // F/D/FD 切替（一覧の #fdSeg）
   function syncModeSegs() {
-    ['fdSeg', 'fdSegStore'].forEach(function (id) {
+    ['fdSeg'].forEach(function (id) {
       var seg = document.getElementById(id); if (!seg) return;
       seg.querySelectorAll('button').forEach(function (x) {
         x.classList.toggle('on', x.dataset.mode === fdMode);
@@ -1363,7 +1424,13 @@
     renderAll();
   }
   document.getElementById('fdSeg').addEventListener('click', onModeClick);
-  document.getElementById('fdSegStore').addEventListener('click', onModeClick);
+  document.getElementById('compactSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    compactView = b.dataset.cv;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderStore();
+  });
   document.getElementById('pctSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button');
     if (!b) return;
