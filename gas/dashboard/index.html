@@ -238,8 +238,14 @@
     font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--surface); color: var(--ink);
   }
-  .loss-form input[type="text"] { flex: 1; min-width: 160px; }
+  .loss-form input[type="text"] { flex: 1; min-width: 150px; }
   .loss-form input[type="number"] { width: 130px; }
+  /* 金額 × 数量 = 合計（自動計算） */
+  .calc-grp { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+  .calc-grp .op { color: var(--muted); font-size: 14px; }
+  .loss-form input.f-price { width: 88px; }
+  .loss-form input.f-qty { width: 56px; }
+  .calc-grp .f-total { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 76px; text-align: right; }
   .radio-row { display: flex; gap: 12px; font-size: 13px; }
   .radio-row label { display: flex; align-items: center; gap: 4px; }
 
@@ -1208,6 +1214,7 @@
     itemsWrap.style.cssText = 'display:grid;gap:6px';
     f.appendChild(itemsWrap);
 
+    var pricePlaceholder = isTheory ? '追加額' : '金額';
     function addRowUI() {
       var row = document.createElement('div'); row.className = 'frow';
       var cat = document.createElement('select');
@@ -1216,13 +1223,25 @@
       });
       if (fdMode === 'D') cat.value = 'ドリンク';
       var memo = document.createElement('input'); memo.type = 'text'; memo.placeholder = memoPlaceholder;
-      var amt = document.createElement('input'); amt.type = 'number'; amt.placeholder = amtPlaceholder; amt.min = '1';
+      // 金額（単価）× 数量 = 合計（自動計算）
+      var calc = document.createElement('div'); calc.className = 'calc-grp';
+      var price = document.createElement('input'); price.type = 'number'; price.className = 'f-price'; price.placeholder = pricePlaceholder; price.min = '1'; price.inputMode = 'numeric';
+      var x = document.createElement('span'); x.className = 'op'; x.textContent = '×';
+      var qty = document.createElement('input'); qty.type = 'number'; qty.className = 'f-qty'; qty.placeholder = '数量'; qty.min = '1'; qty.value = '1'; qty.inputMode = 'numeric';
+      var eq = document.createElement('span'); eq.className = 'op'; eq.textContent = '＝';
+      var total = document.createElement('span'); total.className = 'f-total'; total.textContent = '¥0';
+      calc.appendChild(price); calc.appendChild(x); calc.appendChild(qty); calc.appendChild(eq); calc.appendChild(total);
+      function recompute() {
+        var t = Math.round((Number(price.value) || 0) * (Number(qty.value) || 0));
+        total.textContent = yen(t > 0 ? t : 0);
+      }
+      price.addEventListener('input', recompute); qty.addEventListener('input', recompute);
       var del = document.createElement('button'); del.className = 'small'; del.textContent = '✕'; del.title = 'この行を消す';
       del.onclick = function () {
         if (itemsWrap.children.length > 1) row.remove();
-        else { memo.value = ''; amt.value = ''; }
+        else { memo.value = ''; price.value = ''; qty.value = '1'; recompute(); }
       };
-      row.appendChild(cat); row.appendChild(memo); row.appendChild(amt); row.appendChild(del);
+      row.appendChild(cat); row.appendChild(memo); row.appendChild(calc); row.appendChild(del);
       itemsWrap.appendChild(row);
       return { memo: memo };
     }
@@ -1250,10 +1269,13 @@
       Array.prototype.forEach.call(itemsWrap.children, function (row, i) {
         var cat = row.querySelector('select').value;
         var memo = row.querySelector('input[type="text"]').value.trim();
-        var amount = Number(row.querySelector('input[type="number"]').value);
-        if (!memo && !amount) return;   // 完全な空行は無視
+        var price = Number(row.querySelector('.f-price').value);
+        var qty = Number(row.querySelector('.f-qty').value);
+        if (!memo && !price) return;   // 完全な空行は無視
         if (!memo) { bad = (i + 1) + '行目の内容が空です'; return; }
-        if (!isFinite(amount) || amount <= 0) { bad = (i + 1) + '行目の金額が入っていません'; return; }
+        if (!isFinite(price) || price <= 0) { bad = (i + 1) + '行目の金額が入っていません'; return; }
+        if (!isFinite(qty) || qty <= 0) { bad = (i + 1) + '行目の数量が入っていません'; return; }
+        var amount = Math.round(price * qty);
         items.push({ cat: cat, memo: memo, amount: amount });
       });
       if (bad) { msg.className = 'msg err'; msg.textContent = bad; return; }
