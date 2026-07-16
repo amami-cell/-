@@ -230,7 +230,7 @@
   .loss-btns { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
   .loss-form {
     margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px;
-    display: grid; gap: 8px;
+    display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px;
   }
   .loss-form .title { font-size: 13px; font-weight: 600; }
   .loss-form .frow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -238,8 +238,17 @@
     font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px;
     background: var(--surface); color: var(--ink);
   }
-  .loss-form input[type="text"] { flex: 1; min-width: 160px; }
+  .loss-form input[type="text"] { flex: 1; min-width: 0; }
   .loss-form input[type="number"] { width: 130px; }
+  /* ロス入力行: 1行目=分類+内容 / 2行目=金額×数量＝合計＋削除 */
+  .loss-row2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border: 1px solid var(--grid); border-radius: 10px; background: var(--surface); }
+  .loss-row2 .lr-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .loss-row2 select { flex: none; max-width: 116px; }
+  .loss-row2 .op { color: var(--muted); font-size: 13px; flex: none; }
+  .loss-form input.f-price { width: 78px; flex: none; }
+  .loss-form input.f-qty { width: 48px; flex: none; }
+  .loss-row2 .f-total { font-weight: 700; font-variant-numeric: tabular-nums; flex: 1; min-width: 0; text-align: right; white-space: nowrap; }
+  .loss-row2 .lr-del { flex: none; padding: 4px 8px; }
   .radio-row { display: flex; gap: 12px; font-size: 13px; }
   .radio-row label { display: flex; align-items: center; gap: 4px; }
 
@@ -1205,24 +1214,40 @@
     f.appendChild(t);
 
     var itemsWrap = document.createElement('div');
-    itemsWrap.style.cssText = 'display:grid;gap:6px';
+    itemsWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;min-width:0';
     f.appendChild(itemsWrap);
 
+    var pricePlaceholder = isTheory ? '追加額' : '金額';
     function addRowUI() {
-      var row = document.createElement('div'); row.className = 'frow';
+      var row = document.createElement('div'); row.className = 'loss-row2';
+      // 1行目: 分類 + 内容
+      var line1 = document.createElement('div'); line1.className = 'lr-line';
       var cat = document.createElement('select');
       ['フード', 'ドリンク'].forEach(function (c) {
         var o = document.createElement('option'); o.value = c; o.textContent = c; cat.appendChild(o);
       });
       if (fdMode === 'D') cat.value = 'ドリンク';
       var memo = document.createElement('input'); memo.type = 'text'; memo.placeholder = memoPlaceholder;
-      var amt = document.createElement('input'); amt.type = 'number'; amt.placeholder = amtPlaceholder; amt.min = '1';
-      var del = document.createElement('button'); del.className = 'small'; del.textContent = '✕'; del.title = 'この行を消す';
+      var del = document.createElement('button'); del.className = 'small lr-del'; del.textContent = '✕'; del.title = 'この行を消す';
+      line1.appendChild(cat); line1.appendChild(memo); line1.appendChild(del);
+      // 2行目: 金額 × 数量 ＝ 合計（自動計算）
+      var line2 = document.createElement('div'); line2.className = 'lr-line';
+      var price = document.createElement('input'); price.type = 'number'; price.className = 'f-price'; price.placeholder = pricePlaceholder; price.min = '1'; price.inputMode = 'numeric';
+      var x = document.createElement('span'); x.className = 'op'; x.textContent = '×';
+      var qty = document.createElement('input'); qty.type = 'number'; qty.className = 'f-qty'; qty.placeholder = '数量'; qty.min = '1'; qty.value = '1'; qty.inputMode = 'numeric';
+      var eq = document.createElement('span'); eq.className = 'op'; eq.textContent = '＝';
+      var total = document.createElement('span'); total.className = 'f-total'; total.textContent = '¥0';
+      line2.appendChild(price); line2.appendChild(x); line2.appendChild(qty); line2.appendChild(eq); line2.appendChild(total);
+      function recompute() {
+        var t = Math.round((Number(price.value) || 0) * (Number(qty.value) || 0));
+        total.textContent = yen(t > 0 ? t : 0);
+      }
+      price.addEventListener('input', recompute); qty.addEventListener('input', recompute);
       del.onclick = function () {
         if (itemsWrap.children.length > 1) row.remove();
-        else { memo.value = ''; amt.value = ''; }
+        else { memo.value = ''; price.value = ''; qty.value = '1'; recompute(); }
       };
-      row.appendChild(cat); row.appendChild(memo); row.appendChild(amt); row.appendChild(del);
+      row.appendChild(line1); row.appendChild(line2);
       itemsWrap.appendChild(row);
       return { memo: memo };
     }
@@ -1250,10 +1275,13 @@
       Array.prototype.forEach.call(itemsWrap.children, function (row, i) {
         var cat = row.querySelector('select').value;
         var memo = row.querySelector('input[type="text"]').value.trim();
-        var amount = Number(row.querySelector('input[type="number"]').value);
-        if (!memo && !amount) return;   // 完全な空行は無視
+        var price = Number(row.querySelector('.f-price').value);
+        var qty = Number(row.querySelector('.f-qty').value);
+        if (!memo && !price) return;   // 完全な空行は無視
         if (!memo) { bad = (i + 1) + '行目の内容が空です'; return; }
-        if (!isFinite(amount) || amount <= 0) { bad = (i + 1) + '行目の金額が入っていません'; return; }
+        if (!isFinite(price) || price <= 0) { bad = (i + 1) + '行目の金額が入っていません'; return; }
+        if (!isFinite(qty) || qty <= 0) { bad = (i + 1) + '行目の数量が入っていません'; return; }
+        var amount = Math.round(price * qty);
         items.push({ cat: cat, memo: memo, amount: amount });
       });
       if (bad) { msg.className = 'msg err'; msg.textContent = bad; return; }
