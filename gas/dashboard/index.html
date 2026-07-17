@@ -252,15 +252,16 @@
   }
   .loss-form input[type="text"] { flex: 1; min-width: 0; }
   .loss-form input[type="number"] { width: 130px; }
-  /* 打ち込む欄（分類・内容・金額・数量）は淡い緑でそっと目立たせる */
-  .loss-row2 select,
-  .loss-row2 input.f-price, .loss-row2 input.f-qty,
-  .loss-row2 .lr-line input[type="text"] {
+  /* 打ち込む欄は「まだ空」のあいだだけ淡い緑。入力すると色が消える */
+  .loss-row2 input.f-price:placeholder-shown,
+  .loss-row2 input.f-qty:placeholder-shown,
+  .loss-row2 .lr-line input[type="text"]:placeholder-shown {
     background: var(--accent-soft); border-color: var(--accent-line);
   }
-  .loss-row2 select:focus,
-  .loss-row2 input:focus {
-    background: var(--surface); border-color: var(--accent); outline: none;
+  .loss-row2 input:focus, .loss-row2 select:focus { outline: none; }
+  /* 更新を押したとき、打ち込めていない欄をピンクで警告 */
+  .loss-row2 input.invalid, .loss-row2 select.invalid {
+    background: #fdecea !important; border-color: #e2564a !important;
   }
   /* ロス入力行: 1行目=分類+内容 / 2行目=金額×数量＝合計＋削除 */
   .loss-row2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border: 1px solid var(--grid); border-radius: 10px; background: var(--surface); }
@@ -1318,7 +1319,7 @@
       var line2 = document.createElement('div'); line2.className = 'lr-line';
       var price = document.createElement('input'); price.type = 'number'; price.className = 'f-price'; price.placeholder = pricePlaceholder; price.min = '1'; price.inputMode = 'numeric';
       var x = document.createElement('span'); x.className = 'op'; x.textContent = '×';
-      var qty = document.createElement('input'); qty.type = 'number'; qty.className = 'f-qty'; qty.placeholder = '数量'; qty.min = '1'; qty.value = '1'; qty.inputMode = 'numeric';
+      var qty = document.createElement('input'); qty.type = 'number'; qty.className = 'f-qty'; qty.placeholder = '数量'; qty.min = '1'; qty.inputMode = 'numeric';
       var eq = document.createElement('span'); eq.className = 'op'; eq.textContent = '＝';
       var total = document.createElement('span'); total.className = 'f-total'; total.textContent = '¥0';
       line2.appendChild(price); line2.appendChild(x); line2.appendChild(qty); line2.appendChild(eq); line2.appendChild(total);
@@ -1327,9 +1328,14 @@
         total.textContent = yen(t > 0 ? t : 0);
       }
       price.addEventListener('input', recompute); qty.addEventListener('input', recompute);
+      // 入力し始めたらピンク警告を消す
+      [memo, price, qty].forEach(function (el) {
+        el.addEventListener('input', function () { el.classList.remove('invalid'); });
+      });
       del.onclick = function () {
         if (itemsWrap.children.length > 1) row.remove();
-        else { memo.value = ''; price.value = ''; qty.value = '1'; recompute(); }
+        else { memo.value = ''; price.value = ''; qty.value = ''; recompute();
+          memo.classList.remove('invalid'); price.classList.remove('invalid'); qty.classList.remove('invalid'); }
       };
       row.appendChild(line1); row.appendChild(line2);
       itemsWrap.appendChild(row);
@@ -1355,20 +1361,31 @@
     cancel.onclick = function () { opts.onCancel(); };
     save.onclick = function () {
       var items = [];
-      var bad = null;
-      Array.prototype.forEach.call(itemsWrap.children, function (row, i) {
+      var hasInvalid = false;
+      var rows = Array.prototype.slice.call(itemsWrap.children);
+      // 何か打ち込んだ行だけ検証。1つも無ければ先頭行を「未入力」として警告する
+      function active(row) {
+        return row.querySelector('input[type="text"]').value.trim() ||
+               row.querySelector('.f-price').value || row.querySelector('.f-qty').value;
+      }
+      var targets = rows.filter(active);
+      if (!targets.length && rows.length) targets = [rows[0]];
+      targets.forEach(function (row) {
         var cat = row.querySelector('select').value;
-        var memo = row.querySelector('input[type="text"]').value.trim();
-        var price = Number(row.querySelector('.f-price').value);
-        var qty = Number(row.querySelector('.f-qty').value);
-        if (!memo && !price) return;   // 完全な空行は無視
-        if (!memo) { bad = (i + 1) + '行目の内容が空です'; return; }
-        if (!isFinite(price) || price <= 0) { bad = (i + 1) + '行目の金額が入っていません'; return; }
-        if (!isFinite(qty) || qty <= 0) { bad = (i + 1) + '行目の数量が入っていません'; return; }
-        var amount = Math.round(price * qty);
-        items.push({ cat: cat, memo: memo, amount: amount });
+        var memoEl = row.querySelector('input[type="text"]');
+        var priceEl = row.querySelector('.f-price');
+        var qtyEl = row.querySelector('.f-qty');
+        var memo = memoEl.value.trim();
+        var price = Number(priceEl.value);
+        var qty = Number(qtyEl.value);
+        var ok = true;
+        // 打ち込めている分の色は消す・空の欄だけピンクにする
+        if (!memo) { memoEl.classList.add('invalid'); hasInvalid = true; ok = false; } else { memoEl.classList.remove('invalid'); }
+        if (!isFinite(price) || price <= 0) { priceEl.classList.add('invalid'); hasInvalid = true; ok = false; } else { priceEl.classList.remove('invalid'); }
+        if (!isFinite(qty) || qty <= 0) { qtyEl.classList.add('invalid'); hasInvalid = true; ok = false; } else { qtyEl.classList.remove('invalid'); }
+        if (ok) items.push({ cat: cat, memo: memo, amount: Math.round(price * qty) });
       });
-      if (bad) { msg.className = 'msg err'; msg.textContent = bad; return; }
+      if (hasInvalid) { msg.className = 'msg err'; msg.textContent = 'ピンクの欄が打ち込めていません。埋めてから更新してください'; return; }
       if (!items.length) { msg.className = 'msg err'; msg.textContent = '1件も入力されていません'; return; }
       save.disabled = true;
       msg.className = 'msg'; msg.textContent = items.length + '件を登録中…';
