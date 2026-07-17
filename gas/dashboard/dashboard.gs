@@ -70,7 +70,9 @@ var APP_FAVICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAAC
 function doGet() {
   var out = HtmlService.createHtmlOutputFromFile('index')
     .setTitle('棚卸')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    // ホーム画面用のPWA入口ページ（GitHub Pages）から全画面iframeで表示できるように許可。
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   // ブラウザのタブ／ブックマークのアイコンを棚卸アイコンに。
   // data URIが弾かれる環境でもアプリが落ちないよう try/catch で保護。
   try { out.setFaviconUrl(APP_FAVICON); } catch (e) {}
