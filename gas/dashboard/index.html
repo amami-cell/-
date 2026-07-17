@@ -252,6 +252,16 @@
   }
   .loss-form input[type="text"] { flex: 1; min-width: 0; }
   .loss-form input[type="number"] { width: 130px; }
+  /* 打ち込む欄（分類・内容・金額・数量）は淡い緑でそっと目立たせる */
+  .loss-row2 select,
+  .loss-row2 input.f-price, .loss-row2 input.f-qty,
+  .loss-row2 .lr-line input[type="text"] {
+    background: var(--accent-soft); border-color: var(--accent-line);
+  }
+  .loss-row2 select:focus,
+  .loss-row2 input:focus {
+    background: var(--surface); border-color: var(--accent); outline: none;
+  }
   /* ロス入力行: 1行目=分類+内容 / 2行目=金額×数量＝合計＋削除 */
   .loss-row2 { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; border: 1px solid var(--grid); border-radius: 10px; background: var(--surface); }
   .loss-row2 .lr-line { display: flex; align-items: center; gap: 5px; min-width: 0; }
