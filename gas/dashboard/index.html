@@ -813,7 +813,7 @@
   }
 
   var RANK_TOP = 5;
-  var turnAsc = true, turnOpen = false, lossOpen = false;
+  var turnAsc = true, turnOpen = false, lossOpen = false, lossAsc = true;
   // 上位RANK_TOP件だけ表示し、多ければ「すべて表示／閉じる」ボタンを付ける
   function appendRankRows(card, list, makeRow, open, onToggle) {
     (open ? list : list.slice(0, RANK_TOP)).forEach(function (r) { card.appendChild(makeRow(r)); });
@@ -851,28 +851,46 @@
     var card = document.getElementById('rankLoss');
     card.textContent = '';
     var h = document.createElement('div'); h.className = 'cardh';
-    h.textContent = '🎯 不明ロスランキング（0%に近い順）';
-    card.appendChild(h);
+    var title = document.createElement('span'); title.textContent = '🎯 不明ロスランキング'; h.appendChild(title);
+    var sp = document.createElement('span'); sp.className = 'spacer'; h.appendChild(sp);
+    var seg = document.createElement('div'); seg.className = 'seg seg-sm';
+    // 優秀順=0%に近い順 / 要改善順=0%から遠い順
+    [['good', '優秀順'], ['bad', '要改善順']].forEach(function (o) {
+      var b = document.createElement('button'); b.textContent = o[1];
+      if ((o[0] === 'good') === lossAsc) b.className = 'on';
+      b.onclick = function () { lossAsc = (o[0] === 'good'); renderLossRank(rows); };
+      seg.appendChild(b);
+    });
+    h.appendChild(seg); card.appendChild(h);
     var cap = document.createElement('div');
     cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
-    cap.textContent = '0%に近いほど上位。同じ差なら − （マイナス）が上。';
+    cap.textContent = lossAsc
+      ? '0%に近いほど上位（優秀順）。信号は ±1%以下=🟢良好 / 〜2%=🟡注意 / 2%超=🔴要確認。'
+      : '0%から遠いほど上位（要改善順）。信号は ±1%以下=🟢良好 / 〜2%=🟡注意 / 2%超=🔴要確認。';
     card.appendChild(cap);
 
     var list = rows.filter(function (r) { return r.unknownRate !== null; }).slice()
       .sort(function (a, b) {
         var da = Math.abs(a.unknownRate), db = Math.abs(b.unknownRate);
-        if (da !== db) return da - db;          // 0に近い方が上位
-        return a.unknownRate - b.unknownRate;    // 同じ差なら − が上位
+        if (da !== db) return lossAsc ? da - db : db - da;   // 優秀順=近い順 / 要改善順=遠い順
+        return a.unknownRate - b.unknownRate;                 // 同じ差なら − が上位
       });
     if (!list.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'データがありません'; card.appendChild(e); return; }
     appendRankRows(card, list, function (r) {
+      var sg = lossSignal(r);
       var cls = r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg');
-      return rankRow(r.name, pct(r.unknownRate), r.key, cls);
+      var row = document.createElement('div'); row.className = 'rank-row';
+      var nm = document.createElement('div'); nm.className = 'rank-name'; nm.textContent = r.name;
+      var sig = document.createElement('span'); sig.className = 'sig ' + sg.cls; sig.textContent = sg.emoji + ' ' + sg.label;
+      var val = document.createElement('div'); val.className = 'rank-val' + (cls ? ' ' + cls : ''); val.textContent = pct(r.unknownRate);
+      row.appendChild(nm); row.appendChild(sig); row.appendChild(val);
+      row.onclick = function () { openStore(r.key); };
+      return row;
     }, lossOpen, function () { lossOpen = !lossOpen; renderLossRank(rows); });
   }
 
   // ロス未入力の店舗（必要ロス・廃棄ロスの登録が0件）。月選択・その場で入力できる
-  var pendingOpen = false;
+  var pendingOpen = true;   // 既定で全店舗を展開表示
   function renderPending() {
     var card = document.getElementById('pendingCard');
     card.textContent = '';
@@ -1447,7 +1465,8 @@
         note.className = 'msg ok';
         note.textContent = '✓ ' + recs.length + '件を登録しました（続けて入力できます）';
         renderLossForm();                       // 空フォームに戻す
-        if (view === 'highlight') renderHighlightTab(); else if (view === 'store') renderStore(); else renderList();
+        // 打ち込んだら未入力タブからも即消えるよう、現在のタブを再描画
+        if (view === 'highlight') renderHighlightTab(); else if (view === 'pending') renderPending(); else if (view === 'store') renderStore(); else renderList();
       },
       onCancel: function () { closeLossModal(); }
     }));
@@ -1466,7 +1485,7 @@
   function closeLossModal() {
     document.getElementById('lossOverlay').classList.remove('show');
     lossModal = null;
-    if (view === 'highlight') renderHighlightTab(); else if (view === 'store') renderStore(); else renderList();
+    if (view === 'highlight') renderHighlightTab(); else if (view === 'pending') renderPending(); else if (view === 'store') renderStore(); else renderList();
   }
 
   function renderAll() {
