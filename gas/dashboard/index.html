@@ -33,6 +33,13 @@
   }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.small { font-size: 12px; padding: 4px 10px; }
+  /* ロス入力ボタン：打ち込む場所がすぐ分かるよう目立たせる（緑塗り＋ペン） */
+  button.btn-input {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 800;
+    box-shadow: 0 2px 8px rgba(47,107,62,.28);
+  }
+  button.btn-input:active { transform: scale(.96); }
+  button.btn-input.big { width: 100%; padding: 12px 14px; font-size: 14px; border-radius: 12px; }
   button:disabled { opacity: .5; cursor: default; }
   select {
     font: inherit; padding: 6px 10px; border: 1px solid var(--border);
@@ -884,7 +891,7 @@
       if (r && r.unknownRate !== null) { var rt = document.createElement('span'); rt.style.color = 'var(--muted)'; rt.textContent = ' / ' + pct(r.unknownRate); sub.appendChild(rt); }
       info.appendChild(nm); info.appendChild(sub);
       var sig = document.createElement('span'); sig.className = 'sig ' + sg.cls; sig.textContent = sg.emoji + ' ' + sg.label;
-      var btn = document.createElement('button'); btn.className = 'primary small'; btn.textContent = '＋入力';
+      var btn = document.createElement('button'); btn.className = 'small btn-input'; btn.textContent = '✏ 入力';
       btn.onclick = function () { openLossModal(s.key, curMonth); };
       row.appendChild(info); row.appendChild(sig); row.appendChild(btn);
       card.appendChild(row);
@@ -1017,7 +1024,7 @@
       var sig = document.createElement('span'); sig.className = 'sig ' + sg.cls;
       sig.textContent = sg.emoji + ' ' + sg.label;
       top.appendChild(sig);
-      var lbtn = document.createElement('button'); lbtn.className = 'small'; lbtn.textContent = '＋ロス入力';
+      var lbtn = document.createElement('button'); lbtn.className = 'small btn-input'; lbtn.textContent = '✏ ロス入力';
       lbtn.title = curMonth + ' のロスを入力';
       lbtn.onclick = (function (key) {
         return function (ev) { ev.stopPropagation(); openLossModal(key, curMonth); };
@@ -1254,8 +1261,8 @@
 
       // ── 入力（ロス・理論原価をタブ付きモーダルで）──
       var lb = document.createElement('div'); lb.className = 'loss-btns';
-      var addBtn = document.createElement('button'); addBtn.className = 'small';
-      addBtn.textContent = '＋ ロス・理論原価を入力';
+      var addBtn = document.createElement('button'); addBtn.className = 'btn-input big';
+      addBtn.textContent = '✏ ロス・理論原価を入力';
       (function (ymC) { addBtn.onclick = function () { openLossModal(curStore, ymC); }; })(ym);
       lb.appendChild(addBtn);
       card.appendChild(lb);
