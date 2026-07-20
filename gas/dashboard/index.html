@@ -475,6 +475,7 @@
           <button class="small" id="mNext3">▶</button>
         </div>
       </div>
+      <div class="card" id="stockPendingCard"></div>
       <div class="card" id="pendingCard"></div>
     </div>
   </div>
@@ -905,9 +906,70 @@
     }, lossOpen, function () { lossOpen = !lossOpen; renderLossRank(rows); });
   }
 
+  // 棚卸（金額）未入力の店舗 ＋ 締切管理（対象月の翌月3日＝期日／3日〜アラート／5日＝最終期日）
+  function calNextYm(ym) {
+    var y = +ym.slice(0, 4), m = +ym.slice(5, 7) + 1;
+    if (m === 13) { m = 1; y++; }
+    return { y: y, m: m };
+  }
+  function renderStockPending() {
+    var card = document.getElementById('stockPendingCard');
+    card.textContent = '';
+    var nx = calNextYm(curMonth);
+    var due = new Date(nx.y, nx.m - 1, 3);      // 期日: 翌月3日
+    var finalD = new Date(nx.y, nx.m - 1, 5);   // 最終期日: 翌月5日
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var status = today < due ? 'before' : (today < finalD ? 'alert' : 'over');
+    var sc = status === 'before' ? { emoji: '⏳', label: '期日前', cls: '' }
+           : status === 'alert' ? { emoji: '🟡', label: '期日超過', cls: 'sig-warn' }
+           : { emoji: '🔴', label: '最終期日超過', cls: 'sig-bad' };
+    function md(dt) { return (dt.getMonth() + 1) + '/' + dt.getDate(); }
+
+    // 棚卸未入力 = その月に売上があるのに棚卸金額が無い店舗
+    var pending = DATA.stores.filter(function (s) {
+      var m = (DATA.metrics[curMonth] || {})[s.key];
+      var hasSales = m && (m.sales || 0) > 0;
+      var hasInv = !!((DATA.inventory[curMonth] || {})[s.key]);
+      return hasSales && !hasInv;
+    });
+
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📦 棚卸未入力の店舗（' + curMonth + '・' + pending.length + '店舗）';
+    card.appendChild(h);
+    var cap = document.createElement('div');
+    cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '期日 ' + md(due) + '（' + md(due) + '〜アラート）／最終期日 ' + md(finalD)
+      + '。棚卸金額が未入力の店舗です。';
+    card.appendChild(cap);
+
+    if (!pending.length) {
+      var ok = document.createElement('div'); ok.className = 'empty';
+      ok.textContent = '全店舗が棚卸入力済みです ✅';
+      card.appendChild(ok); return;
+    }
+    // 締切状態バナー（期日超過・最終期日超過は目立たせる）
+    if (status !== 'before') {
+      var ban = document.createElement('div'); ban.className = 'sig ' + sc.cls;
+      ban.style.cssText = 'display:flex;margin:0 0 8px;padding:6px 10px;font-size:12px;font-weight:700';
+      ban.textContent = sc.emoji + ' ' + (status === 'over' ? '最終期日（' + md(finalD) + '）を過ぎています' : '期日（' + md(due) + '）を過ぎています。最終期日 ' + md(finalD));
+      card.appendChild(ban);
+    }
+    pending.forEach(function (s) {
+      var row = document.createElement('div'); row.className = 'pend-row';
+      var info = document.createElement('div'); info.className = 'pend-info';
+      var nm = document.createElement('div'); nm.className = 'pend-name'; nm.textContent = s.name;
+      var sub = document.createElement('div'); sub.className = 'pend-sub'; sub.textContent = '棚卸金額 未入力';
+      info.appendChild(nm); info.appendChild(sub);
+      var sig = document.createElement('span'); sig.className = 'sig ' + sc.cls; sig.textContent = sc.emoji + ' ' + sc.label;
+      row.appendChild(info); row.appendChild(sig);
+      card.appendChild(row);
+    });
+  }
+
   // ロス未入力の店舗（必要ロス・廃棄ロスの登録が0件）。月選択・その場で入力できる
   var pendingOpen = true;   // 既定で全店舗を展開表示
   function renderPending() {
+    renderStockPending();
     var card = document.getElementById('pendingCard');
     card.textContent = '';
     var pending = DATA.stores.filter(function (s) {
