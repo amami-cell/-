@@ -26,6 +26,10 @@ const METRIC_SHEETS = {
   drinkPurchase: 'D飲料費仕入',
   foodTheory: 'フード理論原価',
   drinkTheory: 'ドリンク理論原価',
+  // FW（店長会資料）から取り込む予算比。原価判定（商品開発 vs 店舗コントロール）に使う。
+  budgetFdRate: 'FD予算比',
+  budgetFoodRate: 'フード予算比',
+  budgetDrinkRate: 'ドリンク予算比',
 };
 
 const INVENTORY_SHEET = '月次集計';
