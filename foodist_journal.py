@@ -51,9 +51,13 @@ METRICS: list[tuple[str, str]] = [
     ("drink_purchase", "D飲料費仕入"),
     ("food_theory",    "フード理論原価"),
     ("drink_theory",   "ドリンク理論原価"),
+    # 予算比（原価判定用）。店長会資料の各店舗シートから取り込む。
+    ("fd_budget_rate",    "FD予算比"),
+    ("food_budget_rate",  "フード予算比"),
+    ("drink_budget_rate", "ドリンク予算比"),
 ]
 
-# Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり
+# Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり（O列=15, T列=20）
 CELL_MAP: dict[str, tuple[int, int]] = {
     "sales":          (14,  22),   # 売上実績
     "food_sales":     (83,  22),   # フード売上 実績数値
@@ -62,6 +66,9 @@ CELL_MAP: dict[str, tuple[int, int]] = {
     "drink_purchase": (161, 20),   # 食材仕入高(D)
     "food_theory":    (164, 13),   # 理論原価(F)
     "drink_theory":   (164, 20),   # 理論原価(D)
+    "fd_budget_rate":    (24, 20),  # T24 FD予算比
+    "food_budget_rate":  (25, 20),  # T25 フード予算比
+    "drink_budget_rate": (26, 20),  # T26 ドリンク予算比
 }
 
 
@@ -722,7 +729,10 @@ class FoodistJournalScraper:
         if val is None:
             return 0.0
         try:
-            return float(str(val).replace(",", "").replace("，", ""))
+            # 予算比は「30%」「30.0%」等の可能性があるため % を除去してから数値化する。
+            # （0.30 のような小数はそのまま。ダッシュボード側で 1 超なら /100 に正規化）
+            s = str(val).replace(",", "").replace("，", "").replace("%", "").replace("％", "").strip()
+            return float(s)
         except (TypeError, ValueError):
             return 0.0
 

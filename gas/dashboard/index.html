@@ -151,6 +151,14 @@
   .mv-row .mv-d { font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 700; }
   .mv-row .mv-sub { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
+  /* 原価判定の行（店名＋予算/理論/実使用＋差分） */
+  .cj-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px dashed var(--grid); cursor: pointer; }
+  .cj-row:last-child { border-bottom: none; }
+  .cj-info { flex: 1; min-width: 0; }
+  .cj-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cj-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .rank-val.bad { color: var(--bad); } .rank-val.warn { color: var(--warn); } .rank-val.good { color: var(--good); }
+
   /* ロス未入力の行（不明ロス金額＋信号＋入力ボタン） */
   .pend-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px dashed var(--grid); }
   .pend-row:last-child { border-bottom: none; }
@@ -451,6 +459,7 @@
           <button class="small" id="mNext2">▶</button>
         </div>
       </div>
+      <div class="card" id="costJudge"></div>
       <div class="card" id="moveCard"></div>
       <div class="card" id="rankTurn"></div>
       <div class="card" id="rankLoss"></div>
@@ -651,6 +660,12 @@
     var unknown = actual !== null ? actual - theory - need - waste : null;
     // 在庫回転日数 = 棚卸金額 ÷ 1日理論原価（= 月理論原価 ÷ 月日数）
     var turnover = (invCur !== null && theory > 0) ? invCur / (theory / d) : null;
+    // 予算比（FWの店長会資料から取込）: F/D/FD合算 それぞれ。30→0.30 に正規化、0/未取得は null。
+    var budRaw = mode === 'F' ? m.budgetFoodRate : mode === 'D' ? m.budgetDrinkRate : m.budgetFdRate;
+    var budgetRate = (budRaw === undefined || budRaw === null || budRaw === '') ? null : Number(budRaw);
+    if (budgetRate !== null && !isFinite(budgetRate)) budgetRate = null;
+    if (budgetRate !== null && budgetRate > 1) budgetRate = budgetRate / 100;
+    if (budgetRate === 0) budgetRate = null;
     return {
       ym: ym, days: d, kind: m.kind || '',
       sales: sales, purchase: purchase, theory: theory,
@@ -662,6 +677,7 @@
       actualRate: (sales && actual !== null) ? actual / sales : null,
       theoryRate: sales ? theory / sales : null,
       unknownRate: (sales && unknown !== null) ? unknown / sales : null,
+      budgetRate: budgetRate,
     };
   }
   function calc(storeKey, ym) { return calcM(storeKey, ym, fdMode); }
@@ -939,6 +955,85 @@
     }
   }
 
+  // 原価判定: 予算比 vs 理論原価率・実使用率 で「商品開発の問題」か「店舗の問題」かを切り分け
+  //  dev  … 理論原価率 > 予算比            → レシピ自体が予算オーバー（商品開発部の是正）
+  //  store… 理論≤予算 だが 実使用率 > 予算比 → 使いすぎ・ロス（店舗の仕入れコントロール）
+  //  ok   … 実使用率 ≤ 予算比               → 良好
+  //  pending … 実使用（棚卸）待ちで判定不可
+  function costJudge(r) {
+    if (!r || r.budgetRate === null || r.theoryRate === null) return null;
+    var EPS = 0.0005;   // 0.05pt 未満の差は「同値」扱い（丸め・2%手数料の端数対策）
+    if (r.theoryRate > r.budgetRate + EPS) return 'dev';
+    if (r.actualRate === null) return 'pending';
+    if (r.actualRate > r.budgetRate + EPS) return 'store';
+    return 'ok';
+  }
+  function renderCostJudge(rows) {
+    var card = document.getElementById('costJudge');
+    card.textContent = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🏷 原価判定（予算比・' + modeLabel() + '）';
+    card.appendChild(h);
+
+    var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; });
+    if (!judged.some(function (x) { return x.j !== null; })) {
+      var e = document.createElement('div'); e.className = 'empty';
+      e.textContent = '予算比が未取得です。FW取込（店長会資料）で予算比を取り込むと表示されます。';
+      card.appendChild(e); return;
+    }
+    var cap = document.createElement('div');
+    cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '予算比と 理論原価率／実使用率 を比較して原因を切り分けます（' + modeLabel() + '）。';
+    card.appendChild(cap);
+
+    function block(emoji, title, desc, key, cls) {
+      var arr = judged.filter(function (x) { return x.j === key; }).map(function (x) { return x.r; });
+      arr.sort(function (a, b) {
+        var av = key === 'dev' ? a.theoryRate : (a.actualRate === null ? 0 : a.actualRate);
+        var bv = key === 'dev' ? b.theoryRate : (b.actualRate === null ? 0 : b.actualRate);
+        return bv - av;
+      });
+      var t = document.createElement('div');
+      t.style.cssText = 'font-size:12px;font-weight:700;margin:8px 0 1px;color:var(--ink-2)';
+      t.textContent = emoji + ' ' + title + '（' + arr.length + '）';
+      card.appendChild(t);
+      var d = document.createElement('div');
+      d.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:3px';
+      d.textContent = desc;
+      card.appendChild(d);
+      if (!arr.length) {
+        var em = document.createElement('div'); em.className = 'empty'; em.style.padding = '2px 0';
+        em.textContent = '該当なし'; card.appendChild(em); return;
+      }
+      arr.forEach(function (r) {
+        var row = document.createElement('div'); row.className = 'cj-row';
+        var info = document.createElement('div'); info.className = 'cj-info';
+        var nm = document.createElement('div'); nm.className = 'cj-name'; nm.textContent = r.name;
+        var sub = document.createElement('div'); sub.className = 'cj-sub';
+        sub.textContent = '予算 ' + pct(r.budgetRate) + ' ／ 理論 ' + pct(r.theoryRate)
+          + ' ／ 実使用 ' + (r.actualRate === null ? '—' : pct(r.actualRate));
+        info.appendChild(nm); info.appendChild(sub);
+        var gap = document.createElement('div'); gap.className = 'rank-val ' + cls;
+        if (key === 'dev') gap.textContent = '+' + ((r.theoryRate - r.budgetRate) * 100).toFixed(1) + 'pt';
+        else if (key === 'store') gap.textContent = '+' + ((r.actualRate - r.budgetRate) * 100).toFixed(1) + 'pt';
+        else gap.textContent = '余裕 ' + ((r.budgetRate - r.actualRate) * 100).toFixed(1) + 'pt';
+        row.appendChild(info); row.appendChild(gap);
+        row.onclick = (function (k) { return function () { openStore(k); }; })(r.key);
+        card.appendChild(row);
+      });
+    }
+    block('🔴', '商品開発部の是正が必要', '理論原価率が予算比をオーバー（レシピ自体が予算超過）', 'dev', 'bad');
+    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに実使用が予算比をオーバー（使いすぎ・ロス）', 'store', 'warn');
+    block('🟢', '良好', '実使用率が予算比以内', 'ok', 'good');
+    var pend = judged.filter(function (x) { return x.j === 'pending'; });
+    if (pend.length) {
+      var pt = document.createElement('div');
+      pt.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
+      pt.textContent = '※ 実使用データ待ち（棚卸未入力）: ' + pend.length + '店舗';
+      card.appendChild(pt);
+    }
+  }
+
   // 前月より悪化／改善した店舗（不明ロス率のポイント差）
   function renderMovers(rows) {
     var card = document.getElementById('moveCard');
@@ -986,11 +1081,13 @@
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
-      document.getElementById('moveCard').textContent = 'この月のデータはありません';
+      document.getElementById('costJudge').textContent = 'この月のデータはありません';
+      document.getElementById('moveCard').textContent = '';
       document.getElementById('rankTurn').textContent = '';
       document.getElementById('rankLoss').textContent = '';
       return;
     }
+    renderCostJudge(rows);
     renderMovers(rows);
     renderTurnRank(rows);
     renderLossRank(rows);
