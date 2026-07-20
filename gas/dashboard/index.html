@@ -415,14 +415,20 @@
       </div>
 
       <div class="card">
-        <div class="filters" style="margin-bottom:10px">
+        <div class="filters" style="margin-bottom:8px">
           <div class="seg seg-sm" id="metricSeg">
             <button data-m="inv" class="on">棚卸</button>
             <button data-m="cost">原価・ロス</button>
           </div>
-          <span class="spacer"></span>
+        </div>
+        <div class="filters" style="margin-bottom:10px">
           <label>並べ替え</label>
           <select id="sortSel"></select>
+          <span class="spacer"></span>
+          <div class="seg seg-sm" id="sortDirSeg">
+            <button data-dir="desc" class="on">降順</button>
+            <button data-dir="asc">昇順</button>
+          </div>
         </div>
         <div id="storeList"></div>
       </div>
@@ -597,6 +603,7 @@
   var curMonth = '';
   var curStore = '';
   var sortKey = 'turnover';
+  var sortAsc = false;   // false=降順（多い順）/ true=昇順（少ない順）
   var sortAsc = false;
   var openForm = null;        // {ym, kind} 入力フォームを開いている場所
   var expandedLoss = null;    // {ym, kind} 内訳を開いているロス行
@@ -737,17 +744,18 @@
   // ── 一覧画面 ─────────────────────────────────────────
   var listMetric = 'inv';   // 'inv'=棚卸 | 'cost'=原価・ロス
   var rankMetric = 'turnover';   // ランキングの指標
+  // 原価・ロスは金額でなく売上比（率）で並べ替える
   var SORTS = {
     inv: [
-      { k: 'turnover', t: '在庫回転日数が多い順' },
-      { k: 'invCur',   t: '当月棚卸が多い順' },
-      { k: 'name',     t: '店舗名順' },
+      { k: 'turnover', t: '在庫回転日数' },
+      { k: 'invCur',   t: '当月棚卸金額' },
+      { k: 'name',     t: '店舗名' },
     ],
     cost: [
-      { k: 'unknown', t: '不明ロスが大きい順' },
-      { k: 'actual',  t: '実使用金額が多い順' },
-      { k: 'theory',  t: '理論原価が多い順' },
-      { k: 'name',    t: '店舗名順' },
+      { k: 'unknownRate', t: '不明ロス（売上比）' },
+      { k: 'actualRate',  t: '実使用（売上比）' },
+      { k: 'theoryRate',  t: '理論原価（売上比）' },
+      { k: 'name',        t: '店舗名' },
     ],
   };
 
@@ -1206,11 +1214,13 @@
 
     var rows = computeStoreRows();
     rows.sort(function (a, b) {
-      if (sortKey === 'name') return a.name.localeCompare(b.name, 'ja');
+      if (sortKey === 'name') { var c = a.name.localeCompare(b.name, 'ja'); return sortAsc ? c : -c; }
       var x = a[sortKey], y = b[sortKey];
-      if (x === null || x === undefined) x = -Infinity;
-      if (y === null || y === undefined) y = -Infinity;
-      return y - x;   // 金額・日数は多い順
+      var xn = (x === null || x === undefined), yn = (y === null || y === undefined);
+      if (xn && yn) return 0;
+      if (xn) return 1;   // データなしは常に最後
+      if (yn) return -1;
+      return sortAsc ? (x - y) : (y - x);   // 降順（多い順）/ 昇順（少ない順）
     });
 
     var box = document.getElementById('storeList');
@@ -1884,6 +1894,12 @@
     renderList();
   });
   document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
+  document.getElementById('sortDirSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    sortAsc = (b.dataset.dir === 'asc');
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderList();
+  });
   function setMonth(ym) {
     curMonth = ym;
     ['monthSel', 'monthSel2', 'monthSel3', 'monthSel4'].forEach(function (id) { document.getElementById(id).value = ym; });
