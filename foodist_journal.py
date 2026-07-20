@@ -51,11 +51,11 @@ METRICS: list[tuple[str, str]] = [
     ("drink_purchase", "D飲料費仕入"),
     ("food_theory",    "フード理論原価"),
     ("drink_theory",   "ドリンク理論原価"),
-    # 予算原価（計画原価）金額。原価判定用。予算比の率セルは =O/O$14 の数式で
+    # F予算・D予算（予算原価の金額）。原価判定用。予算比の率セルは =O/O$14 の数式で
     # 予算売上(O14)が空のため #DIV/0! になる。金額(O列)は実値なので金額を取り込み、
-    # ダッシュボード側で 予算原価/実績売上 = 予算比 を計算する。
-    ("food_budget_cost",  "フード予算原価"),
-    ("drink_budget_cost", "ドリンク予算原価"),
+    # ダッシュボード側で F予算/売上=F予算比・D予算/売上=D予算比 を計算する。
+    ("food_budget_cost",  "F予算"),
+    ("drink_budget_cost", "D予算"),
 ]
 
 # Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり（O列=15, T列=20）
