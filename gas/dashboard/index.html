@@ -661,12 +661,11 @@
     var unknown = actual !== null ? actual - theory - need - waste : null;
     // 在庫回転日数 = 棚卸金額 ÷ 1日理論原価（= 月理論原価 ÷ 月日数）
     var turnover = (invCur !== null && theory > 0) ? invCur / (theory / d) : null;
-    // 予算比（FWの店長会資料から取込）: F/D/FD合算 それぞれ。30→0.30 に正規化、0/未取得は null。
-    var budRaw = mode === 'F' ? m.budgetFoodRate : mode === 'D' ? m.budgetDrinkRate : m.budgetFdRate;
-    var budgetRate = (budRaw === undefined || budRaw === null || budRaw === '') ? null : Number(budRaw);
-    if (budgetRate !== null && !isFinite(budgetRate)) budgetRate = null;
-    if (budgetRate !== null && budgetRate > 1) budgetRate = budgetRate / 100;
-    if (budgetRate === 0) budgetRate = null;
+    // 予算原価（FWの店長会資料の計画原価金額）から予算比を算出: 予算原価 ÷ 実績売上。
+    // F/D/FD合算 それぞれ。売上0・予算未取得は null。
+    var budF = Number(m.budgetFoodCost) || 0, budD = Number(m.budgetDrinkCost) || 0;
+    var budgetCost = mode === 'F' ? budF : mode === 'D' ? budD : (budF + budD);
+    var budgetRate = (sales && budgetCost > 0) ? budgetCost / sales : null;
     return {
       ym: ym, days: d, kind: m.kind || '',
       sales: sales, purchase: purchase, theory: theory,
