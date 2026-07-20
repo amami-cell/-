@@ -159,6 +159,11 @@
   .cj-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cj-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .rank-val.bad { color: var(--bad); } .rank-val.warn { color: var(--warn); } .rank-val.good { color: var(--good); }
+  /* 予算比オーバー店舗の差異表示（理論差・仕入差の2行） */
+  .cj-diffs { flex: none; display: flex; flex-direction: column; gap: 2px; text-align: right; font-variant-numeric: tabular-nums; }
+  .cj-diff { font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .cj-diff .cj-dlbl { font-size: 10px; font-weight: 400; color: var(--muted); margin-right: 4px; }
+  .cj-diff .pos { color: var(--bad); } .cj-diff .neg { color: var(--good); }
 
   /* ロス未入力の行（不明ロス金額＋信号＋入力ボタン） */
   .pend-row { display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px dashed var(--grid); }
@@ -1091,6 +1096,20 @@
     cap.textContent = '予算比と 理論原価率／仕入率（仕入れ値ベース）を比較して原因を切り分けます（' + modeLabel() + '）。';
     card.appendChild(cap);
 
+    // 予算比との差（pt）を「ラベル：±X.Xpt」の1行にする。オーバー=赤／以内=緑
+    function diffLine(label, ptVal) {
+      var line = document.createElement('div'); line.className = 'cj-diff';
+      var lbl = document.createElement('span'); lbl.className = 'cj-dlbl'; lbl.textContent = label;
+      var val = document.createElement('span');
+      if (ptVal === null) { val.textContent = '—'; val.className = 'cj-dlbl'; }
+      else {
+        val.textContent = (ptVal > 0 ? '+' : '') + ptVal.toFixed(1) + 'pt';
+        val.className = ptVal > 0.05 ? 'pos' : 'neg';
+      }
+      line.appendChild(lbl); line.appendChild(val);
+      return line;
+    }
+
     function block(emoji, title, desc, key, cls) {
       var arr = judged.filter(function (x) { return x.j === key; }).map(function (x) { return x.r; });
       arr.sort(function (a, b) {
@@ -1118,11 +1137,17 @@
         sub.textContent = '予算 ' + pct(r.budgetRate) + ' ／ 理論 ' + pct(r.theoryRate)
           + ' ／ 仕入 ' + (r.purchaseRate === null ? '—' : pct(r.purchaseRate));
         info.appendChild(nm); info.appendChild(sub);
-        var gap = document.createElement('div'); gap.className = 'rank-val ' + cls;
-        if (key === 'dev') gap.textContent = '+' + ((r.theoryRate - r.budgetRate) * 100).toFixed(1) + 'pt';
-        else if (key === 'store') gap.textContent = '+' + ((r.purchaseRate - r.budgetRate) * 100).toFixed(1) + 'pt';
-        else gap.textContent = '余裕 ' + ((r.budgetRate - r.purchaseRate) * 100).toFixed(1) + 'pt';
-        row.appendChild(info); row.appendChild(gap);
+        if (key === 'ok') {
+          var gap = document.createElement('div'); gap.className = 'rank-val ' + cls;
+          gap.textContent = '余裕 ' + ((r.budgetRate - r.purchaseRate) * 100).toFixed(1) + 'pt';
+          row.appendChild(info); row.appendChild(gap);
+        } else {
+          // 仕入れ超過店舗は「理論差（レシピ）」と「仕入差（現場）」を両方表示
+          var diffs = document.createElement('div'); diffs.className = 'cj-diffs';
+          diffs.appendChild(diffLine('理論差', r.theoryRate === null ? null : (r.theoryRate - r.budgetRate) * 100));
+          diffs.appendChild(diffLine('仕入差', r.purchaseRate === null ? null : (r.purchaseRate - r.budgetRate) * 100));
+          row.appendChild(info); row.appendChild(diffs);
+        }
         row.onclick = (function (k) { return function () { openStore(k); }; })(r.key);
         card.appendChild(row);
       });
