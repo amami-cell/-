@@ -26,10 +26,10 @@ const METRIC_SHEETS = {
   drinkPurchase: 'D飲料費仕入',
   foodTheory: 'フード理論原価',
   drinkTheory: 'ドリンク理論原価',
-  // FW（店長会資料）から取り込む予算原価（計画原価金額）。原価判定に使う。
-  // 予算比はダッシュボード側で 予算原価/実績売上 として算出する。
-  budgetFoodCost: 'フード予算原価',
-  budgetDrinkCost: 'ドリンク予算原価',
+  // FW（店長会資料）から取り込む F予算・D予算（予算原価の金額）。原価判定に使う。
+  // F予算比/D予算比はダッシュボード側で 予算/実績売上 として算出する。
+  budgetFoodCost: 'F予算',
+  budgetDrinkCost: 'D予算',
 };
 
 const INVENTORY_SHEET = '月次集計';
