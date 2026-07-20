@@ -1031,18 +1031,17 @@
     }
   }
 
-  // 原価判定（仕入れ値ベース）: 予算比 vs 理論原価率・仕入率 で原因を切り分け
-  //  dev  … 理論原価率 > 予算比            → レシピ自体が予算オーバー（商品開発部の是正）
-  //  store… 理論≤予算 だが 仕入率 > 予算比  → 仕入れすぎ・ロス（店舗の仕入れコントロール）
-  //  ok   … 仕入率 ≤ 予算比                → 良好
+  // 原価判定（仕入れ値ベース）: まず「仕入率 > 予算比」かで問題有無を判定し、原因で切り分ける。
+  //  ok   … 仕入率 ≤ 予算比                     → 良好（仕入れが予算内）
+  //  dev  … 仕入オーバー かつ 理論原価率 > 予算比 → レシピ自体が予算超過（商品開発部の是正）
+  //  store… 仕入オーバー だが 理論はOK           → 使いすぎ・ロス・理論原価見直し（店舗の仕入れコントロール）
   //  ※ 予算(F予算/D予算)は仕入予算なので、実績も仕入（F食材費仕入/D飲料費仕入）で比較する。
   function costJudge(r) {
-    if (!r || r.budgetRate === null || r.theoryRate === null) return null;
+    if (!r || r.budgetRate === null || r.purchaseRate === null) return null;
     var EPS = 0.0005;   // 0.05pt 未満の差は「同値」扱い（丸め・2%手数料の端数対策）
-    if (r.theoryRate > r.budgetRate + EPS) return 'dev';
-    if (r.purchaseRate === null) return null;
-    if (r.purchaseRate > r.budgetRate + EPS) return 'store';
-    return 'ok';
+    if (r.purchaseRate <= r.budgetRate + EPS) return 'ok';        // 仕入れが予算内
+    if (r.theoryRate !== null && r.theoryRate > r.budgetRate + EPS) return 'dev';  // 理論も予算オーバー
+    return 'store';                                               // 理論はOKなのに仕入オーバー
   }
   function renderCostJudge(rows) {
     var card = document.getElementById('costJudge');
@@ -1098,8 +1097,8 @@
         card.appendChild(row);
       });
     }
-    block('🔴', '商品開発部の是正が必要', '理論原価率が予算比をオーバー（レシピ自体が予算超過）', 'dev', 'bad');
-    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに仕入率が予算比をオーバー。使いすぎ・ロス追求必要', 'store', 'warn');
+    block('🔴', '商品開発部の是正が必要', '仕入・理論とも予算比をオーバー（レシピ自体が予算超過）', 'dev', 'bad');
+    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに仕入率が予算比をオーバー。使いすぎ・ロス追及・理論原価見直し', 'store', 'warn');
     block('🟢', '良好', '仕入率が予算比以内', 'ok', 'good');
   }
 
