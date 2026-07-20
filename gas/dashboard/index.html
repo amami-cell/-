@@ -1031,17 +1031,17 @@
     }
   }
 
-  // 原価判定: 予算比 vs 理論原価率・実使用率 で「商品開発の問題」か「店舗の問題」かを切り分け
+  // 原価判定（仕入れ値ベース）: 予算比 vs 理論原価率・仕入率 で原因を切り分け
   //  dev  … 理論原価率 > 予算比            → レシピ自体が予算オーバー（商品開発部の是正）
-  //  store… 理論≤予算 だが 実使用率 > 予算比 → 使いすぎ・ロス（店舗の仕入れコントロール）
-  //  ok   … 実使用率 ≤ 予算比               → 良好
-  //  pending … 実使用（棚卸）待ちで判定不可
+  //  store… 理論≤予算 だが 仕入率 > 予算比  → 仕入れすぎ・ロス（店舗の仕入れコントロール）
+  //  ok   … 仕入率 ≤ 予算比                → 良好
+  //  ※ 予算(F予算/D予算)は仕入予算なので、実績も仕入（F食材費仕入/D飲料費仕入）で比較する。
   function costJudge(r) {
     if (!r || r.budgetRate === null || r.theoryRate === null) return null;
     var EPS = 0.0005;   // 0.05pt 未満の差は「同値」扱い（丸め・2%手数料の端数対策）
     if (r.theoryRate > r.budgetRate + EPS) return 'dev';
-    if (r.actualRate === null) return 'pending';
-    if (r.actualRate > r.budgetRate + EPS) return 'store';
+    if (r.purchaseRate === null) return null;
+    if (r.purchaseRate > r.budgetRate + EPS) return 'store';
     return 'ok';
   }
   function renderCostJudge(rows) {
@@ -1054,19 +1054,19 @@
     var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; });
     if (!judged.some(function (x) { return x.j !== null; })) {
       var e = document.createElement('div'); e.className = 'empty';
-      e.textContent = '予算比が未取得です。FW取込（店長会資料）で予算比を取り込むと表示されます。';
+      e.textContent = '予算が未取得です。FW取込（店長会資料）でF予算・D予算を取り込むと表示されます。';
       card.appendChild(e); return;
     }
     var cap = document.createElement('div');
     cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
-    cap.textContent = '予算比と 理論原価率／実使用率 を比較して原因を切り分けます（' + modeLabel() + '）。';
+    cap.textContent = '予算比と 理論原価率／仕入率（仕入れ値ベース）を比較して原因を切り分けます（' + modeLabel() + '）。';
     card.appendChild(cap);
 
     function block(emoji, title, desc, key, cls) {
       var arr = judged.filter(function (x) { return x.j === key; }).map(function (x) { return x.r; });
       arr.sort(function (a, b) {
-        var av = key === 'dev' ? a.theoryRate : (a.actualRate === null ? 0 : a.actualRate);
-        var bv = key === 'dev' ? b.theoryRate : (b.actualRate === null ? 0 : b.actualRate);
+        var av = key === 'dev' ? a.theoryRate : (a.purchaseRate === null ? 0 : a.purchaseRate);
+        var bv = key === 'dev' ? b.theoryRate : (b.purchaseRate === null ? 0 : b.purchaseRate);
         return bv - av;
       });
       var t = document.createElement('div');
@@ -1087,27 +1087,20 @@
         var nm = document.createElement('div'); nm.className = 'cj-name'; nm.textContent = r.name;
         var sub = document.createElement('div'); sub.className = 'cj-sub';
         sub.textContent = '予算 ' + pct(r.budgetRate) + ' ／ 理論 ' + pct(r.theoryRate)
-          + ' ／ 実使用 ' + (r.actualRate === null ? '—' : pct(r.actualRate));
+          + ' ／ 仕入 ' + (r.purchaseRate === null ? '—' : pct(r.purchaseRate));
         info.appendChild(nm); info.appendChild(sub);
         var gap = document.createElement('div'); gap.className = 'rank-val ' + cls;
         if (key === 'dev') gap.textContent = '+' + ((r.theoryRate - r.budgetRate) * 100).toFixed(1) + 'pt';
-        else if (key === 'store') gap.textContent = '+' + ((r.actualRate - r.budgetRate) * 100).toFixed(1) + 'pt';
-        else gap.textContent = '余裕 ' + ((r.budgetRate - r.actualRate) * 100).toFixed(1) + 'pt';
+        else if (key === 'store') gap.textContent = '+' + ((r.purchaseRate - r.budgetRate) * 100).toFixed(1) + 'pt';
+        else gap.textContent = '余裕 ' + ((r.budgetRate - r.purchaseRate) * 100).toFixed(1) + 'pt';
         row.appendChild(info); row.appendChild(gap);
         row.onclick = (function (k) { return function () { openStore(k); }; })(r.key);
         card.appendChild(row);
       });
     }
     block('🔴', '商品開発部の是正が必要', '理論原価率が予算比をオーバー（レシピ自体が予算超過）', 'dev', 'bad');
-    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに実使用が予算比をオーバー。使いすぎ・ロス追求必要', 'store', 'warn');
-    block('🟢', '良好', '実使用率が予算比以内', 'ok', 'good');
-    var pend = judged.filter(function (x) { return x.j === 'pending'; });
-    if (pend.length) {
-      var pt = document.createElement('div');
-      pt.style.cssText = 'font-size:11px;color:var(--muted);margin-top:8px';
-      pt.textContent = '※ 実使用データ待ち（棚卸未入力）: ' + pend.length + '店舗';
-      card.appendChild(pt);
-    }
+    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに仕入率が予算比をオーバー。使いすぎ・ロス追求必要', 'store', 'warn');
+    block('🟢', '良好', '仕入率が予算比以内', 'ok', 'good');
   }
 
   // 前月より悪化／改善した店舗（不明ロス率のポイント差）
