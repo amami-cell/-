@@ -176,9 +176,11 @@
   }
   .tabbar button {
     flex: 1; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--muted);
-    padding: 14px 4px; font-size: 15px; font-weight: 700; min-height: 62px;
-    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 8px 2px; font-size: 12px; font-weight: 700; min-height: 60px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    white-space: nowrap;
   }
+  .tabbar button .ic { font-size: 21px; line-height: 1; }
   .tabbar button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
   .tabbar button:active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
@@ -459,10 +461,22 @@
           <button class="small" id="mNext2">▶</button>
         </div>
       </div>
-      <div class="card" id="costJudge"></div>
       <div class="card" id="moveCard"></div>
       <div class="card" id="rankTurn"></div>
       <div class="card" id="rankLoss"></div>
+    </div>
+
+    <!-- ═══ 原価判定（別タブ）═══ -->
+    <div id="costView" style="display:none">
+      <div class="ctrl-card">
+        <div class="filters" style="margin-bottom:0">
+          <label class="grp">対象月</label>
+          <button class="small" id="mPrev4">◀</button>
+          <select id="monthSel4"></select>
+          <button class="small" id="mNext4">▶</button>
+        </div>
+      </div>
+      <div class="card" id="costJudge"></div>
     </div>
 
     <!-- ═══ ロス未入力（別タブ）═══ -->
@@ -482,9 +496,10 @@
 
   <!-- 下タブバー -->
   <nav class="tabbar" id="tabbar" style="display:none">
-    <button data-tab="list" class="on">📋 一覧</button>
-    <button data-tab="highlight">🏅 ランキング</button>
-    <button data-tab="pending">📝 未入力</button>
+    <button data-tab="list" class="on"><span class="ic">📋</span><span>一覧</span></button>
+    <button data-tab="highlight"><span class="ic">🏅</span><span>ランキング</span></button>
+    <button data-tab="cost"><span class="ic">🏷</span><span>原価判定</span></button>
+    <button data-tab="pending"><span class="ic">📝</span><span>未入力</span></button>
   </nav>
 </div>
 
@@ -1084,7 +1099,7 @@
       });
     }
     block('🔴', '商品開発部の是正が必要', '理論原価率が予算比をオーバー（レシピ自体が予算超過）', 'dev', 'bad');
-    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに実使用が予算比をオーバー（使いすぎ・ロス）', 'store', 'warn');
+    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに実使用が予算比をオーバー。使いすぎ・ロス追求必要', 'store', 'warn');
     block('🟢', '良好', '実使用率が予算比以内', 'ok', 'good');
     var pend = judged.filter(function (x) { return x.j === 'pending'; });
     if (pend.length) {
@@ -1142,16 +1157,24 @@
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
-      document.getElementById('costJudge').textContent = 'この月のデータはありません';
-      document.getElementById('moveCard').textContent = '';
+      document.getElementById('moveCard').textContent = 'この月のデータはありません';
       document.getElementById('rankTurn').textContent = '';
       document.getElementById('rankLoss').textContent = '';
       return;
     }
-    renderCostJudge(rows);
     renderMovers(rows);
     renderTurnRank(rows);
     renderLossRank(rows);
+    fitAll();
+  }
+
+  function renderCostTab() {
+    var rows = computeStoreRows();
+    if (!rows.length) {
+      document.getElementById('costJudge').textContent = 'この月のデータはありません';
+      return;
+    }
+    renderCostJudge(rows);
     fitAll();
   }
 
@@ -1651,21 +1674,24 @@
     document.getElementById('listView').style.display = view === 'list' ? '' : 'none';
     document.getElementById('storeView').style.display = view === 'store' ? '' : 'none';
     document.getElementById('highlightView').style.display = view === 'highlight' ? '' : 'none';
+    document.getElementById('costView').style.display = view === 'cost' ? '' : 'none';
     document.getElementById('pendingView').style.display = view === 'pending' ? '' : 'none';
-    // 最上部バー: F/D/FD は一覧・ハイライトで表示、店舗ナビは店舗のみ
-    var modeVis = (view === 'list' || view === 'highlight');
+    // 最上部バー: F/D/FD は一覧・ランキング・原価判定で表示、店舗ナビは店舗のみ
+    var modeVis = (view === 'list' || view === 'highlight' || view === 'cost');
     document.getElementById('listModeBar').style.display = modeVis ? '' : 'none';
     document.getElementById('storeNavBar').style.display = view === 'store' ? '' : 'none';
-    // 下タブバー: 一覧(店舗詳細含む) / ランキング / 未入力
+    // 下タブバー: 一覧(店舗詳細含む) / ランキング / 原価判定 / 未入力
     document.getElementById('tabbar').style.display = '';
     document.querySelectorAll('#tabbar button').forEach(function (b) {
       var on = (b.dataset.tab === 'highlight') ? (view === 'highlight')
+             : (b.dataset.tab === 'cost') ? (view === 'cost')
              : (b.dataset.tab === 'pending') ? (view === 'pending')
              : (view === 'list' || view === 'store');
       b.classList.toggle('on', on);
     });
     syncModeSegs();
     if (view === 'highlight') renderHighlightTab();
+    else if (view === 'cost') renderCostTab();
     else if (view === 'pending') renderPending();
     else if (view === 'store') renderStore();
     else renderList();
@@ -1682,7 +1708,7 @@
   }
 
   function initSelectors() {
-    ['monthSel', 'monthSel2', 'monthSel3'].forEach(function (id) {
+    ['monthSel', 'monthSel2', 'monthSel3', 'monthSel4'].forEach(function (id) {
       var mSel = document.getElementById(id);
       mSel.textContent = '';
       DATA.months.forEach(function (m) {
@@ -1866,8 +1892,9 @@
   document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
   function setMonth(ym) {
     curMonth = ym;
-    ['monthSel', 'monthSel2', 'monthSel3'].forEach(function (id) { document.getElementById(id).value = ym; });
+    ['monthSel', 'monthSel2', 'monthSel3', 'monthSel4'].forEach(function (id) { document.getElementById(id).value = ym; });
     if (view === 'highlight') renderHighlightTab();
+    else if (view === 'cost') renderCostTab();
     else if (view === 'pending') renderPending();
     else renderList();
   }
@@ -1875,10 +1902,10 @@
     var j = DATA.months.indexOf(curMonth) + dir;
     if (j >= 0 && j < DATA.months.length) setMonth(DATA.months[j]);
   }
-  ['monthSel', 'monthSel2', 'monthSel3'].forEach(function (id) {
+  ['monthSel', 'monthSel2', 'monthSel3', 'monthSel4'].forEach(function (id) {
     document.getElementById(id).onchange = function () { setMonth(this.value); };
   });
-  [['mPrev', -1], ['mNext', 1], ['mPrev2', -1], ['mNext2', 1], ['mPrev3', -1], ['mNext3', 1]].forEach(function (o) {
+  [['mPrev', -1], ['mNext', 1], ['mPrev2', -1], ['mNext2', 1], ['mPrev3', -1], ['mNext3', 1], ['mPrev4', -1], ['mNext4', 1]].forEach(function (o) {
     document.getElementById(o[0]).onclick = function () { stepMonth(o[1]); };
   });
   document.getElementById('btnBack').onclick = function () { view = 'list'; renderAll(); };
@@ -1890,7 +1917,7 @@
     var b = e.target.closest('button'); if (!b) return;
     haptic(8);
     var tab = b.dataset.tab;
-    view = (tab === 'highlight') ? 'highlight' : (tab === 'pending') ? 'pending' : 'list';
+    view = (tab === 'highlight') ? 'highlight' : (tab === 'cost') ? 'cost' : (tab === 'pending') ? 'pending' : 'list';
     renderAll(); window.scrollTo({ top: 0 });
   });
 
