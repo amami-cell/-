@@ -691,6 +691,23 @@ class FoodistJournalScraper:
         wb = openpyxl.load_workbook(str(excel_path), data_only=True)
         store_data: dict[str, dict[str, float]] = {}
 
+        # 【診断】予算比セルが 0 になる原因調査: 最初のシートで 予算エリア(行22-27, 列M-V)の
+        # 値（data_only）と数式（data_only=False）を出力する。原因特定後に削除予定。
+        try:
+            wb_f = openpyxl.load_workbook(str(excel_path), data_only=False)
+            s0 = wb.sheetnames[0]; ws0 = wb[s0]; ws0f = wb_f[s0]
+            for r in range(22, 28):
+                cells = []
+                for c in range(13, 23):
+                    v = ws0.cell(row=r, column=c).value
+                    f = ws0f.cell(row=r, column=c).value
+                    if v is not None or f is not None:
+                        cells.append("c%d val=%r fml=%r" % (c, v, f))
+                if cells:
+                    logger.info("[予算診断][%s] row%d: %s", s0, r, " | ".join(cells))
+        except Exception as e:
+            logger.warning("[予算診断] 失敗: %s", e)
+
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
             try:
