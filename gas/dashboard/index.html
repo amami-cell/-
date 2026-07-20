@@ -646,6 +646,8 @@
   function invOfM(ym, storeKey, mode) {
     var inv = (DATA.inventory[ym] || {})[storeKey];
     if (!inv) return null;
+    // 棚卸金額の合計が0は「未入力」扱い（中間棚の0など）→ データなし(null)とする
+    if (((inv.food || 0) + (inv.drink || 0)) === 0) return null;
     return mode === 'F' ? inv.food : mode === 'D' ? inv.drink : inv.food + inv.drink;
   }
   function lossesOfM(ym, storeKey, mode) {
@@ -969,7 +971,9 @@
     var pending = DATA.stores.filter(function (s) {
       var m = (DATA.metrics[curMonth] || {})[s.key];
       var hasSales = m && (m.sales || 0) > 0;
-      var hasInv = !!((DATA.inventory[curMonth] || {})[s.key]);
+      // 棚卸金額の合計が0（中間棚の0など）は未入力扱い
+      var iv = (DATA.inventory[curMonth] || {})[s.key];
+      var hasInv = !!iv && (((iv.food || 0) + (iv.drink || 0)) > 0);
       return hasSales && !hasInv;
     });
 
