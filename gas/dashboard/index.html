@@ -683,8 +683,10 @@
     theory += theoryAdj;   // FW理論原価 ＋ 手動追加分
     var actual = (invPrev !== null && invCur !== null) ? invPrev + purchase - invCur : null;
     var unknown = actual !== null ? actual - theory - need - waste : null;
-    // 在庫回転日数 = 棚卸金額 ÷ 1日理論原価（= 月理論原価 ÷ 月日数）
-    var turnover = (invCur !== null && theory > 0) ? invCur / (theory / d) : null;
+    // 在庫回転日数 = 棚卸金額 ÷ 1日理論原価。
+    // 中間(1〜15日)は理論原価が半月分なので、割る日数も実期間の15日にする（丸1か月で割ると約2倍に出るため）。
+    var theoryDays = (m.kind === '中間') ? 15 : d;
+    var turnover = (invCur !== null && theory > 0) ? invCur / (theory / theoryDays) : null;
     // 予算原価（FWの店長会資料の計画原価金額）から予算比を算出: 予算原価 ÷ 実績売上。
     // F/D/FD合算 それぞれ。売上0・予算未取得は null。
     var budF = Number(m.budgetFoodCost) || 0, budD = Number(m.budgetDrinkCost) || 0;
