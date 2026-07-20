@@ -27,8 +27,9 @@
   }
   .wrap { max-width: 980px; margin: 0 auto; padding: 14px 14px 96px; }
 
-  header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
-  header h1 { font-size: 18px; font-weight: 700; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  header .hgroup { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  header h1 { font-size: 18px; font-weight: 700; -webkit-user-select: none; user-select: none; }
   .updated { color: var(--muted); font-size: 11px; }
   .spacer { flex: 1; }
 
@@ -348,11 +349,12 @@
 <div id="ptr"><i></i></div>
 <div class="wrap">
   <header>
-    <h1>棚卸ダッシュボード</h1>
-    <span class="updated" id="updatedAt"></span>
+    <div class="hgroup">
+      <h1 id="appTitle" title="長押しで管理（パスワード変更）">棚卸ダッシュボード</h1>
+      <span class="updated" id="updatedAt"></span>
+    </div>
     <span class="spacer"></span>
-    <button id="btnPass" class="small" title="パスワードの変更">🔒</button>
-    <button id="btnReload" class="small">最新に更新</button>
+    <button id="btnReload" class="small">🔄 最新に更新</button>
   </header>
 
   <div id="loading"><div class="spin"></div><div>読み込み中…</div></div>
@@ -1073,7 +1075,7 @@
       t.textContent = emoji + ' ' + title + '（' + arr.length + '）';
       card.appendChild(t);
       var d = document.createElement('div');
-      d.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:3px';
+      d.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:3px;white-space:pre-line';
       d.textContent = desc;
       card.appendChild(d);
       if (!arr.length) {
@@ -1098,7 +1100,7 @@
       });
     }
     block('🔴', '商品開発部の是正が必要', '仕入・理論とも予算比をオーバー（レシピ自体が予算超過）', 'dev', 'bad');
-    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに仕入率が予算比をオーバー。使いすぎ・ロス追及・理論原価見直し', 'store', 'warn');
+    block('🟠', '店舗の仕入れコントロール', '理論はOKなのに仕入率が予算比をオーバー。\n使いすぎ・ロス追及・理論原価見直し', 'store', 'warn');
     block('🟢', '良好', '仕入率が予算比以内', 'ok', 'good');
   }
 
@@ -1952,12 +1954,27 @@
 
   // ── パスワード変更 ───────────────────────────────────
   var passOverlay = document.getElementById('passOverlay');
-  document.getElementById('btnPass').onclick = function () {
+  // パスワード変更は一般画面には出さない（オーナー用の隠し操作）。
+  // タイトルを長押し（約0.8秒）すると変更モーダルが開く。変更には現在のパスワードが必要。
+  function openPassModal() {
     document.getElementById('passCurrent').value = '';
     document.getElementById('passNext').value = '';
     document.getElementById('passMsg').textContent = '';
     passOverlay.classList.add('show');
-  };
+  }
+  (function () {
+    var title = document.getElementById('appTitle');
+    if (!title) return;
+    var timer = null;
+    function start() { timer = setTimeout(function () { haptic(15); openPassModal(); }, 800); }
+    function cancel() { if (timer) { clearTimeout(timer); timer = null; } }
+    title.addEventListener('touchstart', start, { passive: true });
+    title.addEventListener('touchend', cancel);
+    title.addEventListener('touchmove', cancel, { passive: true });
+    title.addEventListener('mousedown', start);
+    title.addEventListener('mouseup', cancel);
+    title.addEventListener('mouseleave', cancel);
+  })();
   document.getElementById('btnPassCancel').onclick = function () { passOverlay.classList.remove('show'); };
   passOverlay.addEventListener('click', function (e) { if (e.target === passOverlay) passOverlay.classList.remove('show'); });
   document.getElementById('btnPassSave').onclick = function () {
