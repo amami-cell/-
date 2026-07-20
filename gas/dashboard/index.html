@@ -948,10 +948,17 @@
   function renderStockPending() {
     var card = document.getElementById('stockPendingCard');
     card.textContent = '';
-    var nx = calNextYm(curMonth);
-    var due = new Date(nx.y, nx.m - 1, 3);      // 期日: 翌月3日
-    var finalD = new Date(nx.y, nx.m - 1, 5);   // 最終期日: 翌月5日
     var today = new Date(); today.setHours(0, 0, 0, 0);
+    // 当月＝中間棚（当月18日=期日／20日=最終）、過去月＝確定・月末棚（翌月3日=期日／5日=最終）
+    var cy = +curMonth.slice(0, 4), cmo = +curMonth.slice(5, 7);
+    var isCurrentMonth = (today.getFullYear() === cy && (today.getMonth() + 1) === cmo);
+    var due, finalD, kindLabel;
+    if (isCurrentMonth) {
+      due = new Date(cy, cmo - 1, 18); finalD = new Date(cy, cmo - 1, 20); kindLabel = '中間棚';
+    } else {
+      var nx = calNextYm(curMonth);
+      due = new Date(nx.y, nx.m - 1, 3); finalD = new Date(nx.y, nx.m - 1, 5); kindLabel = '月末棚';
+    }
     var status = today < due ? 'before' : (today < finalD ? 'alert' : 'over');
     var sc = status === 'before' ? { emoji: '⏳', label: '期日前', cls: '' }
            : status === 'alert' ? { emoji: '🟡', label: '期日超過', cls: 'sig-warn' }
@@ -967,11 +974,11 @@
     });
 
     var h = document.createElement('div'); h.className = 'cardh';
-    h.textContent = '📦 棚卸未入力の店舗（' + curMonth + '・' + pending.length + '店舗）';
+    h.textContent = '📦 棚卸未入力の店舗（' + curMonth + '・' + kindLabel + '・' + pending.length + '店舗）';
     card.appendChild(h);
     var cap = document.createElement('div');
     cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
-    cap.textContent = '期日 ' + md(due) + '（' + md(due) + '〜アラート）／最終期日 ' + md(finalD)
+    cap.textContent = kindLabel + '：期日 ' + md(due) + '（' + md(due) + '〜アラート）／最終期日 ' + md(finalD)
       + '。棚卸金額が未入力の店舗です。';
     card.appendChild(cap);
 
