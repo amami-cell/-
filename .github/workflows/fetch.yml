@@ -21,9 +21,10 @@ on:
         required: false
         default: ""
   schedule:
-    # 毎月3〜5日 09:00 JST (= 00:00 UTC) に前月分のFW＋インフォマートを自動取得
-    # （同月・同店舗は上書きされるため、毎日最新の値に置き換わる）
-    - cron: "0 0 3-5 * *"
+    # 毎月3〜5日 09:00 JST (= 00:00 UTC): 前月分の確定（月末棚卸）をFW＋インフォマートで取得
+    # 毎月16〜20日 09:00 JST: 当月分の中間（1〜15日）をFW＋インフォマート中間棚で取得
+    # （同月・同店舗は上書きされるため、毎日最新の値に置き換わる。確定取得時に中間行は自動削除）
+    - cron: "0 0 3-5,16-20 * *"
 
 env:
   TZ: Asia/Tokyo
@@ -98,7 +99,13 @@ jobs:
         run: |
           MONTH="${{ inputs.month }}"
           FW_FROM="${{ inputs.fw_from }}"
-          if [ -n "$FW_FROM" ]; then
+          DAY=$(date +%d)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
+            # 月中（16〜20日）の自動実行: 当月を「中間（1〜15日）」として取得
+            CUR=$(date +%Y-%m)
+            echo "月中スケジュール: 当月 $CUR を中間取得"
+            xvfb-run -a python main.py --foodist-only --interim --month "$CUR"
+          elif [ -n "$FW_FROM" ]; then
             TO="$MONTH"
             [ -z "$TO" ] && TO=$(date -d "$(date +%Y-%m-01) -1 day" +%Y-%m)
             xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO"
@@ -123,7 +130,13 @@ jobs:
           fi
           ARGS=""
           MONTH="${{ inputs.month }}"
-          [ -n "$MONTH" ] && ARGS="--month $MONTH"
+          DAY=$(date +%d)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
+            # 月中（16〜20日）の自動実行: 当月の中間棚を取得
+            ARGS="--month $(date +%Y-%m)"
+          elif [ -n "$MONTH" ]; then
+            ARGS="--month $MONTH"
+          fi
           xvfb-run -a python main.py $ARGS
 
       # FW Excelのセル構造調査（フード売上/ドリンク売上の位置特定用・xlsxがある時のみ）
