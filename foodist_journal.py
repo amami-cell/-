@@ -51,10 +51,11 @@ METRICS: list[tuple[str, str]] = [
     ("drink_purchase", "D飲料費仕入"),
     ("food_theory",    "フード理論原価"),
     ("drink_theory",   "ドリンク理論原価"),
-    # 予算比（原価判定用）。店長会資料の各店舗シートから取り込む。
-    ("fd_budget_rate",    "FD予算比"),
-    ("food_budget_rate",  "フード予算比"),
-    ("drink_budget_rate", "ドリンク予算比"),
+    # 予算原価（計画原価）金額。原価判定用。予算比の率セルは =O/O$14 の数式で
+    # 予算売上(O14)が空のため #DIV/0! になる。金額(O列)は実値なので金額を取り込み、
+    # ダッシュボード側で 予算原価/実績売上 = 予算比 を計算する。
+    ("food_budget_cost",  "フード予算原価"),
+    ("drink_budget_cost", "ドリンク予算原価"),
 ]
 
 # Excel セル位置 {metric_key: (row, col)}  ※openpyxl は 1 始まり（O列=15, T列=20）
@@ -66,9 +67,8 @@ CELL_MAP: dict[str, tuple[int, int]] = {
     "drink_purchase": (161, 20),   # 食材仕入高(D)
     "food_theory":    (164, 13),   # 理論原価(F)
     "drink_theory":   (164, 20),   # 理論原価(D)
-    "fd_budget_rate":    (24, 20),  # T24 FD予算比
-    "food_budget_rate":  (25, 20),  # T25 フード予算比
-    "drink_budget_rate": (26, 20),  # T26 ドリンク予算比
+    "food_budget_cost":  (25, 15),  # O25 フード予算原価（計画原価金額）
+    "drink_budget_cost": (26, 15),  # O26 ドリンク予算原価（計画原価金額）
 }
 
 
@@ -690,24 +690,6 @@ class FoodistJournalScraper:
         """
         wb = openpyxl.load_workbook(str(excel_path), data_only=True)
         store_data: dict[str, dict[str, float]] = {}
-
-        # 【診断】予算比セルが 0 になる原因調査: 最初のシートで 予算エリア(行20-30, 列I-V)の
-        # 値（data_only）と数式（data_only=False）を出力する。原因特定後に削除予定。
-        # loguru は {} 形式なので、混乱を避けるため文字列連結で組み立てる。
-        try:
-            wb_f = openpyxl.load_workbook(str(excel_path), data_only=False)
-            s0 = wb.sheetnames[0]; ws0 = wb[s0]; ws0f = wb_f[s0]
-            for r in range(20, 31):
-                parts = []
-                for c in range(9, 23):
-                    v = ws0.cell(row=r, column=c).value
-                    f = ws0f.cell(row=r, column=c).value
-                    if v is not None or f is not None:
-                        parts.append("c" + str(c) + ":val=" + repr(v) + "/fml=" + repr(f))
-                if parts:
-                    logger.info("[予算診断] " + s0 + " row" + str(r) + ": " + " | ".join(parts))
-        except Exception as e:
-            logger.warning("[予算診断] 失敗: " + repr(e))
 
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
