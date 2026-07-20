@@ -831,6 +831,13 @@
     if (p <= 2) return { emoji: '🟡', label: '注意', cls: 'sig-warn' };
     return { emoji: '🔴', label: '要確認', cls: 'sig-bad' };
   }
+  // 在庫回転日数の判定: 9日以内=良好 / 10〜14日=注意 / 15日〜=要確認（当月棚卸金額も同基準）
+  function turnSignal(turnover) {
+    if (turnover === null || turnover === undefined) return { emoji: '⚪', label: 'データ待ち', cls: '' };
+    if (turnover <= 9) return { emoji: '🟢', label: '良好', cls: 'sig-good' };
+    if (turnover < 15) return { emoji: '🟡', label: '注意', cls: 'sig-warn' };
+    return { emoji: '🔴', label: '要確認', cls: 'sig-bad' };
+  }
   function momUnknownChip(storeKey) {
     var cur = calcM(storeKey, curMonth, fdMode);
     var prev = calcM(storeKey, calPrevYm(curMonth), fdMode);
@@ -1239,7 +1246,8 @@
         var pb = document.createElement('span'); pb.className = 'kind-badge'; pb.textContent = '2%込済';
         top.appendChild(pb);
       }
-      var sg = lossSignal(r);
+      // 棚卸タブ＝在庫回転日数の信号 / 原価・ロスタブ＝不明ロスの信号
+      var sg = listMetric === 'inv' ? turnSignal(r.turnover) : lossSignal(r);
       var sig = document.createElement('span'); sig.className = 'sig ' + sg.cls;
       sig.textContent = sg.emoji + ' ' + sg.label;
       top.appendChild(sig);
