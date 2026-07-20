@@ -20,6 +20,10 @@ on:
         description: "FW一括取得の開始月 YYYY-MM（指定すると開始月〜対象月を一括取得）"
         required: false
         default: ""
+      interim:
+        description: "中間として取得（当月1〜15日・手動テスト用。対象月が空なら当月）"
+        type: boolean
+        default: false
   schedule:
     # 毎月3〜5日 09:00 JST (= 00:00 UTC): 前月分の確定（月末棚卸）をFW＋インフォマートで取得
     # 毎月16〜20日 09:00 JST: 当月分の中間（1〜15日）をFW＋インフォマート中間棚で取得
@@ -100,7 +104,12 @@ jobs:
           MONTH="${{ inputs.month }}"
           FW_FROM="${{ inputs.fw_from }}"
           DAY=$(date +%d)
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
+          if [ "${{ inputs.interim }}" = "true" ]; then
+            # 手動テスト: 中間として取得（対象月が空なら当月）
+            M="$MONTH"; [ -z "$M" ] && M=$(date +%Y-%m)
+            echo "手動テスト: $M を中間取得"
+            xvfb-run -a python main.py --foodist-only --interim --month "$M"
+          elif [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
             # 月中（16〜20日）の自動実行: 当月を「中間（1〜15日）」として取得
             CUR=$(date +%Y-%m)
             echo "月中スケジュール: 当月 $CUR を中間取得"
@@ -131,7 +140,10 @@ jobs:
           ARGS=""
           MONTH="${{ inputs.month }}"
           DAY=$(date +%d)
-          if [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
+          if [ "${{ inputs.interim }}" = "true" ]; then
+            M="$MONTH"; [ -z "$M" ] && M=$(date +%Y-%m)
+            ARGS="--month $M"
+          elif [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
             # 月中（16〜20日）の自動実行: 当月の中間棚を取得
             ARGS="--month $(date +%Y-%m)"
           elif [ -n "$MONTH" ]; then
