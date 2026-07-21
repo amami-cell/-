@@ -371,7 +371,7 @@
     <p style="color:var(--ink-2); font-size:13px; margin-bottom:16px">閲覧用パスワードを入力してください</p>
     <input type="password" id="loginPass" placeholder="パスワード"
       style="font:inherit; width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--ink); text-align:center; margin-bottom:10px">
-    <button class="primary" id="btnLogin" style="width:100%; padding:10px">ひらく</button>
+    <button class="primary" id="btnLogin" style="width:100%; padding:10px">ログイン</button>
     <div class="msg" id="loginMsg" style="margin-top:8px"></div>
   </div>
 
@@ -728,6 +728,14 @@
     });
     t.turnover = (t.hasInv && t.theory > 0) ? t.inv / (t.theory / t.days) : null;
     return t;
+  }
+  // 初期表示は「一番直近の月末棚（確定）」。当月が中間だけのときは、その手前の確定月を選ぶ。
+  function defaultMonth() {
+    var ms = (DATA && DATA.months) || [];
+    for (var i = ms.length - 1; i >= 0; i--) {
+      if (!totalsOf(ms[i]).interim) return ms[i];   // 中間を含まない＝月末棚（確定）
+    }
+    return ms[ms.length - 1] || '';                 // 全て中間ならフォールバックで最新月
   }
 
   // ── ヒーロー（在庫回転日数）──────────────────────────
@@ -1139,7 +1147,7 @@
         info.appendChild(nm); info.appendChild(sub);
         if (key === 'ok') {
           var gap = document.createElement('div'); gap.className = 'rank-val ' + cls;
-          gap.textContent = '余裕 ' + ((r.budgetRate - r.purchaseRate) * 100).toFixed(1) + 'pt';
+          gap.textContent = '達成 ' + ((r.budgetRate - r.purchaseRate) * 100).toFixed(1) + 'pt';
           row.appendChild(info); row.appendChild(gap);
         } else {
           // 仕入れ超過店舗は「理論差（レシピ）」と「仕入差（現場）」を両方表示
@@ -1790,7 +1798,7 @@
         if (d && d.authError) { showLogin(); if (done) done(); return; }
         DATA = d;
         if (!curMonth || DATA.months.indexOf(curMonth) < 0) {
-          curMonth = DATA.months[DATA.months.length - 1] || '';
+          curMonth = defaultMonth();
         }
         if (!curStore && DATA.stores.length) curStore = DATA.stores[0].key;
         document.getElementById('loading').style.display = 'none';
