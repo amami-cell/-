@@ -614,6 +614,14 @@
   var expandedLoss = null;    // {ym, kind} 内訳を開いているロス行
   var PASS = '';              // 閲覧パスワード（localStorageに保存）
   try { PASS = localStorage.getItem('dashPass') || ''; } catch (e) {}
+  // URLに ?p=パスコード が付いていれば（サーバ側で照合済み）自動ログインに使う。
+  // iOSのホーム画面アプリ（GAS iframe内）ではlocalStorageが保持されないため、
+  // この方法だと保存に依存せず毎回自動ログインでき「入りっぱなし」になる。
+  var AUTO_PASS = '<?= AUTO_PASS ?>';
+  if (AUTO_PASS) {
+    PASS = AUTO_PASS;
+    try { localStorage.setItem('dashPass', AUTO_PASS); } catch (e) {}
+  }
 
   // ── 書式 ─────────────────────────────────────────────
   function yen(v) { return '¥' + Math.round(v).toLocaleString('ja-JP'); }
