@@ -876,11 +876,13 @@
   }
 
   // 順位なしのランキング行（店名＋数値、タップで店舗へ）
-  function rankRow(name, valText, key, cls) {
+  function rankRow(name, valText, key, cls, sig) {
     var row = document.createElement('div'); row.className = 'rank-row';
     var nm = document.createElement('div'); nm.className = 'rank-name'; nm.textContent = name;
+    row.appendChild(nm);
+    if (sig) { var s = document.createElement('span'); s.className = 'sig ' + sig.cls; s.textContent = sig.emoji + ' ' + sig.label; row.appendChild(s); }
     var val = document.createElement('div'); val.className = 'rank-val' + (cls ? ' ' + cls : ''); val.textContent = valText;
-    row.appendChild(nm); row.appendChild(val);
+    row.appendChild(val);
     row.onclick = function () { openStore(key); };
     return row;
   }
@@ -912,11 +914,15 @@
       seg.appendChild(b);
     });
     h.appendChild(seg); card.appendChild(h);
+    var cap = document.createElement('div');
+    cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '信号は 9日以内=🟢良好 / 10〜14日=🟡注意 / 15日〜=🔴要確認。';
+    card.appendChild(cap);
 
     var list = rows.filter(function (r) { return r.turnover !== null && r.invCur > 0; }).slice()
       .sort(function (a, b) { return turnAsc ? a.turnover - b.turnover : b.turnover - a.turnover; });
     if (!list.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'データがありません'; card.appendChild(e); return; }
-    appendRankRows(card, list, function (r) { return rankRow(r.name, days1(r.turnover) + '日', r.key); },
+    appendRankRows(card, list, function (r) { return rankRow(r.name, days1(r.turnover) + '日', r.key, null, turnSignal(r.turnover)); },
       turnOpen, function () { turnOpen = !turnOpen; renderTurnRank(rows); });
   }
 
