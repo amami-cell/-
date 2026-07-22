@@ -1805,6 +1805,9 @@
       .withSuccessHandler(function (d) {
         if (d && d.authError) { showLogin(); if (done) done(); return; }
         DATA = d;
+        // ログイン成功をホーム画面アプリ（親ページ）に通知し、パスコードを覚えてもらう。
+        // GASはiframe内でiOSに保存を消されるため、消えない親ページ側に記憶させて自動ログインに使う。
+        try { if (window.top && window.top !== window.self && PASS) window.top.postMessage({ type: 'tana-auth', p: PASS }, '*'); } catch (e) {}
         if (!curMonth || DATA.months.indexOf(curMonth) < 0) {
           curMonth = defaultMonth();
         }
