@@ -1,0 +1,21 @@
+# 認証情報（GitHub Secrets で渡す。リポジトリには絶対に置かない）
+.env
+credentials/
+*.json.key
+service_account*.json
+
+# ローカル開発用の実体
+.local/
+downloads/
+logs/
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/

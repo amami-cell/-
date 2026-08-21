@@ -1,0 +1,86 @@
+name: 実績の取り込み
+
+# 既存FW共有シート（infomart_automation が書き込んでいるもの）を読み、
+# BigQuery の f_actuals へ冪等に取り込む。既存パイプラインには書き込まない。
+#
+# 既存パイプラインが FW を叩くのは毎月 3〜5日 と 16〜20日 の 09:00 JST。
+# その直後に走らせて、中間値・確定値が出そろい次第反映する。
+
+on:
+  workflow_dispatch:
+    inputs:
+      month:
+        description: '対象年月 YYYY-MM（空欄なら全件）'
+        required: false
+        default: ''
+      lenient:
+        description: '取りこぼしがあっても中断しない'
+        type: boolean
+        default: false
+  schedule:
+    # 毎日 10:30 JST (= 01:30 UTC)。既存パイプラインの実行日以外は
+    # 同じ内容を読み直すだけで、冪等なので行数は増えない。
+    - cron: '30 1 * * *'
+
+env:
+  TZ: Asia/Tokyo
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: Secrets の確認
+        env:
+          SA: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PROJECT: ${{ secrets.BIGQUERY_PROJECT }}
+          NEON: ${{ secrets.NEON_DATABASE_URL }}
+        run: |
+          miss=""
+          [ -z "$SA" ]      && miss="$miss GOOGLE_SERVICE_ACCOUNT_JSON"
+          [ -z "$PROJECT" ] && miss="$miss BIGQUERY_PROJECT"
+          [ -z "$NEON" ]    && miss="$miss NEON_DATABASE_URL"
+          if [ -n "$miss" ]; then
+            echo "::error::未設定のSecrets:$miss （docs/setup.md の手順で登録してください）"
+            exit 1
+          fi
+
+      - name: スキーマを用意し店舗マスタを同期
+        env:
+          HANSOKU_ENV: cloud
+          BIGQUERY_PROJECT: ${{ secrets.BIGQUERY_PROJECT }}
+          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: python -m hansoku.cli init-schema
+
+      - name: FW共有シートから取り込む
+        env:
+          HANSOKU_ENV: cloud
+          BIGQUERY_PROJECT: ${{ secrets.BIGQUERY_PROJECT }}
+          BIGQUERY_DATASET: ${{ secrets.BIGQUERY_DATASET }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          FW_SPREADSHEET_ID: ${{ secrets.FW_SPREADSHEET_ID }}
+        run: |
+          args=""
+          [ -n "${{ inputs.month }}" ] && args="$args --month ${{ inputs.month }}"
+          [ "${{ inputs.lenient }}" = "true" ] && args="$args --lenient"
+          python -m hansoku.cli ingest-fw $args

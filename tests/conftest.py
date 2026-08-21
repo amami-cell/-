@@ -1,0 +1,74 @@
+"""テスト共通の準備。"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+FIXTURE = ROOT / "tests" / "fixtures" / "fw_sheet_sample.json"
+
+
+@pytest.fixture(scope="session")
+def master():
+    from hansoku.stores import StoreMaster
+
+    return StoreMaster.load()
+
+
+@pytest.fixture
+def reader():
+    from hansoku.ingest.sheets_client import FixtureSheetReader
+
+    return FixtureSheetReader.from_file(FIXTURE)
+
+
+@pytest.fixture
+def warehouse():
+    """インメモリ DuckDB。BigQuery と同じ Warehouse インターフェース。"""
+    from hansoku.db.duckdb_wh import DuckDBWarehouse
+
+    wh = DuckDBWarehouse()
+    wh.ensure_schema()
+    yield wh
+    wh.close()
+
+
+@pytest.fixture
+def loaded(warehouse, reader, master):
+    """フィクスチャを取り込み済みの Warehouse。"""
+    from hansoku.ingest.fw_sheet import ingest
+
+    ingest(reader, master, warehouse, strict=False)
+    return warehouse
+
+
+@pytest.fixture
+def appdb():
+    """
+    実PostgreSQL に繋がる AppDb。
+
+    HANSOKU_TEST_DATABASE_URL が無い環境ではスキップする（Neon スキーマの
+    検証は実DBでしか意味がないため、SQLite等での代用はしない）。
+    """
+    dsn = os.environ.get("HANSOKU_TEST_DATABASE_URL")
+    if not dsn:
+        pytest.skip("HANSOKU_TEST_DATABASE_URL が未設定のためスキップ")
+
+    from hansoku.db.appdb import AppDb
+    from hansoku.settings import AppDbSettings
+
+    db = AppDb(AppDbSettings(env="local", dsn=dsn))
+    db.execute(
+        """
+        DROP TABLE IF EXISTS f_campaign_summary, f_daily, m_reviews, m_creatives,
+             m_share_targets, m_goals, m_campaigns, m_timeslots, m_access, m_stores CASCADE
+        """
+    )
+    db.ensure_schema()
+    yield db
+    db.close()
