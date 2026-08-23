@@ -159,6 +159,16 @@
   .cj-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cj-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .rank-val.bad { color: var(--bad); } .rank-val.warn { color: var(--warn); } .rank-val.good { color: var(--good); }
+  /* 今月の要点（全社サマリー）: 要チェック件数を一目＋タップで該当タブへ */
+  .sum-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .sum-tile { border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; cursor: pointer; background: var(--surface); display: flex; flex-direction: column; gap: 1px; }
+  .sum-tile:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .sum-tile .n { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .sum-tile .n small { font-size: 12px; font-weight: 700; margin-left: 1px; }
+  .sum-tile .l { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sum-tile.alert .n { color: var(--bad); }
+  .sum-tile.warn  .n { color: var(--warn); }
+  .sum-tile.ok    .n { color: var(--good); }
   /* 予算比オーバー店舗の差異表示（理論差・仕入差の2行） */
   .cj-diffs { flex: none; display: flex; flex-direction: column; gap: 2px; text-align: right; font-variant-numeric: tabular-nums; }
   .cj-diff { font-size: 13px; font-weight: 700; white-space: nowrap; }
@@ -414,6 +424,8 @@
           <button class="primary small" id="btnImAll">⟳ インフォマート</button>
         </div>
       </div>
+
+      <div class="card" id="summaryCard"></div>
 
       <div class="card hero-card">
         <div class="hero" id="heroList"></div>
@@ -1256,7 +1268,61 @@
     }).filter(Boolean);
   }
 
+  // タブへプログラムから移動
+  function gotoTab(v) { view = v; renderAll(); window.scrollTo({ top: 0 }); }
+
+  // 今月の要点（全社）: 未入力・原価オーバー・在庫回転要確認・不明ロス要確認の店舗数を集計。
+  // タップでそれぞれの該当タブへ飛ぶ。判定はアプリ内の各基準（F/D/FD切替に連動）と同じ。
+  function renderSummary() {
+    var card = document.getElementById('summaryCard');
+    card.textContent = '';
+    var rows = computeStoreRows();
+
+    // 棚卸未入力（売上があるのに棚卸金額なし＝0含む）。区分に依らず全体で判定（未入力タブと同じ）。
+    var pending = DATA.stores.filter(function (s) {
+      var m = (DATA.metrics[curMonth] || {})[s.key];
+      var hasSales = m && (m.sales || 0) > 0;
+      var iv = (DATA.inventory[curMonth] || {})[s.key];
+      var hasInv = !!iv && (((iv.food || 0) + (iv.drink || 0)) > 0);
+      return hasSales && !hasInv;
+    }).length;
+
+    // 原価オーバー（仕入率>予算比＝原価判定の🔴🟠）。予算未取得なら「—」。
+    var judged = rows.map(costJudge).filter(function (j) { return j !== null; });
+    var costOver = judged.length ? judged.filter(function (j) { return j === 'dev' || j === 'store'; }).length : null;
+
+    // 在庫回転 要確認（15日以上）
+    var turnBad = rows.filter(function (r) { return r.turnover !== null && r.turnover >= 15; }).length;
+    // 不明ロス 要確認（絶対値2%超）
+    var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; }).length;
+
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📋 今月の要点（全社・' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+
+    var grid = document.createElement('div'); grid.className = 'sum-grid';
+    function tile(count, label, tab, kind) {
+      var t = document.createElement('div'); t.className = 'sum-tile';
+      var isNum = (typeof count === 'number');
+      // 件数>0なら警告色（kind=warn/alert）、0なら良好色。数値なしは無色。
+      t.classList.add(!isNum ? '' : (count > 0 ? (kind || 'alert') : 'ok'));
+      var n = document.createElement('div'); n.className = 'n';
+      n.textContent = isNum ? String(count) : '—';
+      if (isNum) { var sm = document.createElement('small'); sm.textContent = '店'; n.appendChild(sm); }
+      var l = document.createElement('div'); l.className = 'l'; l.textContent = label;
+      t.appendChild(n); t.appendChild(l);
+      t.onclick = function () { gotoTab(tab); };
+      grid.appendChild(t);
+    }
+    tile(pending, '棚卸 未入力', 'pending', 'alert');
+    tile(costOver, '原価オーバー', 'cost', 'alert');
+    tile(turnBad, '在庫回転 要確認(15日〜)', 'highlight', 'alert');
+    tile(lossBad, '不明ロス 要確認(2%超)', 'highlight', 'alert');
+    card.appendChild(grid);
+  }
+
   function renderList() {
+    renderSummary();
     var t = totalsOf(curMonth);
 
     // 全社ロス合計（必要・廃棄・不明 × 売上比）を横3列で表示
