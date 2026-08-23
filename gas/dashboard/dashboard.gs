@@ -35,6 +35,8 @@ const METRIC_SHEETS = {
 const INVENTORY_SHEET = '月次集計';
 const LOSS_SHEET = 'ロス記録';
 const SETTINGS_SHEET = '店舗設定';
+const NOTE_SHEET = '申し送り';        // 店舗×月のメモ（E）
+const ACTION_SHEET = '改善アクション';  // 要確認店への施策記録（F）
 
 const GH_OWNER = 'amami-cell';
 const GH_REPO = '-';
@@ -280,6 +282,34 @@ function getDashboardData(pass, forceRefresh) {
     };
   });
 
+  // 申し送りメモ（E）: [年月, 店舗, メモ, 更新日時] → notes[ym][store] = メモ（新しい行で上書き）
+  const notes = {};
+  const noteSheet = ss.getSheetByName(NOTE_SHEET);
+  if (noteSheet) {
+    noteSheet.getDataRange().getValues().forEach(function (row) {
+      const ym = String(row[0] || '').trim();
+      const store = String(row[1] || '').trim();
+      if (!/^\d{4}-\d{2}$/.test(ym) || !store) return;
+      if (!notes[ym]) notes[ym] = {};
+      notes[ym][store] = String(row[2] || '');
+    });
+  }
+
+  // 改善アクション（F）: [ID, 年月, 店舗, 指標, 施策, 登録日時] → actions[ym][store] = [{id,metric,text,ts}]
+  const actions = {};
+  const actSheet = ss.getSheetByName(ACTION_SHEET);
+  if (actSheet) {
+    actSheet.getDataRange().getValues().forEach(function (row) {
+      const id = String(row[0] || '').trim();
+      const ym = String(row[1] || '').trim();
+      const store = String(row[2] || '').trim();
+      if (!id || !/^\d{4}-\d{2}$/.test(ym) || !store) return;
+      if (!actions[ym]) actions[ym] = {};
+      if (!actions[ym][store]) actions[ym][store] = [];
+      actions[ym][store].push({ id: id, metric: String(row[3] || ''), text: String(row[4] || ''), ts: String(row[5] || '') });
+    });
+  }
+
   const out = {
     updatedAt: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
     months: months,
@@ -288,6 +318,8 @@ function getDashboardData(pass, forceRefresh) {
     inventory: inventory,
     losses: losses,
     storeFlags: storeFlags,
+    notes: notes,
+    actions: actions,
   };
 
   try {
@@ -296,6 +328,70 @@ function getDashboardData(pass, forceRefresh) {
     // キャッシュ上限超過時は素通し
   }
   return out;
+}
+
+// ─── 申し送りメモ（E）・改善アクション（F）─────────────────────────────────────
+
+/** 店舗×月の申し送りメモを保存（同じ店舗×月は上書き）。空文字なら該当行を削除。 */
+function saveNote(pass, storeKey, ym, text) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
+  storeKey = String(storeKey || '').trim();
+  ym = String(ym || '').trim();
+  text = String(text || '').trim().slice(0, 500);
+  if (!storeKey || !/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '店舗または月が不正です' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sh = ss.getSheetByName(NOTE_SHEET);
+    if (!sh) { sh = ss.insertSheet(NOTE_SHEET); sh.appendRow(['年月', '店舗', 'メモ', '更新日時']); }
+    const data = sh.getDataRange().getValues();
+    const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === ym && String(data[i][1]) === storeKey) { sh.deleteRow(i + 1); }
+    }
+    if (text) sh.appendRow([ym, storeKey, text, ts]);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, text: text, ts: ts };
+  } finally { lock.releaseLock(); }
+}
+
+/** 要確認店への改善アクションを1件記録（F）。 */
+function addAction(pass, storeKey, ym, metric, text) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
+  storeKey = String(storeKey || '').trim();
+  ym = String(ym || '').trim();
+  metric = String(metric || '').trim().slice(0, 40);
+  text = String(text || '').trim().slice(0, 300);
+  if (!storeKey || !/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '店舗または月が不正です' };
+  if (!text) return { ok: false, message: '施策を入力してください' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sh = ss.getSheetByName(ACTION_SHEET);
+    if (!sh) { sh = ss.insertSheet(ACTION_SHEET); sh.appendRow(['ID', '年月', '店舗', '指標', '施策', '登録日時']); }
+    const rec = { id: Utilities.getUuid(), metric: metric, text: text, ts: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') };
+    sh.appendRow([rec.id, ym, storeKey, rec.metric, rec.text, rec.ts]);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, rec: rec };
+  } finally { lock.releaseLock(); }
+}
+
+/** 改善アクションを1件削除（F）。 */
+function deleteAction(pass, id) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
+  id = String(id || '').trim();
+  if (!id) return { ok: false, message: 'IDが不正です' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName(ACTION_SHEET);
+    if (!sh) return { ok: false, message: 'シートがありません' };
+    const data = sh.getDataRange().getValues();
+    for (let i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) === id) { sh.deleteRow(i + 1); CacheService.getScriptCache().remove('dash_v2'); return { ok: true }; }
+    }
+    return { ok: false, message: '該当のアクションが見つかりません' };
+  } finally { lock.releaseLock(); }
 }
 
 // ─── ロス記録の追加・削除 ─────────────────────────────────────────────────────
