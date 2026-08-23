@@ -24,6 +24,14 @@ on:
         description: "中間として取得（当月1〜15日・手動テスト用。対象月が空なら当月）"
         type: boolean
         default: false
+      push:
+        description: "プッシュ通知の手動テスト（dry=送らず内容確認 / send=実際に配信）"
+        type: choice
+        options:
+          - "none"
+          - "dry"
+          - "send"
+        default: "none"
   schedule:
     # 毎月3〜5日 09:00 JST (= 00:00 UTC): 前月分の確定（月末棚卸）をFW＋インフォマートで取得
     # 毎月16〜20日 09:00 JST: 当月分の中間（1〜15日）をFW＋インフォマート中間棚で取得
@@ -150,6 +158,24 @@ jobs:
             ARGS="--month $MONTH"
           fi
           xvfb-run -a python main.py $ARGS
+
+      # 棚卸プッシュ通知の配信。schedule(3-5日/16-20日)は自動で内容を判定して配信。
+      # 手動実行では push=dry（送らず内容確認）/ send（実配信）で動作確認できる。
+      # VAPID_PRIVATE_KEY 未設定なら送信はスキップ（購読の保存は先に動く）。
+      - name: 棚卸プッシュ通知
+        if: github.event_name == 'schedule' || inputs.push == 'dry' || inputs.push == 'send'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python tools/tana_push.py --auto || echo "::warning::プッシュ通知の送信でエラー"
+          elif [ "${{ inputs.push }}" = "dry" ]; then
+            python tools/tana_push.py --kinds pending_interim,pending_final,alert,forecast,summary --dry-run
+          else
+            python tools/tana_push.py --kinds pending_interim,pending_final,alert,forecast,summary
+          fi
 
       # FW Excelのセル構造調査（フード売上/ドリンク売上の位置特定用・xlsxがある時のみ）
       - name: FW Excel構造スキャン
