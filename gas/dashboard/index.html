@@ -473,6 +473,7 @@
       <div class="card hero-card">
         <div class="hero" id="heroStore"></div>
       </div>
+      <div class="card" id="storeTrend" style="display:none"></div>
       <div id="monthBlocks"></div>
     </div>
 
@@ -1409,8 +1410,9 @@
     function tile(count, label, tab, kind) {
       var t = document.createElement('div'); t.className = 'sum-tile';
       var isNum = (typeof count === 'number');
-      // 件数>0なら警告色（kind=warn/alert）、0なら良好色。数値なしは無色。
-      t.classList.add(!isNum ? '' : (count > 0 ? (kind || 'alert') : 'ok'));
+      // 件数>0なら警告色（kind=warn/alert）、0なら良好色。数値なし(予算未取得等)は無色。
+      var extra = !isNum ? '' : (count > 0 ? (kind || 'alert') : 'ok');
+      if (extra) t.classList.add(extra);
       var n = document.createElement('div'); n.className = 'n';
       n.textContent = isNum ? String(count) : '—';
       if (isNum) { var sm = document.createElement('small'); sm.textContent = '店'; n.appendChild(sm); }
@@ -1631,6 +1633,51 @@
     return wrap;
   }
 
+  // 店舗ページの推移（直近6ヶ月・FD合算）: 在庫回転日数・不明ロス率のスパークライン。
+  function renderStoreTrend() {
+    var card = document.getElementById('storeTrend');
+    card.style.display = 'none'; card.textContent = '';
+    var months = DATA.months.slice(-6);
+    function vals(pick) { return months.map(function (ym) { var r = calcM(curStore, ym, 'FD'); return r ? pick(r) : null; }); }
+    var turnVals = vals(function (r) { return r.turnover; });
+    var lossVals = vals(function (r) { return r.unknownRate === null ? null : r.unknownRate * 100; });
+    var turnN = turnVals.filter(function (v) { return v !== null; }).length;
+    var lossN = lossVals.filter(function (v) { return v !== null; }).length;
+    if (turnN < 2 && lossN < 2) return;   // 2点以上ないと推移にならない
+
+    card.style.display = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📈 推移（直近' + months.length + 'ヶ月・FD合算）';
+    card.appendChild(h);
+
+    function row(label, valsArr, fmt, sigFn) {
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px dashed var(--grid)';
+      var left = document.createElement('div'); left.style.cssText = 'flex:1;min-width:0';
+      var lb = document.createElement('div'); lb.style.cssText = 'font-size:12px;font-weight:700;color:var(--ink-2)'; lb.textContent = label;
+      var sub = document.createElement('div'); sub.style.cssText = 'font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums';
+      left.appendChild(lb); left.appendChild(sub);
+      var idxs = []; valsArr.forEach(function (v, i) { if (v !== null) idxs.push(i); });
+      if (idxs.length < 2) { sub.textContent = 'データ不足'; wrap.appendChild(left); card.appendChild(wrap); return; }
+      var fi = idxs[0], li = idxs[idxs.length - 1];
+      var first = valsArr[fi], last = valsArr[li];
+      sub.textContent = months[fi] + ' ' + fmt(first) + ' → ' + months[li] + ' ' + fmt(last);
+      var sig = sigFn ? sigFn(last) : null;
+      var colorName = sig ? (sig.cls === 'sig-good' ? 'good' : sig.cls === 'sig-warn' ? 'warn' : sig.cls === 'sig-bad' ? 'bad' : 'accent') : 'accent';
+      var color = 'var(--' + colorName + ')';
+      var spark = sparkline(valsArr, { w: 120, h: 30, color: color, sw: 2 });
+      spark.style.flex = 'none';
+      var val = document.createElement('div'); val.style.cssText = 'text-align:right;flex:none;min-width:54px';
+      var big = document.createElement('div'); big.style.cssText = 'font-size:15px;font-weight:800;font-variant-numeric:tabular-nums';
+      big.textContent = fmt(last); if (sig && sig.cls) big.style.color = color;
+      val.appendChild(big);
+      wrap.appendChild(left); wrap.appendChild(spark); wrap.appendChild(val);
+      card.appendChild(wrap);
+    }
+    row('在庫回転日数', turnVals, function (v) { return days1(v) + '日'; }, function (v) { return turnSignal(v); });
+    row('不明ロス率', lossVals, function (v) { return (v > 0 ? '+' : '') + v.toFixed(1) + '%'; }, function (v) { return lossSignal({ unknown: 0, unknownRate: v / 100 }); });
+  }
+
   function renderStore() {
     var name = '';
     DATA.stores.forEach(function (s) { if (s.key === curStore) name = s.name; });
@@ -1650,6 +1697,8 @@
     } else {
       heroEl.textContent = 'データがありません';
     }
+
+    renderStoreTrend();
 
     var box = document.getElementById('monthBlocks');
     box.textContent = '';
