@@ -128,6 +128,56 @@ function changePasscode(current, next) {
   return { ok: true, message: 'パスワードを変更しました' };
 }
 
+// ─── プッシュ通知の購読管理 ───────────────────────────────────────────────────
+// ホーム画面アプリ（GitHub Pagesの入口ページ）は別オリジンのため google.script.run
+// を呼べない。そこで入口ページから /exec へ POST（no-cors・text/plain）で購読情報を
+// 送り、doPost で受けてスプレッドシートの「通知購読」タブに保存する。実際の配信は
+// GitHub Actions の定期実行（Python: pywebpush）から VAPID 秘密鍵を使って行う。
+const SUBS_SHEET = '通知購読';
+
+function subsSheet_() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh = ss.getSheetByName(SUBS_SHEET);
+  if (!sh) { sh = ss.insertSheet(SUBS_SHEET); sh.appendRow(['endpoint', 'subscription', '登録時刻']); }
+  return sh;
+}
+
+function saveSubscription_(sub) {
+  const endpoint = (sub && sub.endpoint) || '';
+  if (!endpoint) return false;
+  const sh = subsSheet_();
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === endpoint) {
+      sh.getRange(i + 1, 2).setValue(JSON.stringify(sub));
+      sh.getRange(i + 1, 3).setValue(new Date());
+      return true;
+    }
+  }
+  sh.appendRow([endpoint, JSON.stringify(sub), new Date()]);
+  return true;
+}
+
+function removeSubscription_(endpoint) {
+  if (!endpoint) return;
+  const sh = subsSheet_();
+  const data = sh.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][0]) === endpoint) sh.deleteRow(i + 1);
+  }
+}
+
+/** 入口ページ（別オリジン）からの購読登録/解除を受ける。no-cors前提で応答は読まれない。 */
+function doPost(e) {
+  function out(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+  let body = {};
+  try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return out({ ok: false, error: 'bad-json' }); }
+  if (!verifyPass_(body.p)) return out({ ok: false, authError: true });
+  if (body.action === 'subscribe' && body.sub) { saveSubscription_(body.sub); return out({ ok: true }); }
+  if (body.action === 'unsubscribe' && body.endpoint) { removeSubscription_(body.endpoint); return out({ ok: true }); }
+  return out({ ok: false, error: 'unknown-action' });
+}
+
 // ─── データ提供 ───────────────────────────────────────────────────────────────
 
 /** 全データを返す（5分キャッシュ）。月・店舗・F/D切替はクライアント側で行う。 */
