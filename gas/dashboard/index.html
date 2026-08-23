@@ -501,6 +501,7 @@
           <button class="small" id="mNext4">▶</button>
         </div>
       </div>
+      <div class="card" id="forecastCard" style="display:none"></div>
       <div class="card" id="costJudge"></div>
     </div>
 
@@ -1249,7 +1250,111 @@
     fitAll();
   }
 
+  // 月末着地の予測用: 中間(1〜15日)の生データ（区分別・2%込み調整済み）を取り出す。
+  function forecastM(storeKey, ym, mode) {
+    var m = (DATA.metrics[ym] || {})[storeKey];
+    if (!m || m.kind !== '中間') return null;
+    var sales = m.sales || 0;
+    if (!sales) return null;
+    var days = daysInMonth(ym);
+    var purchase = mode === 'F' ? (m.foodPurchase || 0) : mode === 'D' ? (m.drinkPurchase || 0)
+                 : (m.foodPurchase || 0) + (m.drinkPurchase || 0);
+    var theory = mode === 'F' ? (m.foodTheory || 0) : mode === 'D' ? (m.drinkTheory || 0)
+               : (m.foodTheory || 0) + (m.drinkTheory || 0);
+    var fs = m.foodSales || 0, ds = m.drinkSales || 0;
+    var pct2 = mode === 'F' ? fs * 0.02 : mode === 'D' ? ds * 0.02 : (fs + ds) * 0.02;
+    var inc2 = !!((DATA.storeFlags || {})[storeKey]);
+    if (pct2View === 'incl' && !inc2) theory += pct2;
+    else if (pct2View === 'excl' && inc2) theory -= pct2;
+    var budF = Number(m.budgetFoodCost) || 0, budD = Number(m.budgetDrinkCost) || 0;
+    var budgetCost = mode === 'F' ? budF : mode === 'D' ? budD : (budF + budD);
+    return { sales: sales, purchase: purchase, theory: theory, budgetCost: budgetCost, days: days };
+  }
+
+  // 月末着地の予測（当月・中間データがある時だけ表示）。
+  // 率(仕入率・理論原価率)は中間の比率がそのまま月末見込み。予算比は中間売上が半月分なので
+  // 「見込み月末売上（=中間売上×当月日数/15）」で補正して比較する。
+  function renderForecast() {
+    var card = document.getElementById('forecastCard');
+    card.style.display = 'none'; card.textContent = '';
+    var today = new Date();
+    var todayYm = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2);
+    if (todayYm !== curMonth) return;   // 当月のみ
+
+    var parts = DATA.stores.map(function (s) {
+      var f = forecastM(s.key, curMonth, fdMode);
+      if (f) { f.name = s.name; f.key = s.key; }
+      return f;
+    }).filter(Boolean);
+    if (!parts.length) return;   // 中間データ無し
+
+    var EPS = 0.0005;
+    var ss = 0, pp = 0, tt = 0, bb = 0, days = parts[0].days;
+    parts.forEach(function (f) { ss += f.sales; pp += f.purchase; tt += f.theory; bb += f.budgetCost; });
+    if (!ss) return;
+    var projSales = ss * (days / 15);
+    var purchaseRate = pp / ss, theoryRate = tt / ss;
+    var budgetRate = bb > 0 ? bb / projSales : null;
+
+    card.style.display = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🔮 月末着地の予測（中間1〜15日のペース・' + modeLabel() + '）';
+    card.appendChild(h);
+    var cap = document.createElement('div');
+    cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '中間のペースが月末まで続いた場合の見込み。月中に手を打つ目安です。';
+    card.appendChild(cap);
+
+    var over = (budgetRate !== null && purchaseRate > budgetRate + EPS);
+    var diffPt = budgetRate !== null ? (purchaseRate - budgetRate) * 100 : null;
+    var sumRow = document.createElement('div');
+    sumRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0 10px;border-bottom:1px dashed var(--grid)';
+    var sumInfo = document.createElement('div'); sumInfo.style.cssText = 'flex:1;min-width:0';
+    var sumT = document.createElement('div'); sumT.style.cssText = 'font-size:13px;font-weight:700';
+    sumT.textContent = '全社 見込み';
+    var sumS = document.createElement('div'); sumS.style.cssText = 'font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums';
+    sumS.textContent = '見込み仕入率 ' + pct(purchaseRate) + ' ／ 理論 ' + pct(theoryRate) + ' ／ 予算比 ' + (budgetRate === null ? '—' : pct(budgetRate));
+    sumInfo.appendChild(sumT); sumInfo.appendChild(sumS);
+    var badge = document.createElement('span');
+    if (budgetRate === null) { badge.className = 'sig'; badge.textContent = '予算未取得'; }
+    else if (over) { badge.className = 'sig sig-bad'; badge.textContent = '🔴 予算オーバー着地 +' + diffPt.toFixed(1) + 'pt'; }
+    else { badge.className = 'sig sig-good'; badge.textContent = '🟢 予算内で着地 ' + Math.abs(diffPt).toFixed(1) + 'pt'; }
+    sumRow.appendChild(sumInfo); sumRow.appendChild(badge);
+    card.appendChild(sumRow);
+
+    var overStores = parts.map(function (f) {
+      var pr = f.purchase / f.sales;
+      var br = f.budgetCost > 0 ? f.budgetCost / (f.sales * (f.days / 15)) : null;
+      if (br === null || pr <= br + EPS) return null;
+      return { name: f.name, key: f.key, over: (pr - br) * 100, pr: pr, br: br };
+    }).filter(Boolean).sort(function (a, b) { return b.over - a.over; });
+
+    var lt = document.createElement('div');
+    lt.style.cssText = 'font-size:12px;font-weight:700;margin:8px 0 3px;color:var(--ink-2)';
+    lt.textContent = '予算オーバーで着地しそうな店舗（' + overStores.length + '）';
+    card.appendChild(lt);
+    if (!overStores.length) {
+      var em = document.createElement('div'); em.className = 'empty'; em.style.padding = '2px 0';
+      em.textContent = 'このペースなら全店 予算内で着地見込み';
+      card.appendChild(em);
+    } else {
+      overStores.forEach(function (o) {
+        var row = document.createElement('div'); row.className = 'cj-row';
+        var info = document.createElement('div'); info.className = 'cj-info';
+        var nm = document.createElement('div'); nm.className = 'cj-name'; nm.textContent = o.name;
+        var sub = document.createElement('div'); sub.className = 'cj-sub';
+        sub.textContent = '見込み仕入率 ' + pct(o.pr) + ' ／ 予算比 ' + pct(o.br);
+        info.appendChild(nm); info.appendChild(sub);
+        var v = document.createElement('div'); v.className = 'rank-val bad'; v.textContent = '+' + o.over.toFixed(1) + 'pt';
+        row.appendChild(info); row.appendChild(v);
+        row.onclick = (function (k) { return function () { openStore(k); }; })(o.key);
+        card.appendChild(row);
+      });
+    }
+  }
+
   function renderCostTab() {
+    renderForecast();
     var rows = computeStoreRows();
     if (!rows.length) {
       document.getElementById('costJudge').textContent = 'この月のデータはありません';
