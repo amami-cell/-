@@ -346,6 +346,14 @@
     color: #f4efe6; padding: 9px 16px; border-radius: 999px; font-size: 13px; z-index: 200; opacity: 0;
     pointer-events: none; transition: opacity .2s; white-space: nowrap; }
   .toast.show { opacity: 1; }
+  /* 申し送りメモ・改善アクション */
+  .note-ta { font: inherit; width: 100%; min-height: 58px; padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--ink); resize: vertical; }
+  .act-row { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px dashed var(--grid); }
+  .act-row:last-child { border-bottom: none; }
+  .act-main { flex: 1; min-width: 0; }
+  .act-meta { font-size: 11px; color: var(--muted); }
+  .act-text { font-size: 13px; }
 
   #loading { text-align: center; color: var(--muted); padding: 80px 0; }
   .spin {
@@ -494,6 +502,7 @@
         <div class="hero" id="heroStore"></div>
       </div>
       <div class="card" id="storeTrend" style="display:none"></div>
+      <div class="card" id="storeNoteAction" style="display:none"></div>
       <div id="monthBlocks"></div>
     </div>
 
@@ -1902,6 +1911,110 @@
     row('不明ロス率', lossVals, function (v) { return (v > 0 ? '+' : '') + v.toFixed(1) + '%'; }, function (v) { return lossSignal({ unknown: 0, unknownRate: v / 100 }); });
   }
 
+  // ── 申し送りメモ(E)・改善アクション(F) ────────────────────────────────────
+  function metricVal_(storeKey, ym, key) {
+    var r = calcM(storeKey, ym, 'FD'); if (!r) return null;
+    if (key === '在庫回転') return r.turnover;
+    if (key === '不明ロス') return (r.unknownRate === null ? null : Math.abs(r.unknownRate));
+    if (key === '原価') return r.purchaseRate;
+    return null;
+  }
+  function nextMonthOf_(ym) { var i = DATA.months.indexOf(ym); return (i >= 0 && i < DATA.months.length - 1) ? DATA.months[i + 1] : null; }
+  // 施策を打った月と翌月で指標を比べ、改善/悪化/横ばいを返す（いずれも小さいほど良い指標）
+  function actionOutcome_(storeKey, ym, key) {
+    if (!key || key === 'その他') return null;
+    var nm = nextMonthOf_(ym); if (!nm) return null;
+    var a = metricVal_(storeKey, ym, key), b = metricVal_(storeKey, nm, key);
+    if (a === null || b === null) return null;
+    var diff = b - a, eps = (key === '在庫回転') ? 0.3 : 0.001;
+    if (diff < -eps) return { cls: 'sig-good', label: '改善' };
+    if (diff > eps) return { cls: 'sig-bad', label: '悪化' };
+    return { cls: '', label: '横ばい' };
+  }
+
+  function renderStoreNoteAction() {
+    var card = document.getElementById('storeNoteAction'); card.textContent = '';
+    DATA.notes = DATA.notes || {}; DATA.actions = DATA.actions || {};
+    var latestYm = null;
+    for (var i = DATA.months.length - 1; i >= 0; i--) { if (calcM(curStore, DATA.months[i], 'FD')) { latestYm = DATA.months[i]; break; } }
+    if (!latestYm) return;
+    card.style.display = '';
+
+    var h = document.createElement('div'); h.className = 'cardh'; h.textContent = '📝 申し送り・改善アクション（' + latestYm + '）'; card.appendChild(h);
+
+    var memo = (DATA.notes[latestYm] || {})[curStore] || '';
+    var ta = document.createElement('textarea'); ta.className = 'note-ta'; ta.value = memo; ta.placeholder = '例：廃棄の記録漏れ／棚卸日がズレた 等';
+    card.appendChild(ta);
+    var rb = document.createElement('div'); rb.style.cssText = 'display:flex;justify-content:flex-end;margin:6px 0 2px';
+    var sv = document.createElement('button'); sv.className = 'primary small'; sv.textContent = '💾 メモ保存';
+    sv.onclick = function () {
+      sv.disabled = true;
+      google.script.run.withSuccessHandler(function (res) {
+        sv.disabled = false;
+        if (!res || !res.ok) { toast((res && res.message) || '保存に失敗'); return; }
+        if (!DATA.notes[latestYm]) DATA.notes[latestYm] = {};
+        if (res.text) DATA.notes[latestYm][curStore] = res.text; else delete DATA.notes[latestYm][curStore];
+        toast('保存しました');
+      }).withFailureHandler(function (e) { sv.disabled = false; toast('エラー: ' + e.message); })
+        .saveNote(PASS, curStore, latestYm, ta.value);
+    };
+    rb.appendChild(sv); card.appendChild(rb);
+
+    var at = document.createElement('div'); at.style.cssText = 'font-size:12px;font-weight:700;margin:10px 0 4px;color:var(--ink-2)'; at.textContent = '📌 改善アクション'; card.appendChild(at);
+    var addBtn = document.createElement('button'); addBtn.className = 'small'; addBtn.textContent = '＋ 施策を記録'; card.appendChild(addBtn);
+    var form = document.createElement('div'); form.style.cssText = 'display:none;margin-top:8px';
+    var seg = document.createElement('div'); seg.className = 'seg seg-sm'; seg.style.marginBottom = '6px';
+    ['在庫回転', '不明ロス', '原価', 'その他'].forEach(function (k, idx) {
+      var b = document.createElement('button'); b.textContent = k; b.dataset.k = k; if (idx === 0) b.className = 'on';
+      b.onclick = function () { seg.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); }); };
+      seg.appendChild(b);
+    });
+    form.appendChild(seg);
+    var ata = document.createElement('textarea'); ata.className = 'note-ta'; ata.placeholder = '打った施策（例：発注ロット見直し／棚卸手順を統一）'; form.appendChild(ata);
+    var ar = document.createElement('div'); ar.style.cssText = 'display:flex;justify-content:flex-end;margin-top:6px';
+    var rec = document.createElement('button'); rec.className = 'primary small'; rec.textContent = '記録'; ar.appendChild(rec); form.appendChild(ar);
+    card.appendChild(form);
+    addBtn.onclick = function () { form.style.display = form.style.display === 'none' ? '' : 'none'; };
+    rec.onclick = function () {
+      var on = seg.querySelector('button.on'); var metric = on ? on.dataset.k : 'その他';
+      if (!ata.value.trim()) { toast('施策を入力してください'); return; }
+      rec.disabled = true;
+      google.script.run.withSuccessHandler(function (res) {
+        rec.disabled = false;
+        if (!res || !res.ok) { toast((res && res.message) || '記録に失敗'); return; }
+        if (!DATA.actions[latestYm]) DATA.actions[latestYm] = {};
+        if (!DATA.actions[latestYm][curStore]) DATA.actions[latestYm][curStore] = [];
+        DATA.actions[latestYm][curStore].push(res.rec);
+        toast('記録しました'); renderStoreNoteAction();
+      }).withFailureHandler(function (e) { rec.disabled = false; toast('エラー: ' + e.message); })
+        .addAction(PASS, curStore, latestYm, metric, ata.value);
+    };
+
+    var hist = [];
+    DATA.months.forEach(function (ym) { var arr = (DATA.actions[ym] || {})[curStore] || []; arr.forEach(function (a) { hist.push({ ym: ym, a: a }); }); });
+    hist.reverse();
+    if (!hist.length) { var e0 = document.createElement('div'); e0.className = 'empty'; e0.style.padding = '4px 0'; e0.textContent = 'まだ記録はありません'; card.appendChild(e0); return; }
+    hist.forEach(function (it) {
+      var row = document.createElement('div'); row.className = 'act-row';
+      var main = document.createElement('div'); main.className = 'act-main';
+      var meta = document.createElement('div'); meta.className = 'act-meta'; meta.textContent = it.ym + '・' + (it.a.metric || 'その他');
+      var tx = document.createElement('div'); tx.className = 'act-text'; tx.textContent = it.a.text;
+      main.appendChild(meta); main.appendChild(tx); row.appendChild(main);
+      var oc = actionOutcome_(curStore, it.ym, it.a.metric);
+      if (oc) { var bd = document.createElement('span'); bd.className = 'sig ' + oc.cls; bd.style.flex = 'none'; bd.textContent = oc.label; row.appendChild(bd); }
+      var del = document.createElement('button'); del.className = 'small'; del.style.flex = 'none'; del.textContent = '×';
+      del.onclick = function () {
+        del.disabled = true;
+        google.script.run.withSuccessHandler(function (res) {
+          if (!res || !res.ok) { del.disabled = false; toast((res && res.message) || '削除失敗'); return; }
+          var arr = (DATA.actions[it.ym] || {})[curStore] || []; var k = arr.indexOf(it.a); if (k >= 0) arr.splice(k, 1);
+          renderStoreNoteAction();
+        }).withFailureHandler(function (e) { del.disabled = false; toast('エラー: ' + e.message); }).deleteAction(PASS, it.a.id);
+      };
+      row.appendChild(del); card.appendChild(row);
+    });
+  }
+
   function renderStore() {
     var name = '';
     DATA.stores.forEach(function (s) { if (s.key === curStore) name = s.name; });
@@ -1923,6 +2036,7 @@
     }
 
     renderStoreTrend();
+    renderStoreNoteAction();
 
     var box = document.getElementById('monthBlocks');
     box.textContent = '';
