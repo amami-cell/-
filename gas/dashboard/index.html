@@ -338,6 +338,14 @@
   }
   details { margin-top: 10px; }
   summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  /* 月次レポート共有 */
+  .report-body { font-size: 13px; line-height: 1.7; white-space: pre-wrap; background: var(--bg);
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-variant-numeric: tabular-nums;
+    max-height: 46vh; overflow: auto; }
+  .toast { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); background: #1c1a16;
+    color: #f4efe6; padding: 9px 16px; border-radius: 999px; font-size: 13px; z-index: 200; opacity: 0;
+    pointer-events: none; transition: opacity .2s; white-space: nowrap; }
+  .toast.show { opacity: 1; }
 
   #loading { text-align: center; color: var(--muted); padding: 80px 0; }
   .spin {
@@ -622,6 +630,24 @@
     </div>
   </div>
 </div>
+
+<div class="overlay" id="reportOverlay">
+  <div class="modal">
+    <h3>📤 月次レポート共有</h3>
+    <div id="reportBody" class="report-body"></div>
+    <img id="reportImg" style="display:none; width:100%; margin-top:10px; border-radius:10px" alt="レポート画像">
+    <div id="reportHint" style="display:none; font-size:11px; color:var(--muted); margin-top:6px">画像を長押しして保存できます。</div>
+    <canvas id="reportCanvas" style="display:none"></canvas>
+    <div class="actions" style="margin-top:12px; justify-content:space-between">
+      <button id="btnReportClose">閉じる</button>
+      <span style="display:flex; gap:8px">
+        <button class="primary small" id="btnReportCopy">📋 コピー</button>
+        <button class="primary small" id="btnReportImg">📷 画像</button>
+      </span>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
 
 <script>
 (function () {
@@ -1515,7 +1541,12 @@
     var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; }).length;
 
     var h = document.createElement('div'); h.className = 'cardh';
-    h.textContent = '📋 今月の要点（全社・' + curMonth + '・' + modeLabel() + '）';
+    h.style.display = 'flex'; h.style.alignItems = 'center';
+    var ht = document.createElement('span'); ht.style.flex = '1'; ht.style.minWidth = '0';
+    ht.textContent = '📋 今月の要点（全社・' + curMonth + '・' + modeLabel() + '）';
+    var sb = document.createElement('button'); sb.className = 'small'; sb.style.flex = 'none'; sb.textContent = '📤 共有';
+    sb.onclick = openReport;
+    h.appendChild(ht); h.appendChild(sb);
     card.appendChild(h);
 
     var grid = document.createElement('div'); grid.className = 'sum-grid';
@@ -1538,6 +1569,87 @@
     tile(turnBad, '在庫回転 要確認(15日〜)', 'highlight', 'alert');
     tile(lossBad, '不明ロス 要確認(2%超)', 'highlight', 'alert');
     card.appendChild(grid);
+  }
+
+  // ── 月次レポート共有（B）: 今月の要点をコピー／画像で店長グループへ ──────────
+  function toast(msg) {
+    var el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { el.classList.remove('show'); }, 1600);
+  }
+  function reportText() {
+    var rows = computeStoreRows();
+    var t = totalsOf(curMonth);
+    var pending = DATA.stores.filter(function (s) {
+      var m = (DATA.metrics[curMonth] || {})[s.key]; var hasSales = m && (m.sales || 0) > 0;
+      var iv = (DATA.inventory[curMonth] || {})[s.key]; var hasInv = !!iv && (((iv.food || 0) + (iv.drink || 0)) > 0);
+      return hasSales && !hasInv;
+    });
+    var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; }).filter(function (x) { return x.j !== null; });
+    var over = judged.filter(function (x) { return x.j === 'dev' || x.j === 'store'; }).map(function (x) { return x.r; });
+    var okCount = judged.filter(function (x) { return x.j === 'ok'; }).length;
+    var turnBad = rows.filter(function (r) { return r.turnover !== null && r.turnover >= 15; });
+    var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; });
+    function nm(arr) { return arr.slice(0, 4).map(function (r) { return r.name; }).join('、') + (arr.length > 4 ? ' 他' : ''); }
+    var L = [];
+    L.push('【棚卸レポート ' + curMonth + '・' + modeLabel() + '】');
+    L.push('不明ロス総額 ' + (t.unknown === null ? '—' : yen(t.unknown)) + (t.unknown !== null && t.sales ? '（売上比 ' + pct(t.unknown / t.sales) + '）' : ''));
+    var flagged = {}; turnBad.concat(lossBad).concat(over).forEach(function (r) { flagged[r.key] = 1; });
+    L.push('予算達成 ' + okCount + '/' + judged.length + '店 ／ 要確認 ' + Object.keys(flagged).length + '店');
+    if (turnBad.length) L.push('・在庫回転15日〜：' + turnBad.length + '店（' + nm(turnBad) + '）');
+    if (lossBad.length) L.push('・不明ロス2%超：' + lossBad.length + '店（' + nm(lossBad) + '）');
+    if (over.length) L.push('・原価オーバー：' + over.length + '店（' + nm(over) + '）');
+    L.push('棚卸未入力：' + pending.length + '店' + (pending.length ? '（' + nm(pending) + '）' : ''));
+    return L.join('\n');
+  }
+  function openReport() {
+    document.getElementById('reportBody').textContent = reportText();
+    var img = document.getElementById('reportImg'); img.style.display = 'none'; img.src = '';
+    document.getElementById('reportHint').style.display = 'none';
+    document.getElementById('reportOverlay').classList.add('show');
+  }
+  function legacyCopy(txt) {
+    var ta = document.createElement('textarea'); ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+  function copyReport() {
+    var txt = reportText();
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { toast('コピーしました'); },
+        function () { legacyCopy(txt); toast('コピーしました'); });
+    } else { legacyCopy(txt); toast('コピーしました'); }
+  }
+  function reportImage() {
+    var lines = reportText().split('\n');
+    var W = 680, pad = 30, lh = 40;
+    var canvas = document.getElementById('reportCanvas');
+    canvas.width = W; canvas.height = pad * 2 + lines.length * lh;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.textBaseline = 'top';
+    lines.forEach(function (ln, i) {
+      ctx.font = (i === 0 ? 'bold 28px' : '22px') + ' -apple-system, "Hiragino Sans", sans-serif';
+      ctx.fillStyle = i === 0 ? '#1c1a16' : '#333333';
+      ctx.fillText(ln, pad, pad + i * lh);
+    });
+    return canvas;
+  }
+  function shareReport() {
+    var canvas = reportImage();
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      try {
+        var file = new File([blob], '棚卸レポート_' + curMonth + '.png', { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: '棚卸レポート' }).catch(function () {});
+          return;
+        }
+      } catch (e) {}
+      var img = document.getElementById('reportImg');
+      img.src = URL.createObjectURL(blob); img.style.display = '';
+      document.getElementById('reportHint').style.display = '';
+    }, 'image/png');
   }
 
   function renderList() {
@@ -2345,6 +2457,12 @@
   document.getElementById('lossOverlay').addEventListener('click', function (e) {
     if (e.target === this) closeLossModal();
   });
+
+  // 月次レポート共有モーダル
+  document.getElementById('btnReportClose').onclick = function () { document.getElementById('reportOverlay').classList.remove('show'); };
+  document.getElementById('reportOverlay').addEventListener('click', function (e) { if (e.target === this) this.classList.remove('show'); });
+  document.getElementById('btnReportCopy').onclick = copyReport;
+  document.getElementById('btnReportImg').onclick = shareReport;
 
   // ── ログイン ─────────────────────────────────────────
   function doLogin() {
