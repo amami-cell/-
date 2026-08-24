@@ -386,6 +386,55 @@
   #ptr i { display: block; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(47,107,62,.25); border-top-color: var(--accent); }
   #ptr.spin i { animation: spin .6s linear infinite; }
   #app { will-change: transform; }
+
+  /* ロールアップ（エリア／ブランド別） */
+  .ru-row { border-bottom: 1px dashed var(--grid); }
+  .ru-row:last-child { border-bottom: none; }
+  .ru-head { display: flex; align-items: center; gap: 8px; padding: 9px 0 8px; cursor: pointer; }
+  .ru-tw { width: 16px; flex: none; color: var(--muted); font-size: 11px; transition: transform .15s ease; }
+  .ru-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
+  .ru-name small { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+  .ru-val { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+  .ru-kids { padding: 0 0 8px 24px; }
+  .ru-kid { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px dotted var(--grid); cursor: pointer; }
+  .ru-kid:last-child { border-bottom: none; }
+  .ru-kid .rk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .ru-kid .rk-val { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* 当月やることハブ */
+  .todo-row { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px dashed var(--grid); cursor: pointer; }
+  .todo-row:last-child { border-bottom: none; }
+  .todo-ic { width: 30px; height: 30px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 9px; font-size: 16px; background: color-mix(in srgb, var(--muted) 12%, transparent); }
+  .todo-ic.alert { background: color-mix(in srgb, var(--bad) 15%, transparent); }
+  .todo-ic.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); }
+  .todo-tx { flex: 1; min-width: 0; }
+  .todo-t { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .todo-s { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
+  .todo-n { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; flex: none; }
+  .todo-n small { font-size: 11px; font-weight: 700; margin-left: 1px; }
+  .todo-n.alert { color: var(--bad); } .todo-n.warn { color: var(--warn); }
+  .todo-chev { flex: none; color: var(--muted); font-size: 14px; }
+
+  /* 原価目標の達成メーター */
+  .tgt-meter { height: 12px; border-radius: 999px; background: var(--grid); overflow: hidden; position: relative; margin: 8px 0 4px; }
+  .tgt-fill { height: 100%; border-radius: 999px; transition: width .4s ease; }
+  .tgt-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .55; }
+  .tgt-legend { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* 原価構成の可視化（積み上げバー） */
+  .comp-bar { display: flex; height: 22px; border-radius: 7px; overflow: hidden; background: var(--grid); margin: 6px 0 10px; }
+  .comp-seg { height: 100%; min-width: 0; }
+  .comp-seg.theory { background: var(--accent); }
+  .comp-seg.need { background: #6fae7d; }
+  .comp-seg.waste { background: var(--warn); }
+  .comp-seg.unknown { background: var(--bad); }
+  .comp-seg.unknownN { background: color-mix(in srgb, var(--bad) 45%, var(--muted)); }
+  .comp-legend { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  .comp-li { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-2); }
+  .comp-sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .comp-sw.theory { background: var(--accent); } .comp-sw.need { background: #6fae7d; }
+  .comp-sw.waste { background: var(--warn); } .comp-sw.unknown { background: var(--bad); }
+  .comp-li .cv { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -445,6 +494,7 @@
             <button data-p="excl">2%なし</button>
           </div>
           <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙ 2%設定</button>
+          <button class="small" id="btnTargetSetup" title="店舗ごとの目標原価率を設定">🎯 目標</button>
         </div>
         <div class="filters" style="margin-bottom:0">
           <label class="grp">取込</label>
@@ -501,6 +551,8 @@
       <div class="card hero-card">
         <div class="hero" id="heroStore"></div>
       </div>
+      <div class="card" id="storeTargetCard" style="display:none"></div>
+      <div class="card" id="storeCompCard" style="display:none"></div>
       <div class="card" id="storeTrend" style="display:none"></div>
       <div class="card" id="storeNoteAction" style="display:none"></div>
       <div id="monthBlocks"></div>
@@ -509,13 +561,22 @@
     <!-- ═══ ランキング画面（別タブ）═══ -->
     <div id="highlightView" style="display:none">
       <div class="ctrl-card">
-        <div class="filters" style="margin-bottom:0">
+        <div class="filters">
           <label class="grp">対象月</label>
           <button class="small" id="mPrev2">◀</button>
           <select id="monthSel2"></select>
           <button class="small" id="mNext2">▶</button>
         </div>
+        <div class="filters" style="margin-bottom:0">
+          <label class="grp">まとめ</label>
+          <div class="seg seg-sm" id="rollupSeg" title="店舗をブランド／エリアでまとめて合計を表示">
+            <button data-ax="brand" class="on">ブランド</button>
+            <button data-ax="area">エリア</button>
+          </div>
+          <button class="small" id="btnGroupSetup" title="店舗ごとのエリア・ブランドを設定">⚙ 分類</button>
+        </div>
       </div>
+      <div class="card" id="rollupCard"></div>
       <div class="card" id="heatCard"></div>
       <div class="card" id="anomalyCard"></div>
       <div class="card" id="moveCard"></div>
@@ -534,6 +595,7 @@
         </div>
       </div>
       <div class="card" id="forecastCard" style="display:none"></div>
+      <div class="card" id="costCompCard"></div>
       <div class="card" id="costJudge"></div>
     </div>
 
@@ -547,6 +609,7 @@
           <button class="small" id="mNext3">▶</button>
         </div>
       </div>
+      <div class="card" id="todoHubCard"></div>
       <div class="card" id="stockPendingCard"></div>
       <div class="card" id="pendingCard"></div>
     </div>
@@ -557,7 +620,7 @@
     <button data-tab="list" class="on"><span class="ic">📋</span><span>一覧</span></button>
     <button data-tab="highlight"><span class="ic">🏅</span><span>ランキング</span></button>
     <button data-tab="cost"><span class="ic">🏷</span><span>原価判定</span></button>
-    <button data-tab="pending"><span class="ic">📝</span><span>未入力</span></button>
+    <button data-tab="pending"><span class="ic">📝</span><span>やること</span></button>
   </nav>
 </div>
 
@@ -599,6 +662,36 @@
       <button class="primary" id="btnPctSave">保存</button>
     </div>
     <div class="msg" id="pctMsg" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- 店舗グループ（エリア／ブランド）設定モーダル -->
+<div class="overlay" id="groupOverlay">
+  <div class="modal">
+    <h3>⚙ エリア／ブランドの設定</h3>
+    <p>店舗ごとに<b>エリア</b>（例：東京・大阪・京都）と<b>ブランド</b>（例：すさび湯・GOLD）を入れると、ランキング画面でまとめて合計を見られます。<br>
+       ブランドは空欄なら店名から自動で推測します。</p>
+    <div id="groupList" style="max-height:50vh;overflow-y:auto;border:1px solid var(--grid);border-radius:10px;padding:6px 10px;margin-bottom:12px"></div>
+    <div class="actions">
+      <button id="btnGroupCancel">閉じる</button>
+      <button class="primary" id="btnGroupSave">保存</button>
+    </div>
+    <div class="msg" id="groupMsg" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- 原価目標モーダル -->
+<div class="overlay" id="targetOverlay">
+  <div class="modal">
+    <h3>🎯 目標原価率の設定</h3>
+    <p>店舗ごとの<b>目標原価率（％）</b>を入れると、店舗ページで実績（仕入率）との差を「達成／未達」で表示します。<br>
+       空欄・0は未設定（表示しません）。予算比（FW取込）とは別に、自分たちで決めた目標として使えます。</p>
+    <div id="targetList" style="max-height:50vh;overflow-y:auto;border:1px solid var(--grid);border-radius:10px;padding:6px 10px;margin-bottom:12px"></div>
+    <div class="actions">
+      <button id="btnTargetCancel">閉じる</button>
+      <button class="primary" id="btnTargetSave">保存</button>
+    </div>
+    <div class="msg" id="targetMsg" style="margin-top:8px"></div>
   </div>
 </div>
 
@@ -781,7 +874,7 @@
       actualRate: (sales && actual !== null) ? actual / sales : null,
       theoryRate: sales ? theory / sales : null,
       unknownRate: (sales && unknown !== null) ? unknown / sales : null,
-      budgetRate: budgetRate,
+      budgetRate: budgetRate, budgetCost: budgetCost,
     };
   }
   function calc(storeKey, ym) { return calcM(storeKey, ym, fdMode); }
@@ -832,6 +925,33 @@
   // ── 一覧画面 ─────────────────────────────────────────
   var listMetric = 'inv';   // 'inv'=棚卸 | 'cost'=原価・ロス
   var rankMetric = 'turnover';   // ランキングの指標
+  var rollupAxis = 'brand';  // ロールアップ軸: 'brand' | 'area'
+  var rollupOpen = {};       // 展開中のグループ名
+
+  // 店名からブランドを自動推測（設定が無いときの既定）。代表的な系列名を優先的に拾う。
+  function autoBrand(name) {
+    var n = String(name || '');
+    var known = ['すさび湯', 'フレンチ酒場GOLD', 'GOLD', 'Largo', 'LARGO', 'ぎふや', 'ちゃーちゃん',
+                 'ひよこ飯店', 'たいだい', 'ARATA', 'UMAMI', 'NagaGutsu', '熊の鳥焼', 'んだんだ',
+                 '味のたぬきや', '曲ル角', 'たぬきや'];
+    for (var i = 0; i < known.length; i++) {
+      if (n.indexOf(known[i]) >= 0) return known[i] === 'GOLD' ? 'フレンチ酒場GOLD' : (known[i] === 'LARGO' ? 'Largo' : known[i]);
+    }
+    // 該当なしは先頭の語（空白・記号の手前）をブランド名とみなす
+    var head = n.split(/[\s　（(]/)[0];
+    return head || n || '未分類';
+  }
+  // 店舗のグループ名（軸別）。設定シート優先、無ければブランドは自動推測・エリアは「未設定」。
+  function groupOf(storeKey, name, axis) {
+    var g = (DATA.storeGroups || {})[storeKey] || {};
+    if (axis === 'area') return (g.area && g.area.trim()) ? g.area.trim() : '未設定';
+    return (g.brand && g.brand.trim()) ? g.brand.trim() : autoBrand(name);
+  }
+  // 店舗の目標原価率（割合）。未設定は null。
+  function costTargetOf(storeKey) {
+    var v = (DATA.costTargets || {})[storeKey];
+    return (typeof v === 'number' && isFinite(v) && v > 0) ? v : null;
+  }
   // 原価・ロスは金額でなく売上比（率）で並べ替える
   var SORTS = {
     inv: [
@@ -1103,6 +1223,7 @@
   // ロス未入力の店舗（必要ロス・廃棄ロスの登録が0件）。月選択・その場で入力できる
   var pendingOpen = true;   // 既定で全店舗を展開表示
   function renderPending() {
+    renderTodoHub();
     renderStockPending();
     var card = document.getElementById('pendingCard');
     card.textContent = '';
@@ -1380,9 +1501,264 @@
     });
   }
 
+  // ── エリア／ブランド別ロールアップ（1）: 店舗をまとめて合計を表示 ──────────────
+  function renderRollup(rows) {
+    var card = document.getElementById('rollupCard'); card.textContent = '';
+    var axisLbl = rollupAxis === 'area' ? 'エリア' : 'ブランド';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🧭 ' + axisLbl + '別まとめ（' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+    var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = axisLbl + 'ごとの合計。行をタップで店舗内訳、店舗をタップで詳細へ。悪い順に並びます。';
+    card.appendChild(cap);
+
+    var days = daysInMonth(curMonth), EPS = 0.0005;
+    var groups = {};
+    rows.forEach(function (r) {
+      var gname = groupOf(r.key, r.name, rollupAxis);
+      var g = groups[gname] || (groups[gname] = { name: gname, members: [], sales: 0, purchase: 0, theory: 0, inv: 0, hasInv: false, unknown: 0, hasUnknown: false, budgetCost: 0, hasBudget: false });
+      g.members.push(r);
+      g.sales += r.sales; g.purchase += r.purchase; g.theory += r.theory;
+      if (r.invCur !== null) { g.inv += r.invCur; g.hasInv = true; }
+      if (r.unknown !== null) { g.unknown += r.unknown; g.hasUnknown = true; }
+      if (r.budgetCost && r.budgetCost > 0) { g.budgetCost += r.budgetCost; g.hasBudget = true; }
+    });
+    var list = Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      g.purchaseRate = g.sales ? g.purchase / g.sales : null;
+      g.theoryRate = g.sales ? g.theory / g.sales : null;
+      g.unknownRate = (g.sales && g.hasUnknown) ? g.unknown / g.sales : null;
+      g.budgetRate = (g.sales && g.hasBudget) ? g.budgetCost / g.sales : null;
+      g.turnover = (g.hasInv && g.theory > 0) ? g.inv / (g.theory / days) : null;
+      var score = 0;
+      if (g.turnover !== null) score += g.turnover >= 15 ? 2 : (g.turnover >= 10 ? 1 : 0);
+      if (g.budgetRate !== null && g.purchaseRate !== null && g.purchaseRate > g.budgetRate + EPS) score += 2;
+      if (g.unknownRate !== null && Math.abs(g.unknownRate) * 100 > 2) score += 2;
+      g.score = score;
+      return g;
+    }).sort(function (a, b) { return (b.score - a.score) || (b.sales - a.sales); });
+
+    if (!list.length) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = 'この月のデータはありません'; card.appendChild(e); return; }
+
+    list.forEach(function (g) {
+      var wrap = document.createElement('div'); wrap.className = 'ru-row';
+      var head = document.createElement('div'); head.className = 'ru-head';
+      var open = !!rollupOpen[rollupAxis + '::' + g.name];
+      var tw = document.createElement('span'); tw.className = 'ru-tw'; tw.textContent = open ? '▼' : '▶';
+      var nm = document.createElement('div'); nm.className = 'ru-name';
+      nm.textContent = g.name; var sm = document.createElement('small'); sm.textContent = g.members.length + '店'; nm.appendChild(sm);
+      var val = document.createElement('div'); val.className = 'ru-val';
+      var turnTxt = g.turnover === null ? '回転—' : ('回転' + days1(g.turnover) + '日');
+      var costTxt = g.purchaseRate === null ? '' : (' ・仕入' + Math.round(g.purchaseRate * 100) + '%');
+      val.textContent = turnTxt + costTxt;
+      var sig = null;
+      if (g.budgetRate !== null && g.purchaseRate !== null) {
+        sig = document.createElement('span'); sig.className = 'sig ' + (g.purchaseRate > g.budgetRate + EPS ? 'sig-bad' : 'sig-good');
+        sig.textContent = g.purchaseRate > g.budgetRate + EPS ? '🔴予算超' : '🟢予算内';
+      }
+      head.appendChild(tw); head.appendChild(nm); if (sig) head.appendChild(sig); head.appendChild(val);
+      head.onclick = (function (key) { return function () { rollupOpen[rollupAxis + '::' + key] = !rollupOpen[rollupAxis + '::' + key]; renderRollup(rows); }; })(g.name);
+      wrap.appendChild(head);
+
+      if (open) {
+        var kids = document.createElement('div'); kids.className = 'ru-kids';
+        g.members.slice().sort(function (a, b) { return (b.turnover || 0) - (a.turnover || 0); }).forEach(function (r) {
+          var kid = document.createElement('div'); kid.className = 'ru-kid';
+          var kn = document.createElement('div'); kn.className = 'rk-name'; kn.textContent = r.name;
+          var kv = document.createElement('div'); kv.className = 'rk-val';
+          kv.textContent = (r.turnover === null ? '回転—' : '回転' + days1(r.turnover) + '日') + (r.purchaseRate === null ? '' : ' ・仕入' + Math.round(r.purchaseRate * 100) + '%');
+          kid.appendChild(kn); kid.appendChild(kv);
+          kid.onclick = (function (k) { return function () { openStore(k); }; })(r.key);
+          kids.appendChild(kid);
+        });
+        wrap.appendChild(kids);
+      }
+      card.appendChild(wrap);
+    });
+  }
+
+  // ── 原価構成の可視化（4）: 実際原価を 理論／必要ロス／廃棄ロス／不明ロス に分解 ──
+  function compParts(r) {
+    if (!r) return null;
+    var theory = Math.max(r.theory || 0, 0), need = Math.max(r.need || 0, 0), waste = Math.max(r.waste || 0, 0);
+    var unknown = r.unknown;   // null=未確定 / 負=理論等を下回る
+    var posUnknown = (unknown !== null && unknown > 0) ? unknown : 0;
+    var denom = theory + need + waste + posUnknown;
+    return { theory: theory, need: need, waste: waste, unknown: unknown, denom: denom };
+  }
+  function buildCompositionBar(p) {
+    var box = document.createElement('div');
+    if (!p || p.denom <= 0) { var e = document.createElement('div'); e.className = 'empty'; e.textContent = '原価データがありません'; box.appendChild(e); return box; }
+    var bar = document.createElement('div'); bar.className = 'comp-bar';
+    var segs = [
+      { cls: 'theory', v: p.theory, label: '理論原価' },
+      { cls: 'need', v: p.need, label: '必要ロス' },
+      { cls: 'waste', v: p.waste, label: '廃棄ロス' },
+      { cls: 'unknown', v: (p.unknown !== null && p.unknown > 0) ? p.unknown : 0, label: '不明ロス' },
+    ];
+    segs.forEach(function (s) {
+      if (s.v <= 0) return;
+      var el = document.createElement('div'); el.className = 'comp-seg ' + s.cls;
+      el.style.width = (s.v / p.denom * 100).toFixed(2) + '%';
+      el.title = s.label + ' ' + yen(s.v);
+      bar.appendChild(el);
+    });
+    box.appendChild(bar);
+    var lg = document.createElement('div'); lg.className = 'comp-legend';
+    segs.forEach(function (s) {
+      var li = document.createElement('div'); li.className = 'comp-li';
+      var sw = document.createElement('span'); sw.className = 'comp-sw ' + s.cls;
+      var nm = document.createElement('span'); nm.textContent = s.label;
+      var cv = document.createElement('span'); cv.className = 'cv';
+      if (s.cls === 'unknown' && p.unknown !== null && p.unknown < 0) cv.textContent = yen(p.unknown);
+      else cv.textContent = s.denom === 0 ? '—' : (s.v > 0 ? Math.round(s.v / p.denom * 100) + '%' : '0%');
+      li.appendChild(sw); li.appendChild(nm); li.appendChild(cv);
+      lg.appendChild(li);
+    });
+    box.appendChild(lg);
+    if (p.unknown === null) {
+      var note = document.createElement('div'); note.style.cssText = 'font-size:11px;color:var(--muted);margin-top:6px';
+      note.textContent = '※ 棚卸が未入力のため不明ロスは未確定（理論・ロスのみで表示）';
+      box.appendChild(note);
+    }
+    return box;
+  }
+  function renderCostComposition() {
+    var card = document.getElementById('costCompCard'); card.textContent = '';
+    var rows = computeStoreRows();
+    var agg = { theory: 0, need: 0, waste: 0, unknown: 0, hasUnknown: false };
+    rows.forEach(function (r) {
+      agg.theory += Math.max(r.theory || 0, 0); agg.need += Math.max(r.need || 0, 0); agg.waste += Math.max(r.waste || 0, 0);
+      if (r.unknown !== null) { agg.unknown += r.unknown; agg.hasUnknown = true; }
+    });
+    var p = compParts({ theory: agg.theory, need: agg.need, waste: agg.waste, unknown: agg.hasUnknown ? agg.unknown : null });
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🍰 原価構成（全社・' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+    var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '実際に使った原価の内訳。不明ロス（赤）が大きいほど、棚卸・記録の精度に改善余地があります。';
+    card.appendChild(cap);
+    card.appendChild(buildCompositionBar(p));
+  }
+  function renderStoreComposition(latest) {
+    var card = document.getElementById('storeCompCard');
+    if (!latest) { card.style.display = 'none'; return; }
+    card.style.display = ''; card.textContent = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🍰 原価構成（' + latest.ym + '・FD合算）';
+    card.appendChild(h);
+    card.appendChild(buildCompositionBar(compParts(latest)));
+  }
+
+  // ── 目標原価率の達成（3）: 店舗ページで 実績(仕入率) と 目標 を比較 ─────────────
+  function renderStoreTarget(latest) {
+    var card = document.getElementById('storeTargetCard');
+    var target = costTargetOf(curStore);
+    if (!target || !latest || latest.purchaseRate === null) { card.style.display = 'none'; return; }
+    card.style.display = ''; card.textContent = '';
+    var actual = latest.purchaseRate, EPS = 0.0005;
+    var achieved = actual <= target + EPS;
+    var h = document.createElement('div'); h.className = 'cardh'; h.style.justifyContent = 'space-between';
+    var ht = document.createElement('span'); ht.textContent = '🎯 目標原価率（' + latest.ym + '・仕入率ベース）';
+    var badge = document.createElement('span'); badge.className = 'sig ' + (achieved ? 'sig-good' : 'sig-bad');
+    badge.textContent = (achieved ? '🟢 達成 ' : '🔴 未達 +') + (Math.abs(actual - target) * 100).toFixed(1) + 'pt';
+    h.appendChild(ht); h.appendChild(badge); card.appendChild(h);
+
+    var scale = Math.max(target, actual) * 1.35 || 0.01;
+    var meter = document.createElement('div'); meter.className = 'tgt-meter';
+    var fill = document.createElement('div'); fill.className = 'tgt-fill';
+    fill.style.width = Math.min(actual / scale * 100, 100).toFixed(1) + '%';
+    fill.style.background = achieved ? 'var(--good)' : 'var(--bad)';
+    meter.appendChild(fill);
+    var tick = document.createElement('div'); tick.className = 'tgt-tick';
+    tick.style.left = Math.min(target / scale * 100, 100).toFixed(1) + '%';
+    tick.title = '目標 ' + pct(target); meter.appendChild(tick);
+    card.appendChild(meter);
+    var lg = document.createElement('div'); lg.className = 'tgt-legend';
+    var a = document.createElement('span'); a.textContent = '実績 ' + pct(actual);
+    var b = document.createElement('span'); b.textContent = '｜ 目標 ' + pct(target) + '（縦線）';
+    lg.appendChild(a); lg.appendChild(b); card.appendChild(lg);
+  }
+
+  // ── 当月やることハブ（2）: 未入力・要確認・着地・アクションを優先順に1画面へ ──────
+  function scrollToCard(id) {
+    var el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function renderTodoHub() {
+    var card = document.getElementById('todoHubCard'); card.textContent = '';
+    var rows = computeStoreRows();
+    // 棚卸未入力
+    var stockPending = DATA.stores.filter(function (s) {
+      var m = (DATA.metrics[curMonth] || {})[s.key]; var hasSales = m && (m.sales || 0) > 0;
+      var iv = (DATA.inventory[curMonth] || {})[s.key]; var hasInv = !!iv && (((iv.food || 0) + (iv.drink || 0)) > 0);
+      return hasSales && !hasInv;
+    });
+    // ロス未入力（データはあるが必要・廃棄ロス0件）
+    var lossPending = DATA.stores.filter(function (s) {
+      if (!calc(s.key, curMonth)) return false;
+      var arr = ((DATA.losses[curMonth] || {})[s.key]) || [];
+      return !arr.some(function (l) { return l.kind === '必要ロス' || l.kind === '廃棄ロス'; });
+    });
+    var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; });
+    var costOver = judged.filter(function (x) { return x.j === 'dev' || x.j === 'store'; }).map(function (x) { return x.r; });
+    var turnBad = rows.filter(function (r) { return r.turnover !== null && r.turnover >= 15; });
+    var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; });
+    // 着地オーバー見込み（当月・中間データがある時のみ）
+    var landOver = [];
+    var today = new Date(); var todayYm = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2);
+    if (todayYm === curMonth) {
+      DATA.stores.forEach(function (s) {
+        var f = forecastM(s.key, curMonth, fdMode); if (!f || !f.sales) return;
+        var pr = f.purchase / f.sales; var br = f.budgetCost > 0 ? f.budgetCost / (f.sales * (f.days / 15)) : null;
+        if (br !== null && pr > br + 0.0005) landOver.push(s);
+      });
+    }
+    // 要確認なのに改善アクション未記録（当月）
+    var flaggedKeys = {}; costOver.concat(turnBad).concat(lossBad).forEach(function (r) { flaggedKeys[r.key] = 1; });
+    var actionMissing = Object.keys(flaggedKeys).filter(function (k) {
+      var arr = (DATA.actions[curMonth] || {})[k] || []; return arr.length === 0;
+    });
+
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '✅ 当月のやること（' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+
+    var items = [];
+    function push(cond, ic, kind, title, sub, count, action) { if (cond) items.push({ ic: ic, kind: kind, title: title, sub: sub, count: count, action: action }); }
+    push(stockPending.length, '📦', 'alert', '棚卸を入力', '売上はあるのに棚卸金額が未入力', stockPending.length, function () { scrollToCard('stockPendingCard'); });
+    push(costOver.length, '🏷', 'alert', '原価オーバーを確認', '仕入率が予算比をオーバー', costOver.length, function () { gotoTab('cost'); });
+    push(landOver.length, '🔮', 'warn', '着地オーバー見込みに手を打つ', '中間ペースだと予算オーバーで着地しそう', landOver.length, function () { gotoTab('cost'); });
+    push(turnBad.length, '📦', 'warn', '在庫回転を確認（15日〜）', '在庫を持ちすぎの可能性', turnBad.length, function () { gotoTab('highlight'); });
+    push(lossBad.length, '❓', 'alert', '不明ロスを確認（2%超）', '棚卸・記録の精度に改善余地', lossBad.length, function () { gotoTab('highlight'); });
+    push(lossPending.length, '📝', 'warn', 'ロスを入力', '必要ロス・廃棄ロスが未登録', lossPending.length, function () { scrollToCard('pendingCard'); });
+    push(actionMissing.length, '🛠', 'warn', '改善アクションを記録', '要確認の店に打ち手が未記録', actionMissing.length, function () { openStore(actionMissing[0]); });
+
+    if (!items.length) {
+      var ok = document.createElement('div'); ok.className = 'empty'; ok.style.padding = '6px 0';
+      ok.textContent = '今月のやることはありません 🎉 全て対応済みです。';
+      card.appendChild(ok); return;
+    }
+    items.forEach(function (it) {
+      var row = document.createElement('div'); row.className = 'todo-row';
+      var ic = document.createElement('div'); ic.className = 'todo-ic ' + it.kind; ic.textContent = it.ic;
+      var tx = document.createElement('div'); tx.className = 'todo-tx';
+      var t = document.createElement('div'); t.className = 'todo-t'; t.textContent = it.title;
+      var s = document.createElement('div'); s.className = 'todo-s'; s.textContent = it.sub;
+      tx.appendChild(t); tx.appendChild(s);
+      var n = document.createElement('div'); n.className = 'todo-n ' + it.kind; n.textContent = String(it.count);
+      var sm = document.createElement('small'); sm.textContent = '店'; n.appendChild(sm);
+      var chev = document.createElement('div'); chev.className = 'todo-chev'; chev.textContent = '›';
+      row.appendChild(ic); row.appendChild(tx); row.appendChild(n); row.appendChild(chev);
+      row.onclick = it.action;
+      card.appendChild(row);
+    });
+  }
+
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
+      document.getElementById('rollupCard').textContent = '';
       document.getElementById('heatCard').textContent = '';
       document.getElementById('anomalyCard').textContent = '';
       document.getElementById('moveCard').textContent = 'この月のデータはありません';
@@ -1390,6 +1766,7 @@
       document.getElementById('rankLoss').textContent = '';
       return;
     }
+    renderRollup(rows);
     renderHeatmap(rows);
     renderAnomaly(rows);
     renderMovers(rows);
@@ -1505,9 +1882,11 @@
     renderForecast();
     var rows = computeStoreRows();
     if (!rows.length) {
+      document.getElementById('costCompCard').textContent = '';
       document.getElementById('costJudge').textContent = 'この月のデータはありません';
       return;
     }
+    renderCostComposition();
     renderCostJudge(rows);
     fitAll();
   }
@@ -2035,6 +2414,8 @@
       heroEl.textContent = 'データがありません';
     }
 
+    renderStoreTarget(latest);
+    renderStoreComposition(latest);
     renderStoreTrend();
     renderStoreNoteAction();
 
@@ -2512,6 +2893,103 @@
         msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
       })
       .saveStoreFlags(PASS, flags);
+  };
+
+  // ── ロールアップ軸切替（ブランド／エリア）───────────────
+  document.getElementById('rollupSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    rollupAxis = b.dataset.ax;
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    if (view === 'highlight') renderHighlightTab();
+  });
+
+  // ── エリア／ブランド設定モーダル ─────────────────────
+  var groupOverlay = document.getElementById('groupOverlay');
+  document.getElementById('btnGroupSetup').onclick = function () {
+    var list = document.getElementById('groupList'); list.textContent = '';
+    DATA.stores.forEach(function (s) {
+      var g = (DATA.storeGroups || {})[s.key] || {};
+      var wrap = document.createElement('div');
+      wrap.style.cssText = 'padding:6px 0;border-bottom:1px dashed var(--grid)';
+      var nm = document.createElement('div'); nm.style.cssText = 'font-size:12px;font-weight:700;margin-bottom:4px'; nm.textContent = s.name;
+      var row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px';
+      var ai = document.createElement('input'); ai.type = 'text'; ai.dataset.key = s.key; ai.dataset.f = 'area';
+      ai.placeholder = 'エリア'; ai.value = g.area || '';
+      ai.style.cssText = 'flex:1;min-width:0;font:inherit;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink)';
+      var bi = document.createElement('input'); bi.type = 'text'; bi.dataset.key = s.key; bi.dataset.f = 'brand';
+      bi.placeholder = autoBrand(s.name) + '（自動）'; bi.value = g.brand || '';
+      bi.style.cssText = ai.style.cssText;
+      row.appendChild(ai); row.appendChild(bi);
+      wrap.appendChild(nm); wrap.appendChild(row); list.appendChild(wrap);
+    });
+    document.getElementById('groupMsg').textContent = '';
+    groupOverlay.classList.add('show');
+  };
+  document.getElementById('btnGroupCancel').onclick = function () { groupOverlay.classList.remove('show'); };
+  groupOverlay.addEventListener('click', function (e) { if (e.target === groupOverlay) groupOverlay.classList.remove('show'); });
+  document.getElementById('btnGroupSave').onclick = function () {
+    var groups = {};
+    document.querySelectorAll('#groupList input[type="text"]').forEach(function (inp) {
+      var k = inp.dataset.key; if (!groups[k]) groups[k] = { area: '', brand: '' };
+      groups[k][inp.dataset.f] = inp.value.trim();
+    });
+    var btn = this, msg = document.getElementById('groupMsg');
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = '保存中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false; msg.className = 'msg ' + (res.ok ? 'ok' : 'err'); msg.textContent = res.message;
+        if (res.ok) {
+          var clean = {};
+          Object.keys(groups).forEach(function (k) { var g = groups[k]; if ((g.area || '').trim() || (g.brand || '').trim()) clean[k] = { area: (g.area || '').trim(), brand: (g.brand || '').trim() }; });
+          DATA.storeGroups = clean;
+          groupOverlay.classList.remove('show');
+          if (view === 'highlight') renderHighlightTab();
+        }
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; })
+      .saveStoreGroups(PASS, groups);
+  };
+
+  // ── 目標原価率モーダル ───────────────────────────────
+  var targetOverlay = document.getElementById('targetOverlay');
+  document.getElementById('btnTargetSetup').onclick = function () {
+    var list = document.getElementById('targetList'); list.textContent = '';
+    DATA.stores.forEach(function (s) {
+      var cur = costTargetOf(s.key);
+      var lab = document.createElement('label');
+      lab.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--grid);font-size:13px';
+      var nm = document.createElement('span'); nm.style.cssText = 'flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; nm.textContent = s.name;
+      var inp = document.createElement('input'); inp.type = 'number'; inp.step = '0.1'; inp.min = '0'; inp.max = '100';
+      inp.dataset.key = s.key; inp.value = cur !== null ? (Math.round(cur * 1000) / 10) : '';
+      inp.placeholder = '—';
+      inp.style.cssText = 'width:74px;flex:none;font:inherit;padding:5px 8px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--ink);text-align:right';
+      var pc = document.createElement('span'); pc.style.cssText = 'flex:none;color:var(--muted)'; pc.textContent = '%';
+      lab.appendChild(nm); lab.appendChild(inp); lab.appendChild(pc); list.appendChild(lab);
+    });
+    document.getElementById('targetMsg').textContent = '';
+    targetOverlay.classList.add('show');
+  };
+  document.getElementById('btnTargetCancel').onclick = function () { targetOverlay.classList.remove('show'); };
+  targetOverlay.addEventListener('click', function (e) { if (e.target === targetOverlay) targetOverlay.classList.remove('show'); });
+  document.getElementById('btnTargetSave').onclick = function () {
+    var targets = {};
+    document.querySelectorAll('#targetList input[type="number"]').forEach(function (inp) {
+      var v = parseFloat(inp.value); if (isFinite(v) && v > 0) targets[inp.dataset.key] = v;
+    });
+    var btn = this, msg = document.getElementById('targetMsg');
+    btn.disabled = true; msg.className = 'msg'; msg.textContent = '保存中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false; msg.className = 'msg ' + (res.ok ? 'ok' : 'err'); msg.textContent = res.message;
+        if (res.ok) {
+          var ct = {}; Object.keys(targets).forEach(function (k) { ct[k] = targets[k] / 100; });
+          DATA.costTargets = ct;
+          targetOverlay.classList.remove('show');
+          renderAll();
+        }
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message; })
+      .saveCostTargets(PASS, targets);
   };
 
   document.getElementById('metricSeg').addEventListener('click', function (e) {
