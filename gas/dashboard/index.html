@@ -435,6 +435,14 @@
   .comp-sw.theory { background: var(--accent); } .comp-sw.need { background: #6fae7d; }
   .comp-sw.waste { background: var(--warn); } .comp-sw.unknown { background: var(--bad); }
   .comp-li .cv { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted); }
+
+  /* 前月比較（今月 vs 前月） */
+  .mom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .mom-cell { border: 1px solid var(--grid); border-radius: 12px; padding: 9px 11px; background: var(--page); }
+  .mom-l { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mom-v { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; }
+  .mom-d { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 1px; white-space: nowrap; }
+  .mom-d.up { color: var(--bad); } .mom-d.down { color: var(--good); } .mom-d.flat { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -551,6 +559,7 @@
       <div class="card hero-card">
         <div class="hero" id="heroStore"></div>
       </div>
+      <div class="card" id="storeMomCard" style="display:none"></div>
       <div class="card" id="storeTargetCard" style="display:none"></div>
       <div class="card" id="storeCompCard" style="display:none"></div>
       <div class="card" id="storeTrend" style="display:none"></div>
@@ -596,6 +605,7 @@
       </div>
       <div class="card" id="forecastCard" style="display:none"></div>
       <div class="card" id="costCompCard"></div>
+      <div class="card" id="targetBoardCard"></div>
       <div class="card" id="costJudge"></div>
     </div>
 
@@ -1755,6 +1765,93 @@
     });
   }
 
+  // ── 前月比較（5）: 店舗ページで 今月 vs 前月 の主要指標を並べる ──────────────
+  function renderStoreMom(latest) {
+    var card = document.getElementById('storeMomCard');
+    if (!latest) { card.style.display = 'none'; return; }
+    var prev = calcM(curStore, calPrevYm(latest.ym), 'FD');
+    if (!prev) { card.style.display = 'none'; return; }
+    card.style.display = ''; card.textContent = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📊 前月比較（' + calPrevYm(latest.ym) + ' → ' + latest.ym + '・FD合算）';
+    card.appendChild(h);
+    var grid = document.createElement('div'); grid.className = 'mom-grid';
+    // すべて「増加＝悪化(赤▲)／減少＝改善(緑▼)」の指標
+    var defs = [
+      { label: '仕入率', cur: latest.purchaseRate, prev: prev.purchaseRate, unit: '%' },
+      { label: '理論原価率', cur: latest.theoryRate, prev: prev.theoryRate, unit: '%' },
+      { label: '不明ロス率', cur: latest.unknownRate, prev: prev.unknownRate, unit: '%' },
+      { label: '在庫回転', cur: latest.turnover, prev: prev.turnover, unit: '日' },
+    ];
+    defs.forEach(function (d) {
+      var cell = document.createElement('div'); cell.className = 'mom-cell';
+      var l = document.createElement('div'); l.className = 'mom-l'; l.textContent = d.label;
+      var v = document.createElement('div'); v.className = 'mom-v';
+      v.textContent = d.cur === null ? '—' : (d.unit === '%' ? pct(d.cur) : days1(d.cur) + '日');
+      var dd = document.createElement('div'); dd.className = 'mom-d';
+      if (d.cur === null || d.prev === null) { dd.className += ' flat'; dd.textContent = '前月データなし'; }
+      else {
+        var delta = d.unit === '%' ? (d.cur - d.prev) * 100 : (d.cur - d.prev);
+        var prevTxt = d.unit === '%' ? pct(d.prev) : days1(d.prev) + '日';
+        if (Math.abs(delta) < (d.unit === '%' ? 0.05 : 0.05)) { dd.className += ' flat'; dd.textContent = '→ ±0（前月 ' + prevTxt + '）'; }
+        else if (delta > 0) { dd.className += ' up'; dd.textContent = '▲ ' + delta.toFixed(1) + (d.unit === '%' ? 'pt' : '日') + '（前月 ' + prevTxt + '）'; }
+        else { dd.className += ' down'; dd.textContent = '▼ ' + Math.abs(delta).toFixed(1) + (d.unit === '%' ? 'pt' : '日') + '（前月 ' + prevTxt + '）'; }
+      }
+      cell.appendChild(l); cell.appendChild(v); cell.appendChild(dd); grid.appendChild(cell);
+    });
+    card.appendChild(grid);
+  }
+
+  // ── 目標原価率の全社達成ボード（6）: 原価判定タブで達成/未達を一覧 ─────────────
+  function renderTargetBoard() {
+    var card = document.getElementById('targetBoardCard'); card.textContent = '';
+    var EPS = 0.0005;
+    var withTarget = DATA.stores.map(function (s) {
+      var t = costTargetOf(s.key); if (t === null) return null;
+      var r = calc(s.key, curMonth);
+      return { key: s.key, name: s.name, target: t, r: r };
+    }).filter(Boolean);
+
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🎯 目標原価率の達成状況（' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+
+    if (!withTarget.length) {
+      var e = document.createElement('div'); e.className = 'empty';
+      e.textContent = '「🎯 目標」から店舗ごとの目標原価率を設定すると、ここに達成状況が出ます。';
+      card.appendChild(e); return;
+    }
+    var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '各店の実績(仕入率)と自社目標を比較。未達を上に並べます。';
+    card.appendChild(cap);
+
+    var items = withTarget.map(function (w) {
+      var actual = (w.r && w.r.purchaseRate !== null) ? w.r.purchaseRate : null;
+      var achieved = actual !== null ? (actual <= w.target + EPS) : null;
+      var diff = actual !== null ? (actual - w.target) * 100 : null;
+      return { key: w.key, name: w.name, target: w.target, actual: actual, achieved: achieved, diff: diff };
+    }).sort(function (a, b) {
+      if (a.diff === null) return 1; if (b.diff === null) return -1;
+      return b.diff - a.diff;   // 未達(プラス)を上に
+    });
+
+    items.forEach(function (it) {
+      var row = document.createElement('div'); row.className = 'cj-row';
+      var info = document.createElement('div'); info.className = 'cj-info';
+      var nm = document.createElement('div'); nm.className = 'cj-name'; nm.textContent = it.name;
+      var sub = document.createElement('div'); sub.className = 'cj-sub';
+      sub.textContent = '実績 ' + (it.actual === null ? '—' : pct(it.actual)) + ' ／ 目標 ' + pct(it.target);
+      info.appendChild(nm); info.appendChild(sub);
+      var badge = document.createElement('div');
+      if (it.achieved === null) { badge.className = 'rank-val'; badge.textContent = 'データなし'; }
+      else if (it.achieved) { badge.className = 'rank-val good'; badge.textContent = '達成 ' + Math.abs(it.diff).toFixed(1) + 'pt'; }
+      else { badge.className = 'rank-val bad'; badge.textContent = '未達 +' + it.diff.toFixed(1) + 'pt'; }
+      row.appendChild(info); row.appendChild(badge);
+      row.onclick = (function (k) { return function () { openStore(k); }; })(it.key);
+      card.appendChild(row);
+    });
+  }
+
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
@@ -1883,10 +1980,12 @@
     var rows = computeStoreRows();
     if (!rows.length) {
       document.getElementById('costCompCard').textContent = '';
+      document.getElementById('targetBoardCard').textContent = '';
       document.getElementById('costJudge').textContent = 'この月のデータはありません';
       return;
     }
     renderCostComposition();
+    renderTargetBoard();
     renderCostJudge(rows);
     fitAll();
   }
@@ -2414,6 +2513,7 @@
       heroEl.textContent = 'データがありません';
     }
 
+    renderStoreMom(latest);
     renderStoreTarget(latest);
     renderStoreComposition(latest);
     renderStoreTrend();
