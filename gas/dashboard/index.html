@@ -1062,9 +1062,9 @@
     if (!cur || !prev || cur.unknownRate === null || prev.unknownRate === null) return null;
     var d = (cur.unknownRate - prev.unknownRate) * 100;   // 前月比（ポイント）
     var span = document.createElement('span');
-    if (Math.abs(d) < 0.05) { span.className = 'mom flat'; span.textContent = '→ 前月比 ±0'; }
-    else if (d < 0) { span.className = 'mom down'; span.textContent = '▼ ' + Math.abs(d).toFixed(1) + 'pt 改善'; }
-    else { span.className = 'mom up'; span.textContent = '▲ ' + d.toFixed(1) + 'pt 悪化'; }
+    if (Math.abs(d) < 0.05) { span.className = 'mom flat'; span.textContent = '不明ロス率 → 前月比 ±0'; }
+    else if (d < 0) { span.className = 'mom down'; span.textContent = '不明ロス率 ▼ ' + Math.abs(d).toFixed(1) + 'pt 改善'; }
+    else { span.className = 'mom up'; span.textContent = '不明ロス率 ▲ ' + d.toFixed(1) + 'pt 悪化'; }
     return span;
   }
 
@@ -1526,9 +1526,10 @@
     var groups = {};
     rows.forEach(function (r) {
       var gname = groupOf(r.key, r.name, rollupAxis);
-      var g = groups[gname] || (groups[gname] = { name: gname, members: [], sales: 0, purchase: 0, theory: 0, inv: 0, hasInv: false, unknown: 0, hasUnknown: false, budgetCost: 0, hasBudget: false });
+      var g = groups[gname] || (groups[gname] = { name: gname, members: [], sales: 0, purchase: 0, theory: 0, need: 0, waste: 0, inv: 0, hasInv: false, unknown: 0, hasUnknown: false, budgetCost: 0, hasBudget: false });
       g.members.push(r);
       g.sales += r.sales; g.purchase += r.purchase; g.theory += r.theory;
+      g.need += Math.max(r.need || 0, 0); g.waste += Math.max(r.waste || 0, 0);
       if (r.invCur !== null) { g.inv += r.invCur; g.hasInv = true; }
       if (r.unknown !== null) { g.unknown += r.unknown; g.hasUnknown = true; }
       if (r.budgetCost && r.budgetCost > 0) { g.budgetCost += r.budgetCost; g.hasBudget = true; }
@@ -1571,6 +1572,9 @@
       wrap.appendChild(head);
 
       if (open) {
+        var comp = buildCompositionBar(compParts({ theory: g.theory, need: g.need, waste: g.waste, unknown: g.hasUnknown ? g.unknown : null }));
+        comp.style.cssText = 'padding:4px 0 2px 24px';
+        wrap.appendChild(comp);
         var kids = document.createElement('div'); kids.className = 'ru-kids';
         g.members.slice().sort(function (a, b) { return (b.turnover || 0) - (a.turnover || 0); }).forEach(function (r) {
           var kid = document.createElement('div'); kid.className = 'ru-kid';
@@ -2234,6 +2238,23 @@
           { cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') }));
       }
       row.appendChild(vals);
+
+      // 前月比チップ（棚卸タブ＝在庫回転／原価・ロスタブ＝不明ロス率）。増加＝悪化(赤)。
+      var prevR = calc(r.key, calPrevYm(curMonth));
+      var mc = document.createElement('div'); mc.style.cssText = 'margin-top:6px';
+      var chip = null;
+      if (listMetric === 'inv') {
+        if (prevR && r.turnover !== null && prevR.turnover !== null) {
+          var dt = r.turnover - prevR.turnover;
+          chip = document.createElement('span');
+          if (Math.abs(dt) < 0.05) { chip.className = 'mom flat'; chip.textContent = '在庫回転 → 前月比 ±0'; }
+          else if (dt > 0) { chip.className = 'mom up'; chip.textContent = '在庫回転 ▲ ' + dt.toFixed(1) + '日（前月 ' + days1(prevR.turnover) + '日）'; }
+          else { chip.className = 'mom down'; chip.textContent = '在庫回転 ▼ ' + Math.abs(dt).toFixed(1) + '日（前月 ' + days1(prevR.turnover) + '日）'; }
+        }
+      } else {
+        chip = momUnknownChip(r.key);
+      }
+      if (chip) { mc.appendChild(chip); row.appendChild(mc); }
 
       row.onclick = function () { openStore(r.key); };
       box.appendChild(row);
