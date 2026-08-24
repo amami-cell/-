@@ -20,6 +20,10 @@ on:
         description: "FW一括取得の開始月 YYYY-MM（指定すると開始月〜対象月を一括取得）"
         required: false
         default: ""
+      stores:
+        description: "対象店舗の部分一致フィルタ（FW一括取得のみ。例: NagaGutsu／空なら全店舗）"
+        required: false
+        default: ""
       interim:
         description: "中間として取得（当月1〜15日・手動テスト用。対象月が空なら当月）"
         type: boolean
@@ -125,7 +129,10 @@ jobs:
           elif [ -n "$FW_FROM" ]; then
             TO="$MONTH"
             [ -z "$TO" ] && TO=$(date -d "$(date +%Y-%m-01) -1 day" +%Y-%m)
-            xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO"
+            STORES_ARG=""
+            [ -n "${{ inputs.stores }}" ] && STORES_ARG="--stores ${{ inputs.stores }}"
+            echo "FW一括取得: $FW_FROM 〜 $TO ${STORES_ARG:+（店舗: ${{ inputs.stores }}）}"
+            xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO" $STORES_ARG
           else
             ARGS=""
             [ -n "$MONTH" ] && ARGS="--month $MONTH"

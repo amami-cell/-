@@ -362,9 +362,9 @@ def main() -> int:
             target_month = get_previous_month()
             logger.info(f"対象月（前月自動）: {target_month.strftime('%Y-%m')}")
 
-        # 対象店舗フィルタリング
+        # 対象店舗フィルタリング（--foodist-all は部分一致の store_filter を使うため厳密解決を省略）
         stores = None
-        if args.stores:
+        if args.stores and not args.foodist_all:
             stores = []
             for store_name in args.stores:
                 store = config.get_store_by_id(store_name)
@@ -405,13 +405,16 @@ def main() -> int:
                 logger.info("--clear-sheets: 指標シート全データを削除します")
                 pipeline.fj_scraper.clear_all_metric_sheets()
 
+            if args.stores:
+                logger.info(f"店舗フィルタ（部分一致）: {', '.join(args.stores)}")
+
             errors: list[str] = []
             for month in months:
                 month_str = month.strftime("%Y-%m")
                 logger.info(f"{'=' * 40}")
                 logger.info(f"[{month_str}] 取得開始")
                 try:
-                    pipeline.fj_scraper.run_for_month(month, kind="確定")
+                    pipeline.fj_scraper.run_for_month(month, kind="確定", store_filter=args.stores)
                 except Exception as e:
                     logger.error(f"[{month_str}] 失敗: {e}")
                     errors.append(month_str)

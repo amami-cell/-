@@ -162,10 +162,11 @@ class FoodistJournalScraper:
             notify_line(msg)
             raise
 
-    def run_for_month(self, target_month: date, kind: str = "確定") -> None:
+    def run_for_month(self, target_month: date, kind: str = "確定", store_filter=None) -> None:
         """
         指定月のデータを取得して Sheets へ書き込む。
         kind="確定" → 1日〜末日、kind="中間" → 1日〜15日。
+        store_filter 指定時は該当店舗のみ書き込む（他店舗の行は触らない）。
         """
         period_start = target_month.replace(day=1)
         if kind == "中間":
@@ -183,7 +184,7 @@ class FoodistJournalScraper:
         try:
             excel_path = self._download_excel(period_start, period_end)
             store_data = self._parse_excel(excel_path)
-            self._write_to_sheets(store_data, year_month, kind)
+            self._write_to_sheets(store_data, year_month, kind, store_filter)
             logger.info(f"Foodist Journal 完了: {year_month}")
         except Exception as e:
             msg = f"[Foodist Journal] {year_month} エラー: {e}"
@@ -765,19 +766,44 @@ class FoodistJournalScraper:
             self._sheets_service = build("sheets", "v4", http=authorized_http)
         return self._sheets_service
 
+    @staticmethod
+    def _matches_filter(store_name: str, store_filter) -> bool:
+        """store_filter（部分一致リスト）に該当するか。None/空なら全店舗。"""
+        if not store_filter:
+            return True
+        s = str(store_name).lower()
+        return any(str(f).strip().lower() in s for f in store_filter if str(f).strip())
+
     def _write_to_sheets(
-        self, store_data: dict[str, dict[str, float]], year_month: str, kind: str
+        self, store_data: dict[str, dict[str, float]], year_month: str, kind: str,
+        store_filter=None,
     ) -> None:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         sheet_ids = self._ensure_sheets()
+
+        # 対象店舗のみに絞る（store_filter 指定時）
+        if store_filter:
+            store_data = {k: v for k, v in store_data.items() if self._matches_filter(k, store_filter)}
+            # 全指標が0＝その月に実データ無しの店舗は書き込まない（広い期間の取り直しでも
+            # 未営業月に0行を作らないための安全策）
+            store_data = {
+                k: v for k, v in store_data.items()
+                if any(abs(float(x or 0)) > 0 for x in v.values())
+            }
+            logger.info(
+                f"店舗フィルタ適用: 対象 {len(store_data)} 店舗"
+                + (f" ({', '.join(store_data.keys())})" if store_data else "（実データのある対象店舗なし・スキップ）")
+            )
+            if not store_data:
+                return
 
         for metric_key, sheet_name in METRICS:
             existing = self._get_values(f"'{sheet_name}'!A:E")
             rows_before = len(existing)
 
             if kind == "確定":
-                # 同年月の「中間」行を全店舗まとめて削除してから書き込む
-                self._bulk_delete_interim(sheet_ids[sheet_name], year_month, existing)
+                # 同年月の「中間」行を削除してから書き込む（store_filter 指定時は対象店舗のみ）
+                self._bulk_delete_interim(sheet_ids[sheet_name], year_month, existing, store_filter)
                 existing = self._get_values(f"'{sheet_name}'!A:E")
 
             rows_to_append: list[list] = []
@@ -852,12 +878,13 @@ class FoodistJournalScraper:
         return existing
 
     def _bulk_delete_interim(
-        self, sheet_id: int, year_month: str, existing: list[list]
+        self, sheet_id: int, year_month: str, existing: list[list], store_filter=None
     ) -> None:
-        """同年月の「中間」行を降順で一括削除する。"""
+        """同年月の「中間」行を降順で一括削除する。store_filter 指定時は対象店舗のみ。"""
         indices = [
             i for i, row in enumerate(existing)
             if len(row) >= 4 and row[0] == year_month and row[3] == "中間"
+            and (not store_filter or self._matches_filter(row[1] if len(row) > 1 else "", store_filter))
         ]
         if not indices:
             return
