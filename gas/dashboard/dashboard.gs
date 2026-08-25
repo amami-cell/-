@@ -37,6 +37,8 @@ const LOSS_SHEET = 'ロス記録';
 const SETTINGS_SHEET = '店舗設定';
 const NOTE_SHEET = '申し送り';        // 店舗×月のメモ（E）
 const ACTION_SHEET = '改善アクション';  // 要確認店への施策記録（F）
+const GROUP_SHEET = '店舗グループ';    // 店舗のエリア／ブランド分類（ロールアップ用）
+const TARGET_SHEET = '原価目標';       // 店舗ごとの目標原価率（%）
 
 const GH_OWNER = 'amami-cell';
 const GH_REPO = '-';
@@ -310,6 +312,31 @@ function getDashboardData(pass, forceRefresh) {
     });
   }
 
+  // 店舗グループ（ロールアップ）: [店舗, エリア, ブランド, 更新日時] → storeGroups[store] = {area, brand}
+  const storeGroups = {};
+  const grpSheet = ss.getSheetByName(GROUP_SHEET);
+  if (grpSheet) {
+    grpSheet.getDataRange().getValues().forEach(function (row, i) {
+      if (i === 0) return;
+      const store = String(row[0] || '').trim();
+      if (!store) return;
+      storeGroups[store] = { area: String(row[1] || '').trim(), brand: String(row[2] || '').trim() };
+    });
+  }
+
+  // 原価目標: [店舗, 目標原価率(%), 更新日時] → costTargets[store] = 割合(0〜1)
+  const costTargets = {};
+  const tgtSheet = ss.getSheetByName(TARGET_SHEET);
+  if (tgtSheet) {
+    tgtSheet.getDataRange().getValues().forEach(function (row, i) {
+      if (i === 0) return;
+      const store = String(row[0] || '').trim();
+      const pctNum = Number(row[1]);
+      if (!store || !isFinite(pctNum) || pctNum <= 0) return;
+      costTargets[store] = pctNum / 100;   // シートは%、クライアントへは割合で渡す
+    });
+  }
+
   const out = {
     updatedAt: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
     months: months,
@@ -320,6 +347,8 @@ function getDashboardData(pass, forceRefresh) {
     storeFlags: storeFlags,
     notes: notes,
     actions: actions,
+    storeGroups: storeGroups,
+    costTargets: costTargets,
   };
 
   try {
@@ -537,6 +566,70 @@ function saveStoreFlags(pass, flags) {
     const rows = [['店舗', '理論原価2%込み', '更新日時']];
     Object.keys(flags).sort().forEach(function (key) {
       rows.push([key, flags[key] === true, ts]);
+    });
+    sh.getRange(1, 1, rows.length, 3).setValues(rows);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, message: '保存しました' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ─── 店舗グループ（エリア／ブランド・ロールアップ用）─────────────────────────
+
+/**
+ * 店舗ごとのエリア／ブランド分類を保存する。
+ * @param {Object<string, {area:string, brand:string}>} groups {店舗キー: {area, brand}}
+ */
+function saveStoreGroups(pass, groups) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
+  if (!groups || typeof groups !== 'object') return { ok: false, message: '設定が不正です' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sh = ss.getSheetByName(GROUP_SHEET);
+    if (!sh) sh = ss.insertSheet(GROUP_SHEET);
+    sh.clear();
+    const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+    const rows = [['店舗', 'エリア', 'ブランド', '更新日時']];
+    Object.keys(groups).sort().forEach(function (key) {
+      const g = groups[key] || {};
+      const area = String(g.area || '').trim().slice(0, 40);
+      const brand = String(g.brand || '').trim().slice(0, 40);
+      if (!area && !brand) return;   // 両方空はスキップ（自動判定に任せる）
+      rows.push([key, area, brand, ts]);
+    });
+    sh.getRange(1, 1, rows.length, 4).setValues(rows);
+    CacheService.getScriptCache().remove('dash_v2');
+    return { ok: true, message: '保存しました' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ─── 原価目標（店舗ごとの目標原価率）──────────────────────────────────────────
+
+/**
+ * 店舗ごとの目標原価率（%）を保存する。0以下・空は未設定として行を作らない。
+ * @param {Object<string, number>} targets {店舗キー: 目標原価率(%)}
+ */
+function saveCostTargets(pass, targets) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
+  if (!targets || typeof targets !== 'object') return { ok: false, message: '設定が不正です' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    let sh = ss.getSheetByName(TARGET_SHEET);
+    if (!sh) sh = ss.insertSheet(TARGET_SHEET);
+    sh.clear();
+    const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+    const rows = [['店舗', '目標原価率(%)', '更新日時']];
+    Object.keys(targets).sort().forEach(function (key) {
+      const v = Number(targets[key]);
+      if (!isFinite(v) || v <= 0) return;
+      rows.push([key, Math.round(v * 10) / 10, ts]);
     });
     sh.getRange(1, 1, rows.length, 3).setValues(rows);
     CacheService.getScriptCache().remove('dash_v2');
