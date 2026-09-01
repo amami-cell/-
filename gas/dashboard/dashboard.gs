@@ -657,8 +657,10 @@ function saveGithubToken(pass, token) {
  * fetch.yml を起動する。
  * @param {string} target 'fw' | 'infomart' | 'both'
  * @param {string} month  'YYYY-MM'
+ * @param {string} [stores] 対象店舗ID（半角スペース区切り。例 '1015 1151'）。未指定なら全店舗。
+ *                          インフォマート未取得アラートからの部分再取得に使う。
  */
-function triggerCloudFetch(pass, target, month) {
+function triggerCloudFetch(pass, target, month, stores) {
   if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   if (['fw', 'infomart', 'both'].indexOf(target) < 0) {
     return { ok: false, message: '対象の指定が不正です' };
@@ -671,20 +673,30 @@ function triggerCloudFetch(pass, target, month) {
     return { ok: false, needSetup: true, message: '初期設定（トークン登録）が必要です' };
   }
 
+  // 店舗ID指定はサニタイズ（数字とスペースのみ許可・重複排除・最大件数制限）。
+  const inputs = { month: month, target: target };
+  let storesArg = '';
+  if (stores) {
+    const ids = String(stores).split(/\s+/).filter(function (x) { return /^\d{1,7}$/.test(x); });
+    const uniq = ids.filter(function (v, i) { return ids.indexOf(v) === i; }).slice(0, 40);
+    if (uniq.length) { storesArg = uniq.join(' '); inputs.stores = storesArg; }
+  }
+
   const url = 'https://api.github.com/repos/' + GH_OWNER + '/' + encodeURIComponent(GH_REPO) +
               '/actions/workflows/' + GH_WORKFLOW + '/dispatches';
   const resp = UrlFetchApp.fetch(url, {
     method: 'post',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json' },
-    payload: JSON.stringify({ ref: 'main', inputs: { month: month, target: target } }),
+    payload: JSON.stringify({ ref: 'main', inputs: inputs }),
     muteHttpExceptions: true,
   });
 
   const code = resp.getResponseCode();
   if (code === 204) {
     const label = target === 'fw' ? 'FW取込' : (target === 'infomart' ? 'インフォマート取込' : 'FW＋インフォマート取込');
-    return { ok: true, message: month + ' の' + label + '（全店舗）を開始しました。5〜15分後に「最新に更新」を押してください。' };
+    const scope = storesArg ? ('指定 ' + storesArg.split(' ').length + ' 店舗') : '全店舗';
+    return { ok: true, message: month + ' の' + label + '（' + scope + '）を開始しました。5〜15分後に「最新に更新」を押してください。' };
   }
   if (code === 401 || code === 403) {
     return { ok: false, needSetup: true, message: '認証エラー（トークンの期限切れ・権限不足の可能性）。初期設定からトークンを登録し直してください。' };
