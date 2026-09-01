@@ -443,6 +443,13 @@
   .mom-v { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 1px; }
   .mom-d { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 1px; white-space: nowrap; }
   .mom-d.up { color: var(--bad); } .mom-d.down { color: var(--good); } .mom-d.flat { color: var(--muted); }
+
+  /* 未取得店舗アラート（TOP） */
+  .alert-card { border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--grid)); background: color-mix(in srgb, var(--bad) 7%, var(--surface)); }
+  .alert-card .cardh { color: var(--bad); }
+  .uf-names { font-size: 12px; color: var(--ink-2); line-height: 1.7; margin: 2px 0 10px; word-break: break-word; }
+  .uf-chip { display: inline-block; background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); border-radius: 999px; padding: 1px 9px; margin: 0 4px 4px 0; font-weight: 600; }
+  .uf-btn { width: 100%; padding: 10px; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -510,6 +517,8 @@
           <button class="primary small" id="btnImAll">⟳ インフォマート</button>
         </div>
       </div>
+
+      <div class="card alert-card" id="unfetchedAlertCard" style="display:none"></div>
 
       <div class="card" id="summaryCard"></div>
 
@@ -2008,6 +2017,41 @@
 
   // 今月の要点（全社）: 未入力・原価オーバー・在庫回転要確認・不明ロス要確認の店舗数を集計。
   // タップでそれぞれの該当タブへ飛ぶ。判定はアプリ内の各基準（F/D/FD切替に連動）と同じ。
+  // ── 棚卸 未取得アラート（TOP）: 売上はあるのに棚卸金額が0の店舗を目立たせ、該当店舗だけ再取得 ──
+  function unfetchedStores() {
+    return DATA.stores.filter(function (s) {
+      var m = (DATA.metrics[curMonth] || {})[s.key]; var hasSales = m && (m.sales || 0) > 0;
+      var iv = (DATA.inventory[curMonth] || {})[s.key]; var hasInv = !!iv && (((iv.food || 0) + (iv.drink || 0)) > 0);
+      return hasSales && !hasInv;
+    });
+  }
+  // FWキー先頭の数字（例 0001015）→ インフォマート store_id（1015）
+  function infomartId(store) { if (!store.id) return ''; var n = parseInt(store.id, 10); return isFinite(n) ? String(n) : ''; }
+  function renderUnfetchedAlert() {
+    var card = document.getElementById('unfetchedAlertCard');
+    card.style.display = 'none'; card.textContent = '';
+    var miss = unfetchedStores();
+    if (!miss.length) return;
+    card.style.display = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '⚠️ 棚卸 未取得の店舗（' + curMonth + '・' + miss.length + '店）';
+    card.appendChild(h);
+    var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '売上はあるのに棚卸金額が0（インフォマート未取得）の店舗です。下のボタンで該当店舗だけ再取得できます。';
+    card.appendChild(cap);
+    var names = document.createElement('div'); names.className = 'uf-names';
+    miss.forEach(function (s) { var c = document.createElement('span'); c.className = 'uf-chip'; c.textContent = s.name; names.appendChild(c); });
+    card.appendChild(names);
+    var ids = []; miss.forEach(function (s) { var id = infomartId(s); if (id) ids.push(id); });
+    var btn = document.createElement('button'); btn.className = 'primary uf-btn';
+    if (!ids.length) { btn.disabled = true; btn.textContent = '🔄 再取得（対象店舗IDを特定できませんでした）'; }
+    else {
+      btn.textContent = '🔄 未取得の' + ids.length + '店をインフォマート再取得';
+      btn.onclick = function () { openFetchModal('infomart', curMonth, { stores: ids, names: miss.map(function (s) { return s.name; }) }); };
+    }
+    card.appendChild(btn);
+  }
+
   function renderSummary() {
     var card = document.getElementById('summaryCard');
     card.textContent = '';
@@ -2144,6 +2188,7 @@
   }
 
   function renderList() {
+    renderUnfetchedAlert();
     renderSummary();
     var t = totalsOf(curMonth);
 
@@ -3253,13 +3298,21 @@
   var overlay = document.getElementById('fetchOverlay');
   var pendingFetch = null;   // {target, ym}
 
-  function openFetchModal(target, ym) {
-    pendingFetch = { target: target, ym: ym };
+  function openFetchModal(target, ym, opts) {
+    opts = opts || {};
+    var storeIds = (opts.stores && opts.stores.length) ? opts.stores.slice() : null;
+    pendingFetch = { target: target, ym: ym, stores: storeIds };
     var label = target === 'fw' ? 'FW取込' : 'インフォマート取込';
     var what = target === 'fw' ? '売上・仕入・理論原価' : '棚卸金額';
     document.getElementById('fetchTitle').textContent = '⟳ ' + label + '（' + ym + '）';
-    document.getElementById('fetchDesc').textContent =
-      ym + ' の' + what + 'を、全店舗ぶんクラウドで再集計してシートを最新に置き換えます（5〜15分）。よろしいですか？';
+    if (storeIds) {
+      var nm = (opts.names && opts.names.length) ? '（' + opts.names.slice(0, 6).join('、') + (opts.names.length > 6 ? ' 他' : '') + '）' : '';
+      document.getElementById('fetchDesc').textContent =
+        ym + ' の' + what + 'を、未取得の ' + storeIds.length + ' 店舗' + nm + 'だけクラウドで再取得します（5〜15分）。他店舗のデータは変更しません。よろしいですか？';
+    } else {
+      document.getElementById('fetchDesc').textContent =
+        ym + ' の' + what + 'を、全店舗ぶんクラウドで再集計してシートを最新に置き換えます（5〜15分）。よろしいですか？';
+    }
     var msg = document.getElementById('fetchMsg');
     msg.className = 'msg'; msg.textContent = '';
     var fp = document.getElementById('fetchPass'); fp.value = '';
@@ -3293,7 +3346,7 @@
         btn.disabled = false;
         msg.className = 'msg err'; msg.textContent = 'エラー: ' + e.message;
       })
-      .triggerCloudFetch(PASS, pendingFetch.target, pendingFetch.ym);
+      .triggerCloudFetch(PASS, pendingFetch.target, pendingFetch.ym, pendingFetch.stores ? pendingFetch.stores.join(' ') : '');
   };
 
   document.getElementById('btnSaveToken').onclick = function () {

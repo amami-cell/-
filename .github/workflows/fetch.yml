@@ -164,6 +164,12 @@ jobs:
           elif [ -n "$MONTH" ]; then
             ARGS="--month $MONTH"
           fi
+          # 特定店舗だけの再取得（未取得アラートからの再取得など）。手動実行のみ。
+          # store_id をスペース区切りで受け取り、--stores に渡す（未指定なら全店舗）。
+          if [ -n "${{ inputs.stores }}" ] && [ "${{ github.event_name }}" != "schedule" ]; then
+            ARGS="$ARGS --stores ${{ inputs.stores }}"
+            echo "インフォマート店舗指定取得: ${{ inputs.stores }}"
+          fi
           xvfb-run -a python main.py $ARGS
 
       # 棚卸プッシュ通知の配信。schedule(3-5日/16-20日)は自動で内容を判定して配信。
