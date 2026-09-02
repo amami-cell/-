@@ -36,6 +36,14 @@ on:
           - "dry"
           - "send"
         default: "none"
+      line:
+        description: "棚卸未入力のLINE報告 手動テスト（dry=送らず内容確認 / send=実際に配信）"
+        type: choice
+        options:
+          - "none"
+          - "dry"
+          - "send"
+        default: "none"
   schedule:
     # 毎月3〜5日 09:00 JST (= 00:00 UTC): 前月分の確定（月末棚卸）をFW＋インフォマートで取得
     # 毎月16〜20日 09:00 JST: 当月分の中間（1〜15日）をFW＋インフォマート中間棚で取得
@@ -188,6 +196,30 @@ jobs:
             python tools/tana_push.py --kinds pending_interim,pending_final,alert,forecast,summary --dry-run
           else
             python tools/tana_push.py --kinds pending_interim,pending_final,alert,forecast,summary
+          fi
+
+      # 棚卸「未入力店」のLINE報告。最終取得日（5日=前月・月末棚／20日=当月・中間棚）に、
+      # まだ入っていない店舗をLINE（Messaging API）へ自動報告する。
+      # LINE_CHANNEL_TOKEN 未設定なら送信はスキップ（エラーで全体を止めない）。
+      - name: 棚卸 未入力LINE報告
+        if: github.event_name == 'schedule' || inputs.line == 'dry' || inputs.line == 'send'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_TO: ${{ secrets.LINE_TO }}
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            DAY=$(date +%d)
+            if [ "$DAY" = "05" ] || [ "$DAY" = "20" ]; then
+              python tools/tana_line.py --auto || echo "::warning::LINE報告でエラー"
+            else
+              echo "本日は最終報告日(5/20)ではないためLINE報告はスキップ"
+            fi
+          elif [ "${{ inputs.line }}" = "dry" ]; then
+            python tools/tana_line.py --mode final --dry-run
+            python tools/tana_line.py --mode interim --dry-run
+          else
+            python tools/tana_line.py --mode final
           fi
 
       # FW Excelのセル構造調査（フード売上/ドリンク売上の位置特定用・xlsxがある時のみ）
