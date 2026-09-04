@@ -138,6 +138,7 @@ function changePasscode(current, next) {
 // 送り、doPost で受けてスプレッドシートの「通知購読」タブに保存する。実際の配信は
 // GitHub Actions の定期実行（Python: pywebpush）から VAPID 秘密鍵を使って行う。
 const SUBS_SHEET = '通知購読';
+const LINE_DEST_SHEET = 'LINE宛先';   // LINE Webhookで受け取った宛先(グループ/ユーザー)IDの記録用
 
 function subsSheet_() {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -171,11 +172,34 @@ function removeSubscription_(endpoint) {
   }
 }
 
+/** LINE Webhookのイベントから宛先(source)IDを「LINE宛先」シートへ記録（重複IDは追記しない）。 */
+function logLineSources_(events) {
+  if (!events || !events.length) return;
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sh = ss.getSheetByName(LINE_DEST_SHEET);
+  if (!sh) { sh = ss.insertSheet(LINE_DEST_SHEET); sh.appendRow(['記録時刻', '種別(source.type)', 'ID（LINE_TOに設定）', 'イベント']); }
+  const existing = {};
+  sh.getDataRange().getValues().forEach(function (row, i) { if (i > 0 && row[2]) existing[String(row[2])] = true; });
+  const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  events.forEach(function (ev) {
+    const src = (ev && ev.source) || {};
+    const id = src.groupId || src.roomId || src.userId || '';
+    if (id && !existing[id]) { sh.appendRow([ts, src.type || '', id, ev.type || '']); existing[id] = true; }
+  });
+}
+
 /** 入口ページ（別オリジン）からの購読登録/解除を受ける。no-cors前提で応答は読まれない。 */
 function doPost(e) {
   function out(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
   let body = {};
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return out({ ok: false, error: 'bad-json' }); }
+  // LINE Webhook（グループ等の宛先ID取得用）: events 配列を持つのが目印。
+  // 送信先グループにボットを招待/発言すると source.groupId が飛んでくるので「LINE宛先」シートへ記録する。
+  // ※Apps Scriptはリクエストヘッダを読めず署名検証はできないが、ID記録のみの用途で害はない。取得後はWebhookをオフに。
+  if (body && Array.isArray(body.events)) {
+    try { logLineSources_(body.events); } catch (e2) {}
+    return out({ ok: true });   // LINEには200を返す（Verifyボタンの空eventsもOK）
+  }
   if (!verifyPass_(body.p)) return out({ ok: false, authError: true });
   if (body.action === 'subscribe' && body.sub) { saveSubscription_(body.sub); return out({ ok: true }); }
   if (body.action === 'unsubscribe' && body.endpoint) { removeSubscription_(body.endpoint); return out({ ok: true }); }
