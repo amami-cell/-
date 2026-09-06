@@ -32,18 +32,8 @@ from googleapiclient.discovery import build
 SPREADSHEET_ID = "18Fq_mpEweHOFTlF4ntmwJzDsJNSt-DOq7wQYy8E0iLc"
 JST = timezone(timedelta(hours=9))
 
-# index.html / dashboard.gs と同じマッピング
-METRIC_SHEETS = {
-    "sales": "売上",
-    "foodSales": "F売上",
-    "drinkSales": "D売上",
-    "foodPurchase": "F食材費仕入",
-    "drinkPurchase": "D飲料費仕入",
-    "foodTheory": "フード理論原価",
-    "drinkTheory": "ドリンク理論原価",
-    "budgetFoodCost": "F予算",
-    "drinkBudget": "D予算",  # 実キーは budgetDrinkCost に格納
-}
+# 指標シートのマッピングは load_data() 内の field_by_sheet が唯一の定義（重複・誤キー防止のため
+# ここにあった未使用の METRIC_SHEETS は削除）。
 INVENTORY_SHEET = "月次集計"
 LOSS_SHEET = "ロス記録"
 SETTINGS_SHEET = "店舗設定"

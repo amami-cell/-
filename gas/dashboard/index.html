@@ -1535,24 +1535,31 @@
     var groups = {};
     rows.forEach(function (r) {
       var gname = groupOf(r.key, r.name, rollupAxis);
-      var g = groups[gname] || (groups[gname] = { name: gname, members: [], sales: 0, purchase: 0, theory: 0, need: 0, waste: 0, inv: 0, hasInv: false, unknown: 0, hasUnknown: false, budgetCost: 0, hasBudget: false });
+      var g = groups[gname] || (groups[gname] = { name: gname, members: [], sales: 0, purchase: 0, theory: 0, theoryPerDay: 0, need: 0, waste: 0, inv: 0, hasInv: false, unknown: 0, hasUnknown: false, budgetCost: 0, budgetSales: 0, budgetPurchase: 0, hasBudget: false });
       g.members.push(r);
       g.sales += r.sales; g.purchase += r.purchase; g.theory += r.theory;
+      // 在庫回転は「1日あたり理論原価」を店ごとに求めて合算する（中間月は実期間15日で割る）。
+      // グループを丸1か月日数で割ると中間月に回転が約2倍に膨らむため（店舗単位calcMと揃える）。
+      var td = (r.kind === '中間') ? 15 : r.days;
+      if (r.theory > 0 && td > 0) g.theoryPerDay += r.theory / td;
       g.need += Math.max(r.need || 0, 0); g.waste += Math.max(r.waste || 0, 0);
       if (r.invCur !== null) { g.inv += r.invCur; g.hasInv = true; }
       if (r.unknown !== null) { g.unknown += r.unknown; g.hasUnknown = true; }
-      if (r.budgetCost && r.budgetCost > 0) { g.budgetCost += r.budgetCost; g.hasBudget = true; }
+      // 予算比は「予算のある店の仕入・売上・予算」だけで比較する（分子と分母の店を揃える）。
+      // 一部だけ予算未取得のとき、分子は予算店・分母は全店になると予算比が過小→誤って予算超判定になるため。
+      if (r.budgetCost && r.budgetCost > 0) { g.budgetCost += r.budgetCost; g.budgetSales += r.sales; g.budgetPurchase += r.purchase; g.hasBudget = true; }
     });
     var list = Object.keys(groups).map(function (k) {
       var g = groups[k];
       g.purchaseRate = g.sales ? g.purchase / g.sales : null;
       g.theoryRate = g.sales ? g.theory / g.sales : null;
       g.unknownRate = (g.sales && g.hasUnknown) ? g.unknown / g.sales : null;
-      g.budgetRate = (g.sales && g.hasBudget) ? g.budgetCost / g.sales : null;
-      g.turnover = (g.hasInv && g.theory > 0) ? g.inv / (g.theory / days) : null;
+      g.budgetRate = (g.hasBudget && g.budgetSales > 0) ? g.budgetCost / g.budgetSales : null;
+      g.budgetPurchaseRate = (g.hasBudget && g.budgetSales > 0) ? g.budgetPurchase / g.budgetSales : null;
+      g.turnover = (g.hasInv && g.theoryPerDay > 0) ? g.inv / g.theoryPerDay : null;
       var score = 0;
       if (g.turnover !== null) score += g.turnover >= 15 ? 2 : (g.turnover >= 10 ? 1 : 0);
-      if (g.budgetRate !== null && g.purchaseRate !== null && g.purchaseRate > g.budgetRate + EPS) score += 2;
+      if (g.budgetRate !== null && g.budgetPurchaseRate !== null && g.budgetPurchaseRate > g.budgetRate + EPS) score += 2;
       if (g.unknownRate !== null && Math.abs(g.unknownRate) * 100 > 2) score += 2;
       g.score = score;
       return g;
@@ -1572,9 +1579,10 @@
       var costTxt = g.purchaseRate === null ? '' : (' ・仕入' + Math.round(g.purchaseRate * 100) + '%');
       val.textContent = turnTxt + costTxt;
       var sig = null;
-      if (g.budgetRate !== null && g.purchaseRate !== null) {
-        sig = document.createElement('span'); sig.className = 'sig ' + (g.purchaseRate > g.budgetRate + EPS ? 'sig-bad' : 'sig-good');
-        sig.textContent = g.purchaseRate > g.budgetRate + EPS ? '🔴予算超' : '🟢予算内';
+      if (g.budgetRate !== null && g.budgetPurchaseRate !== null) {
+        var over = g.budgetPurchaseRate > g.budgetRate + EPS;
+        sig = document.createElement('span'); sig.className = 'sig ' + (over ? 'sig-bad' : 'sig-good');
+        sig.textContent = over ? '🔴予算超' : '🟢予算内';
       }
       head.appendChild(tw); head.appendChild(nm); if (sig) head.appendChild(sig); head.appendChild(val);
       head.onclick = (function (key) { return function () { rollupOpen[rollupAxis + '::' + key] = !rollupOpen[rollupAxis + '::' + key]; renderRollup(rows); }; })(g.name);
@@ -1634,7 +1642,7 @@
       var nm = document.createElement('span'); nm.textContent = s.label;
       var cv = document.createElement('span'); cv.className = 'cv';
       if (s.cls === 'unknown' && p.unknown !== null && p.unknown < 0) cv.textContent = yen(p.unknown);
-      else cv.textContent = s.denom === 0 ? '—' : (s.v > 0 ? Math.round(s.v / p.denom * 100) + '%' : '0%');
+      else cv.textContent = p.denom === 0 ? '—' : (s.v > 0 ? Math.round(s.v / p.denom * 100) + '%' : '0%');
       li.appendChild(sw); li.appendChild(nm); li.appendChild(cv);
       lg.appendChild(li);
     });
@@ -1924,12 +1932,16 @@
     if (!parts.length) return;   // 中間データ無し
 
     var EPS = 0.0005;
-    var ss = 0, pp = 0, tt = 0, bb = 0, days = parts[0].days;
-    parts.forEach(function (f) { ss += f.sales; pp += f.purchase; tt += f.theory; bb += f.budgetCost; });
+    var ss = 0, pp = 0, tt = 0, bb = 0, bs = 0, bp = 0, days = parts[0].days;
+    parts.forEach(function (f) {
+      ss += f.sales; pp += f.purchase; tt += f.theory;
+      if (f.budgetCost > 0) { bb += f.budgetCost; bs += f.sales; bp += f.purchase; }   // 予算のある店だけで予算比を算出（分子分母の店を揃える）
+    });
     if (!ss) return;
-    var projSales = ss * (days / 15);
     var purchaseRate = pp / ss, theoryRate = tt / ss;
-    var budgetRate = bb > 0 ? bb / projSales : null;
+    // 予算比＝予算のある店の「予算原価 ÷ 見込み月末売上(=中間売上×日数/15)」。予算未取得店を分母に混ぜない。
+    var budgetRate = (bb > 0 && bs > 0) ? bb / (bs * (days / 15)) : null;
+    var budgetPurchaseRate = bs > 0 ? bp / bs : null;
 
     card.style.display = '';
     var h = document.createElement('div'); h.className = 'cardh';
@@ -1940,8 +1952,8 @@
     cap.textContent = '中間のペースが月末まで続いた場合の見込み。月中に手を打つ目安です。';
     card.appendChild(cap);
 
-    var over = (budgetRate !== null && purchaseRate > budgetRate + EPS);
-    var diffPt = budgetRate !== null ? (purchaseRate - budgetRate) * 100 : null;
+    var over = (budgetRate !== null && budgetPurchaseRate !== null && budgetPurchaseRate > budgetRate + EPS);
+    var diffPt = (budgetRate !== null && budgetPurchaseRate !== null) ? (budgetPurchaseRate - budgetRate) * 100 : null;
     var sumRow = document.createElement('div');
     sumRow.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0 10px;border-bottom:1px dashed var(--grid)';
     var sumInfo = document.createElement('div'); sumInfo.style.cssText = 'flex:1;min-width:0';

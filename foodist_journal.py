@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Optional
 
 import openpyxl
-import requests as http
 import google_auth_httplib2
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -72,25 +71,8 @@ CELL_MAP: dict[str, tuple[int, int]] = {
 }
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# LINE Notify
-# ──────────────────────────────────────────────────────────────────────────────
-
-def notify_line(message: str) -> None:
-    """LINE Notify でメッセージを送信する。トークン未設定時はスキップ。"""
-    token = os.environ.get("LINE_NOTIFY_TOKEN", "")
-    if not token:
-        return
-    try:
-        http.post(
-            "https://notify-api.line.me/api/notify",
-            headers={"Authorization": f"Bearer {token}"},
-            data={"message": f"\n{message}"},
-            timeout=10,
-        )
-    except Exception as e:
-        logger.warning(f"LINE Notify 送信失敗: {e}")
-
+# 失敗通知は終了済みの「LINE Notify」を使っていたため削除（tools/tana_line.py の Messaging API に集約予定）。
+# 現状、FW取得の失敗は logger.exception でログに残り、例外は上位へ再送出される。
 
 # ──────────────────────────────────────────────────────────────────────────────
 # スクレイパー本体
@@ -159,7 +141,6 @@ class FoodistJournalScraper:
         except Exception as e:
             msg = f"[Foodist Journal] エラー: {e}"
             logger.exception(msg)
-            notify_line(msg)
             raise
 
     def run_for_month(self, target_month: date, kind: str = "確定", store_filter=None) -> None:
@@ -189,7 +170,6 @@ class FoodistJournalScraper:
         except Exception as e:
             msg = f"[Foodist Journal] {year_month} エラー: {e}"
             logger.exception(msg)
-            notify_line(msg)
             raise
 
     # ── ダウンロード ─────────────────────────────────────────────────────────
