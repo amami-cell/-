@@ -450,6 +450,17 @@
   .uf-names { font-size: 12px; color: var(--ink-2); line-height: 1.7; margin: 2px 0 10px; word-break: break-word; }
   .uf-chip { display: inline-block; background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); border-radius: 999px; padding: 1px 9px; margin: 0 4px 4px 0; font-weight: 600; }
   .uf-btn { width: 100%; padding: 10px; font-weight: 700; }
+
+  /* 初期パスワード変更のうながし */
+  .passnudge { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; padding: 8px 10px; font-size: 12.5px; color: var(--ink);
+    background: color-mix(in srgb, var(--warn) 13%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--grid)); border-radius: 12px; }
+  .passnudge .pn-t { flex: 1; min-width: 0; }
+  .passnudge .pn-btn { flex: none; background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 5px 12px; font-weight: 700; }
+  .passnudge .pn-x { flex: none; background: transparent; border: none; color: var(--muted); font-size: 14px; padding: 2px 4px; }
+
+  /* ヒートマップ・原価構成を色以外でも区別できるように（色覚差・屋外対策）*/
+  .hm-mark { font-size: 9px; margin-right: 2px; opacity: .85; }
+  .comp-seg.unknown { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
 </style>
 </head>
 <body>
@@ -1432,6 +1443,9 @@
     var h = document.createElement('div'); h.className = 'cardh';
     h.textContent = '🗺 全社ヒートマップ（' + curMonth + '・' + modeLabel() + '）';
     card.appendChild(h);
+    var lg = document.createElement('div'); lg.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    lg.textContent = '○ 良好 ／ ◐ 注意 ／ ● 要確認 ／ – データなし（色に加えて形でも判別）';
+    card.appendChild(lg);
     var head = document.createElement('div'); head.className = 'hm-head';
     ['', '回転', '原価率', '不明ロス'].forEach(function (t) { var s = document.createElement('span'); s.textContent = t; head.appendChild(s); });
     card.appendChild(head);
@@ -1461,7 +1475,12 @@
       var nm = document.createElement('div'); nm.className = 'hm-name'; nm.textContent = it.r.name;
       row.appendChild(nm);
       it.cells.forEach(function (c) {
-        var el = document.createElement('div'); el.className = 'hm-cell ' + c.cls; el.textContent = c.txt; row.appendChild(el);
+        var el = document.createElement('div'); el.className = 'hm-cell ' + c.cls;
+        // 色に加えて形でも良/注意/悪を区別（○=良 ◐=注意 ●=要確認 –=データなし）
+        var mk = document.createElement('span'); mk.className = 'hm-mark';
+        mk.textContent = { good: '○', warn: '◐', bad: '●', na: '–' }[c.cls] || '';
+        el.appendChild(mk); el.appendChild(document.createTextNode(c.txt));
+        row.appendChild(el);
       });
       row.onclick = (function (k) { return function () { openStore(k); }; })(it.r.key);
       card.appendChild(row);
@@ -2921,6 +2940,25 @@
     setTimeout(function () { document.getElementById('loginPass').focus(); }, 0);
   }
 
+  // 初期パスワード(8888)のままなら、変更をうながすバナーを一度だけ出す（当セッション中は×で消せる）。
+  function maybeShowPassNudge() {
+    var existing = document.getElementById('passNudge');
+    var dismissed = false;
+    try { dismissed = sessionStorage.getItem('passNudgeDismissed') === '1'; } catch (e) {}
+    if (!DATA || !DATA.isDefaultPass || dismissed) { if (existing) existing.remove(); return; }
+    if (existing) return;
+    var app = document.getElementById('app');
+    var bar = document.createElement('div'); bar.id = 'passNudge'; bar.className = 'passnudge';
+    var txt = document.createElement('span'); txt.className = 'pn-t';
+    txt.textContent = '🔒 初期パスワード（8888）のままです。安全のため変更をおすすめします。';
+    var chg = document.createElement('button'); chg.className = 'pn-btn'; chg.textContent = '変更する';
+    chg.onclick = function () { openPassModal(); };
+    var x = document.createElement('button'); x.className = 'pn-x'; x.textContent = '✕'; x.title = '閉じる';
+    x.onclick = function () { try { sessionStorage.setItem('passNudgeDismissed', '1'); } catch (e) {} bar.remove(); };
+    bar.appendChild(txt); bar.appendChild(chg); bar.appendChild(x);
+    app.insertBefore(bar, app.firstChild);
+  }
+
   function load(force, done) {
     var app = document.getElementById('app');
     if (DATA) app.classList.add('dimmed');
@@ -2941,6 +2979,7 @@
         app.classList.remove('dimmed');
         initSelectors();
         renderAll();
+        maybeShowPassNudge();
         if (done) done();
       })
       .withFailureHandler(function (e) {
