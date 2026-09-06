@@ -1,0 +1,56 @@
+{
+  "_comment": "在庫計算(FD合算・2%込み既定)のゴールデンケース。アプリのJS(calcM)と通知のPython(calc_fd)が同じ結果を返すことを保証する単一の真実。片方だけ直してドリフトすると、pytest(Python)とパリティ(JS)の両方がここと突き合わせて検知する。金額はexact、率/回転はtolerance比較。",
+  "store": "0001999_TEST",
+  "cases": [
+    {
+      "name": "確定・標準（前月在庫あり・予算あり）",
+      "ym": "2026-06",
+      "prevYm": "2026-05",
+      "storeFlag": false,
+      "metrics": { "2026-06": { "sales": 1000000, "foodSales": 600000, "drinkSales": 400000, "foodPurchase": 200000, "drinkPurchase": 100000, "foodTheory": 180000, "drinkTheory": 90000, "budgetFoodCost": 200000, "budgetDrinkCost": 100000, "kind": "確定" } },
+      "inventory": { "2026-05": { "food": 100000, "drink": 50000 }, "2026-06": { "food": 120000, "drink": 60000 } },
+      "losses": { "2026-06": [ { "kind": "必要ロス", "amount": 5000 }, { "kind": "廃棄ロス", "amount": 3000 } ] },
+      "expected": { "theory": 290000, "turnover": 18.62069, "actual": 270000, "unknown": -28000, "purchaseRate": 0.30, "theoryRate": 0.29, "unknownRate": -0.028, "budgetRate": 0.30 }
+    },
+    {
+      "name": "中間・15日補正（予算なし）",
+      "ym": "2026-07",
+      "prevYm": "2026-06",
+      "storeFlag": false,
+      "metrics": { "2026-07": { "sales": 500000, "foodSales": 300000, "drinkSales": 200000, "foodPurchase": 150000, "drinkPurchase": 60000, "foodTheory": 140000, "drinkTheory": 55000, "budgetFoodCost": 0, "budgetDrinkCost": 0, "kind": "中間" } },
+      "inventory": { "2026-06": { "food": 80000, "drink": 40000 }, "2026-07": { "food": 60000, "drink": 40000 } },
+      "losses": { "2026-07": [ { "kind": "必要ロス", "amount": 2000 }, { "kind": "廃棄ロス", "amount": 1000 } ] },
+      "expected": { "theory": 205000, "turnover": 7.31707, "actual": 230000, "unknown": 22000, "purchaseRate": 0.42, "theoryRate": 0.41, "unknownRate": 0.044, "budgetRate": null }
+    },
+    {
+      "name": "棚卸0（未入力）→ 回転/不明ロスはnull",
+      "ym": "2026-06",
+      "prevYm": "2026-05",
+      "storeFlag": false,
+      "metrics": { "2026-06": { "sales": 800000, "foodSales": 480000, "drinkSales": 320000, "foodPurchase": 160000, "drinkPurchase": 80000, "foodTheory": 150000, "drinkTheory": 75000, "budgetFoodCost": 0, "budgetDrinkCost": 0, "kind": "確定" } },
+      "inventory": { "2026-05": { "food": 90000, "drink": 30000 }, "2026-06": { "food": 0, "drink": 0 } },
+      "losses": {},
+      "expected": { "theory": 241000, "turnover": null, "actual": null, "unknown": null, "purchaseRate": 0.30, "theoryRate": 0.30125, "unknownRate": null, "budgetRate": null }
+    },
+    {
+      "name": "前月在庫なし → actual/unknownはnull・回転は出る",
+      "ym": "2026-06",
+      "prevYm": "2026-05",
+      "storeFlag": false,
+      "metrics": { "2026-06": { "sales": 600000, "foodSales": 360000, "drinkSales": 240000, "foodPurchase": 120000, "drinkPurchase": 48000, "foodTheory": 110000, "drinkTheory": 45000, "budgetFoodCost": 0, "budgetDrinkCost": 0, "kind": "確定" } },
+      "inventory": { "2026-06": { "food": 90000, "drink": 30000 } },
+      "losses": {},
+      "expected": { "theory": 167000, "turnover": 21.55689, "actual": null, "unknown": null, "purchaseRate": 0.28, "theoryRate": 0.278333, "unknownRate": null, "budgetRate": null }
+    },
+    {
+      "name": "2%込み済みフラグON → 2%を加算しない",
+      "ym": "2026-06",
+      "prevYm": "2026-05",
+      "storeFlag": true,
+      "metrics": { "2026-06": { "sales": 1000000, "foodSales": 600000, "drinkSales": 400000, "foodPurchase": 200000, "drinkPurchase": 100000, "foodTheory": 180000, "drinkTheory": 90000, "budgetFoodCost": 0, "budgetDrinkCost": 0, "kind": "確定" } },
+      "inventory": { "2026-05": { "food": 100000, "drink": 50000 }, "2026-06": { "food": 120000, "drink": 60000 } },
+      "losses": {},
+      "expected": { "theory": 270000, "turnover": 20.0, "actual": 270000, "unknown": 0, "purchaseRate": 0.30, "theoryRate": 0.27, "unknownRate": 0.0, "budgetRate": null }
+    }
+  ]
+}
