@@ -206,11 +206,19 @@
     flex: 1; border: 1px solid transparent; border-radius: 14px; background: transparent; color: var(--muted);
     padding: 8px 2px; font-size: 12px; font-weight: 700; min-height: 60px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-    white-space: nowrap;
+    white-space: nowrap; position: relative;
   }
   .tabbar button .ic { font-size: 21px; line-height: 1; }
   .tabbar button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); }
   .tabbar button:active { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+  /* 下タブの件数バッジ（やること等）: 未対応があるとき赤丸で件数を出す */
+  .tabbar button .tab-badge {
+    position: absolute; top: 6px; right: calc(50% - 26px);
+    min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+    border-radius: 9px; background: var(--bad); color: #fff;
+    font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
+    box-shadow: 0 0 0 2px var(--surface);
+  }
 
   /* テーブル */
   .table-scroll { overflow-x: auto; max-width: 100%; }
@@ -650,7 +658,7 @@
     <button data-tab="list" class="on"><span class="ic">📋</span><span>一覧</span></button>
     <button data-tab="highlight"><span class="ic">🏅</span><span>ランキング</span></button>
     <button data-tab="cost"><span class="ic">🏷</span><span>原価判定</span></button>
-    <button data-tab="pending"><span class="ic">📝</span><span>やること</span></button>
+    <button data-tab="pending"><span class="ic">📝</span><span>やること</span><span class="tab-badge" id="todoBadge" style="display:none">0</span></button>
   </nav>
 </div>
 
@@ -1735,8 +1743,8 @@
     var el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  function renderTodoHub() {
-    var card = document.getElementById('todoHubCard'); card.textContent = '';
+  // 当月のやること項目を計算（ハブ表示・下タブのバッジ件数で共用）
+  function computeTodoItems() {
     var rows = computeStoreRows();
     // 棚卸未入力
     var stockPending = DATA.stores.filter(function (s) {
@@ -1770,10 +1778,6 @@
       var arr = (DATA.actions[curMonth] || {})[k] || []; return arr.length === 0;
     });
 
-    var h = document.createElement('div'); h.className = 'cardh';
-    h.textContent = '✅ 当月のやること（' + curMonth + '・' + modeLabel() + '）';
-    card.appendChild(h);
-
     var items = [];
     function push(cond, ic, kind, title, sub, count, action) { if (cond) items.push({ ic: ic, kind: kind, title: title, sub: sub, count: count, action: action }); }
     push(stockPending.length, '📦', 'alert', '棚卸を入力', '売上はあるのに棚卸金額が未入力', stockPending.length, function () { scrollToCard('stockPendingCard'); });
@@ -1783,7 +1787,25 @@
     push(lossBad.length, '❓', 'alert', '不明ロスを確認（2%超）', '棚卸・記録の精度に改善余地', lossBad.length, function () { gotoTab('highlight'); });
     push(lossPending.length, '📝', 'warn', 'ロスを入力', '必要ロス・廃棄ロスが未登録', lossPending.length, function () { scrollToCard('pendingCard'); });
     push(actionMissing.length, '🛠', 'warn', '改善アクションを記録', '要確認の店に打ち手が未記録', actionMissing.length, function () { openStore(actionMissing[0]); });
+    return items;
+  }
 
+  // 下タブ「やること」のバッジ件数を更新（未対応カテゴリ数。0なら非表示）
+  function updateTodoBadge() {
+    var el = document.getElementById('todoBadge'); if (!el) return;
+    var n = 0;
+    try { n = (DATA && DATA.stores) ? computeTodoItems().length : 0; } catch (e) { n = 0; }
+    if (n > 0) { el.textContent = n > 99 ? '99+' : String(n); el.style.display = ''; }
+    else { el.style.display = 'none'; }
+  }
+
+  function renderTodoHub() {
+    var card = document.getElementById('todoHubCard'); card.textContent = '';
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '✅ 当月のやること（' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+
+    var items = computeTodoItems();
     if (!items.length) {
       var ok = document.createElement('div'); ok.className = 'empty'; ok.style.padding = '6px 0';
       ok.textContent = '今月のやることはありません 🎉 全て対応済みです。';
@@ -2902,6 +2924,7 @@
       b.classList.toggle('on', on);
     });
     syncModeSegs();
+    updateTodoBadge();
     if (view === 'highlight') renderHighlightTab();
     else if (view === 'cost') renderCostTab();
     else if (view === 'pending') renderPending();
