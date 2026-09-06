@@ -111,24 +111,33 @@ function verifyPass_(pass) {
   return String(pass || '') === currentPass_();
 }
 
-/** 合言葉は常に有効（初期値8888）なので必ずログイン画面を出す。 */
+/** 合言葉が初期値(8888)のままか。UIで変更をうながすのに使う。 */
+function isDefaultPass_() {
+  return currentPass_() === DEFAULT_PASSCODE;
+}
+
+/** 合言葉は常に有効（初期値8888）なので必ずログイン画面を出す。isDefaultで初期値のままかを返す。 */
 function getPasscodeStatus() {
-  return { set: true };
+  return { set: true, isDefault: isDefaultPass_() };
 }
 
-/** 合言葉の照合。 */
+/** 合言葉の照合。誤入力時は約1秒待たせて総当たりを遅くする（正解は即返す）。 */
 function verifyPasscode(pass) {
-  return { ok: verifyPass_(pass) };
+  var ok = verifyPass_(pass);
+  if (!ok) { try { Utilities.sleep(1000); } catch (e) {} }
+  return { ok: ok };
 }
 
-/** 合言葉を変更する。現在の合言葉（初期は8888）が必要。 */
+/** 合言葉を変更する。現在の合言葉（初期は8888）が必要。初期値への変更は不可。 */
 function changePasscode(current, next) {
   if (String(current || '') !== currentPass_()) {
     return { ok: false, message: '現在のパスワードが違います' };
   }
   next = String(next || '').trim();
   if (next.length < 4) return { ok: false, message: 'パスワードは4文字以上にしてください' };
+  if (next === DEFAULT_PASSCODE) return { ok: false, message: '初期パスワード(' + DEFAULT_PASSCODE + ')は使えません。別の文字列にしてください' };
   PropertiesService.getScriptProperties().setProperty(PASSCODE_PROP, next);
+  CacheService.getScriptCache().remove('dash_v2');   // isDefaultPass 表示を即更新
   return { ok: true, message: 'パスワードを変更しました' };
 }
 
@@ -383,6 +392,7 @@ function getDashboardData(pass, forceRefresh) {
     actions: actions,
     storeGroups: storeGroups,
     costTargets: costTargets,
+    isDefaultPass: isDefaultPass_(),   // 初期パスコード(8888)のままなら変更をうながす
   };
 
   try {
