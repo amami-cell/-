@@ -135,6 +135,17 @@
   .sr-trend .tl { font-size: 10px; color: var(--muted); flex: none; }
   .spark { flex: none; display: block; }
 
+  /* 全社トレンド（本部モード）: 直近数か月の全社KPI推移 */
+  .trend-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); }
+  .trend-row:first-of-type { border-top: 0; }
+  .trend-info { flex: 1; min-width: 0; }
+  .trend-label { font-size: 12px; color: var(--muted); }
+  .trend-now { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .trend-now small { font-size: 12px; font-weight: 700; color: var(--muted); margin-left: 3px; }
+  .trend-delta { font-size: 11px; font-weight: 800; margin-left: 6px; }
+  .trend-delta.up { color: var(--bad); } .trend-delta.down { color: var(--good); } .trend-delta.flat { color: var(--muted); }
+  .trend-spark { flex: none; }
+
   /* ランキング */
   .rank-toggle { display: inline-flex; gap: 6px; flex-wrap: wrap; }
   .rank-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--grid); }
@@ -606,6 +617,7 @@
           <button class="small" id="btnGroupSetup" title="店舗ごとのエリア・ブランドを設定">⚙ 分類</button>
         </div>
       </div>
+      <div class="card" id="companyTrendCard"></div>
       <div class="card" id="rollupCard"></div>
       <div class="card" id="heatCard"></div>
       <div class="card" id="anomalyCard"></div>
@@ -1541,6 +1553,95 @@
   }
 
   // ── エリア／ブランド別ロールアップ（1）: 店舗をまとめて合計を表示 ──────────────
+  // ── 全社トレンド（本部モード強化）: 直近の確定月について全社KPIの月次推移を表示 ──
+  // 仕入率・不明ロス率・予算達成店の割合を、スパークライン＋最新値＋前月差(pt)で。
+  function companyMonthAgg(ym) {
+    var sales = 0, purchase = 0, unknown = 0, hasU = false, ok = 0, judged = 0;
+    DATA.stores.forEach(function (s) {
+      var r = calcM(s.key, ym, fdMode); if (!r) return;
+      sales += r.sales; purchase += r.purchase;
+      if (r.unknown !== null) { unknown += r.unknown; hasU = true; }
+      var j = costJudge(r); if (j !== null) { judged++; if (j === 'ok') ok++; }
+    });
+    return {
+      ym: ym,
+      purchaseRate: sales ? purchase / sales : null,
+      unknownRate: (sales && hasU) ? unknown / sales : null,
+      okRate: judged ? ok / judged : null,
+      ok: ok, judged: judged
+    };
+  }
+  function renderCompanyTrend() {
+    var card = document.getElementById('companyTrendCard'); card.textContent = '';
+    // 確定(非中間)月だけを対象に、直近6か月（月末棚ベースで揃える）
+    var months = DATA.months.filter(function (ym) { return !totalsOf(ym).interim; }).slice(-6);
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '📈 全社トレンド（確定月・' + modeLabel() + '）';
+    card.appendChild(h);
+    if (months.length < 2) {
+      var e = document.createElement('div'); e.className = 'empty'; e.style.padding = '6px 0';
+      e.textContent = '確定月が2か月そろうと推移を表示します。';
+      card.appendChild(e); return;
+    }
+    var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 6px';
+    cap.textContent = months[0] + '〜' + months[months.length - 1] + ' の全社推移（前月差はpt）。';
+    card.appendChild(cap);
+
+    var aggs = months.map(companyMonthAgg);
+    // 直近2つの非null値から前月差を出す
+    function lastTwo(series) {
+      var vv = series.filter(function (v) { return v !== null && isFinite(v); });
+      if (vv.length < 2) return { cur: vv.length ? vv[vv.length - 1] : null, delta: null };
+      return { cur: vv[vv.length - 1], delta: vv[vv.length - 1] - vv[vv.length - 2] };
+    }
+    // metric: { label, series(数値/ null), fmtNow, sub?, goodWhenDown }
+    function trendRow(m) {
+      var row = document.createElement('div'); row.className = 'trend-row';
+      var sp = sparkline(m.series.map(function (v) { return v === null ? null : v; }), { w: 92, h: 30, color: 'var(--accent)' });
+      sp.classList.add('trend-spark');
+      var info = document.createElement('div'); info.className = 'trend-info';
+      var lab = document.createElement('div'); lab.className = 'trend-label'; lab.textContent = m.label;
+      var now = document.createElement('div'); now.className = 'trend-now';
+      var lt = lastTwo(m.series);
+      now.appendChild(document.createTextNode(m.fmtNow(lt.cur)));
+      if (m.subNow) { var sm = document.createElement('small'); sm.textContent = m.subNow(); now.appendChild(sm); }
+      if (lt.delta !== null && Math.abs(lt.delta) >= 0.05) {
+        var down = lt.delta < 0;
+        var good = m.goodWhenDown ? down : !down;
+        var d = document.createElement('span'); d.className = 'trend-delta ' + (good ? 'down' : 'up');
+        d.textContent = (down ? '▼' : '▲') + Math.abs(lt.delta).toFixed(1) + 'pt';
+        now.appendChild(d);
+      } else if (lt.delta !== null) {
+        var f = document.createElement('span'); f.className = 'trend-delta flat'; f.textContent = '±0';
+        now.appendChild(f);
+      }
+      info.appendChild(lab); info.appendChild(now);
+      row.appendChild(info); row.appendChild(sp);
+      card.appendChild(row);
+    }
+    // 率は「%ポイント」で推移を見るため *100 した数値列を渡す
+    trendRow({
+      label: '仕入率（全社）',
+      series: aggs.map(function (a) { return a.purchaseRate === null ? null : a.purchaseRate * 100; }),
+      fmtNow: function (v) { return v === null ? '—' : v.toFixed(1) + '%'; },
+      goodWhenDown: true
+    });
+    trendRow({
+      label: '不明ロス率（全社）',
+      series: aggs.map(function (a) { return a.unknownRate === null ? null : a.unknownRate * 100; }),
+      fmtNow: function (v) { return v === null ? '—' : v.toFixed(1) + '%'; },
+      goodWhenDown: true
+    });
+    var lastAgg = aggs[aggs.length - 1];
+    trendRow({
+      label: '予算達成 店の割合（全社）',
+      series: aggs.map(function (a) { return a.okRate === null ? null : a.okRate * 100; }),
+      fmtNow: function (v) { return v === null ? '—' : v.toFixed(0) + '%'; },
+      subNow: function () { return lastAgg.judged ? '（' + lastAgg.ok + '/' + lastAgg.judged + '店）' : ''; },
+      goodWhenDown: false
+    });
+  }
+
   function renderRollup(rows) {
     var card = document.getElementById('rollupCard'); card.textContent = '';
     var axisLbl = rollupAxis === 'area' ? 'エリア' : 'ブランド';
@@ -1916,6 +2017,7 @@
   function renderHighlightTab() {
     var rows = computeStoreRows();
     if (!rows.length) {
+      document.getElementById('companyTrendCard').textContent = '';
       document.getElementById('rollupCard').textContent = '';
       document.getElementById('heatCard').textContent = '';
       document.getElementById('anomalyCard').textContent = '';
@@ -1924,6 +2026,7 @@
       document.getElementById('rankLoss').textContent = '';
       return;
     }
+    renderCompanyTrend();
     renderRollup(rows);
     renderHeatmap(rows);
     renderAnomaly(rows);
