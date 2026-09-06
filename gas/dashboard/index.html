@@ -2597,15 +2597,19 @@
     // FD合計/F・D の切替は「かんたん表示」のときだけ出す（全表示は全部出るので不要）
     document.getElementById('storeModeRow').style.display = storeWide ? 'none' : '';
 
-    // ヒーロー: 最新月（店舗ページは常にFD合算基準）
-    var latest = null;
-    for (var i = DATA.months.length - 1; i >= 0; i--) {
-      var r0 = calcM(curStore, DATA.months[i], 'FD');
-      if (r0) { latest = r0; break; }
+    // フォーカス月: 一覧などで選んだ月(curMonth)にこの店のデータがあればその月、
+    // 無ければ最新のデータ月。これでヒーロー・前月比較・目標・原価構成が「選んだ月」に連動する。
+    var latest = calcM(curStore, curMonth, 'FD');
+    if (!latest) {
+      for (var i = DATA.months.length - 1; i >= 0; i--) {
+        var r0 = calcM(curStore, DATA.months[i], 'FD');
+        if (r0) { latest = r0; break; }
+      }
     }
     var heroEl = document.getElementById('heroStore');
     if (latest) {
-      renderHero(heroEl, latest.turnover, latest.invCur || 0, latest.theory, latest.days, name + ' ' + latest.ym, 'FD合算');
+      var mlab = name + ' ' + latest.ym + (latest.ym === curMonth ? '' : '（最新）') + (latest.kind === '中間' ? '・中間' : '');
+      renderHero(heroEl, latest.turnover, latest.invCur || 0, latest.theory, latest.days, mlab, 'FD合算');
     } else {
       heroEl.textContent = 'データがありません';
     }
