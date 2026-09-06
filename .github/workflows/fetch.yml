@@ -53,6 +53,13 @@ on:
 env:
   TZ: Asia/Tokyo
 
+# 取得ジョブは常に1本だけ直列実行する（cron中に手動実行/ダッシュボード再取得が重なると
+# Google Sheets の読み書き競合や、FW/インフォマートへの同一アカウント二重ログインが起きるため）。
+# cancel-in-progress: false = 実行中は止めず、後続を順番待ちにする。
+concurrency:
+  group: tana-fetch
+  cancel-in-progress: false
+
 jobs:
   fetch:
     runs-on: ubuntu-latest
@@ -114,6 +121,9 @@ jobs:
 
       # 現行コードは headless=False（画面表示前提）のため xvfb（仮想ディスプレイ）上で実行する
       - name: FW（Fooding Journal）取得
+        # FW取得は不安定なことがあるため、失敗してもジョブは止めない（インフォマート取得や
+        # 5日/20日のLINE未入力報告など後続の堅牢な処理を巻き添えにしないため）。失敗はログに残る。
+        continue-on-error: true
         if: github.event_name == 'schedule' || inputs.target == 'fw' || inputs.target == 'both'
         id: fw
         env:
@@ -240,9 +250,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: run-${{ github.run_number }}-logs
+          # downloads/（各店の売上・仕入・棚卸の生CSV/xlsx）は財務データのため公開アーティファクトに含めない。
+          # 公開リポではアーティファクトを閲覧権限者が誰でもDLできるため。デバッグ用のログ/スクショのみ保持。
           path: |
             logs/
             screenshots/
-            downloads/
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 7

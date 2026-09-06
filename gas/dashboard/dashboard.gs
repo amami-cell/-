@@ -178,13 +178,16 @@ function logLineSources_(events) {
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   let sh = ss.getSheetByName(LINE_DEST_SHEET);
   if (!sh) { sh = ss.insertSheet(LINE_DEST_SHEET); sh.appendRow(['記録時刻', '種別(source.type)', 'ID（LINE_TOに設定）', 'イベント']); }
+  const data = sh.getDataRange().getValues();
+  if (data.length > 200) return;   // 肥大・悪用防止の上限（宛先取得は数件で足りる）
   const existing = {};
-  sh.getDataRange().getValues().forEach(function (row, i) { if (i > 0 && row[2]) existing[String(row[2])] = true; });
+  data.forEach(function (row, i) { if (i > 0 && row[2]) existing[String(row[2])] = true; });
+  const valid = /^[UCR][0-9a-fA-F]{32}$/;   // LINEの userId(U)/groupId(C)/roomId(R) の形式に限定（ゴミ・偽装IDを弾く）
   const ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   events.forEach(function (ev) {
     const src = (ev && ev.source) || {};
     const id = src.groupId || src.roomId || src.userId || '';
-    if (id && !existing[id]) { sh.appendRow([ts, src.type || '', id, ev.type || '']); existing[id] = true; }
+    if (valid.test(id) && !existing[id]) { sh.appendRow([ts, src.type || '', id, ev.type || '']); existing[id] = true; }
   });
 }
 
@@ -197,8 +200,15 @@ function doPost(e) {
   // 送信先グループにボットを招待/発言すると source.groupId が飛んでくるので「LINE宛先」シートへ記録する。
   // ※Apps Scriptはリクエストヘッダを読めず署名検証はできないが、ID記録のみの用途で害はない。取得後はWebhookをオフに。
   if (body && Array.isArray(body.events)) {
-    try { logLineSources_(body.events); } catch (e2) {}
-    return out({ ok: true });   // LINEには200を返す（Verifyボタンの空eventsもOK）
+    // 未認証POSTでのシート汚染を防ぐ緩和策:
+    // スクリプトプロパティ LINE_WEBHOOK_KEY を設定し、Webhook URLに ?k=<その値> を付けると、
+    // 一致した時だけ記録する（GASはヘッダを読めず署名検証できないための疑似認証）。
+    // 未設定なら従来どおり記録（宛先取得の初回設定を妨げない）。取得後はWebhookをオフ推奨。
+    var wk = PropertiesService.getScriptProperties().getProperty('LINE_WEBHOOK_KEY');
+    if (!wk || (e && e.parameter && String(e.parameter.k || '') === wk)) {
+      try { logLineSources_(body.events); } catch (e2) {}
+    }
+    return out({ ok: true });   // LINEには常に200を返す（Verifyボタンの空eventsもOK）
   }
   if (!verifyPass_(body.p)) return out({ ok: false, authError: true });
   if (body.action === 'subscribe' && body.sub) { saveSubscription_(body.sub); return out({ ok: true }); }
@@ -458,44 +468,7 @@ function lossSheet_(ss) {
   return sh;
 }
 
-/**
- * ロスを1件登録する。
- * @param {string} storeKey FWシート店舗名
- * @param {string} ym 'YYYY-MM'
- * @param {string} kind '廃棄ロス' | '必要ロス'
- * @param {string} cat 'フード' | 'ドリンク'
- * @param {string} memo 内容
- * @param {number} amount 金額（円）
- */
-function addLoss(storeKey, ym, kind, cat, memo, amount) {
-  storeKey = String(storeKey || '').trim();
-  ym = String(ym || '').trim();
-  memo = String(memo || '').trim().slice(0, 200);
-  amount = Number(amount);
-  if (!storeKey) return { ok: false, message: '店舗が不正です' };
-  if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '月の形式が不正です' };
-  if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
-  if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: '区分が不正です' };
-  if (!memo) return { ok: false, message: '内容を入力してください' };
-  if (!isFinite(amount) || amount <= 0) return { ok: false, message: '金額は1円以上で入力してください' };
-
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    const sh = lossSheet_(ss);
-    const rec = {
-      id: Utilities.getUuid(),
-      kind: kind, cat: cat, memo: memo, amount: Math.round(amount),
-      ts: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
-    };
-    sh.appendRow([rec.id, ym, storeKey, rec.kind, rec.cat, rec.memo, rec.amount, rec.ts]);
-    CacheService.getScriptCache().remove('dash_v2');
-    return { ok: true, rec: rec };
-  } finally {
-    lock.releaseLock();
-  }
-}
+// 旧 addLoss（単数・パスコード検証なし）は未使用のため削除。ロス登録は addLosses（複数・要パスコード）に一本化。
 
 /**
  * ロスを複数件まとめて登録する。
