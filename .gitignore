@@ -29,6 +29,11 @@ build/
 venv/
 env/
 
+# Node（CIのテストで一時的に生成。コミットしない）
+node_modules/
+package.json
+package-lock.json
+
 # OS
 .DS_Store
 Thumbs.db

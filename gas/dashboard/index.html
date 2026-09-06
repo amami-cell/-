@@ -2046,10 +2046,10 @@
     if (!miss.length) return;
     card.style.display = '';
     var h = document.createElement('div'); h.className = 'cardh';
-    h.textContent = '⚠️ 棚卸 未取得の店舗（' + curMonth + '・' + miss.length + '店）';
+    h.textContent = '⚠️ 棚卸 未入力の店舗（' + curMonth + '・' + miss.length + '店）';
     card.appendChild(h);
     var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
-    cap.textContent = '売上はあるのに棚卸金額が0（インフォマート未取得）の店舗です。下のボタンで該当店舗だけ再取得できます。';
+    cap.textContent = '売上はあるのに棚卸金額が入っていない店舗です。店長の入力待ち、または取得漏れの可能性。取得漏れなら下のボタンで該当店舗だけ再取得できます。';
     card.appendChild(cap);
     var names = document.createElement('div'); names.className = 'uf-names';
     miss.forEach(function (s) { var c = document.createElement('span'); c.className = 'uf-chip'; c.textContent = s.name; names.appendChild(c); });
@@ -2058,7 +2058,7 @@
     var btn = document.createElement('button'); btn.className = 'primary uf-btn';
     if (!ids.length) { btn.disabled = true; btn.textContent = '🔄 再取得（対象店舗IDを特定できませんでした）'; }
     else {
-      btn.textContent = '🔄 未取得の' + ids.length + '店をインフォマート再取得';
+      btn.textContent = '🔄 未入力の' + ids.length + '店をインフォマート再取得';
       btn.onclick = function () { openFetchModal('infomart', curMonth, { stores: ids, names: miss.map(function (s) { return s.name; }) }); };
     }
     card.appendChild(btn);
@@ -2270,7 +2270,7 @@
         var prevTurn = pv ? pv.turnover : null;
         vals.className = 'sr-vals three';
         vals.appendChild(mini('当月棚卸',
-          r.invCur === null ? '— 未取得' : yen(r.invCur),
+          r.invCur === null ? '— 未入力' : yen(r.invCur),
           r.turnover === null ? '' : '在庫 ' + days1(r.turnover) + '日分',
           { big: true, subCls: 'accent' }));
         vals.appendChild(mini('前月棚卸',
@@ -3320,7 +3320,7 @@
     if (storeIds) {
       var nm = (opts.names && opts.names.length) ? '（' + opts.names.slice(0, 6).join('、') + (opts.names.length > 6 ? ' 他' : '') + '）' : '';
       document.getElementById('fetchDesc').textContent =
-        ym + ' の' + what + 'を、未取得の ' + storeIds.length + ' 店舗' + nm + 'だけクラウドで再取得します（5〜15分）。他店舗のデータは変更しません。よろしいですか？';
+        ym + ' の' + what + 'を、未入力の ' + storeIds.length + ' 店舗' + nm + 'だけクラウドで再取得します（5〜15分）。他店舗のデータは変更しません。よろしいですか？';
     } else {
       document.getElementById('fetchDesc').textContent =
         ym + ' の' + what + 'を、全店舗ぶんクラウドで再集計してシートを最新に置き換えます（5〜15分）。よろしいですか？';
@@ -3372,6 +3372,10 @@
       })
       .saveGithubToken(PASS, token);
   };
+
+  // テスト用フック: 計算の純関数を公開（JS/Python計算一致テスト tools/tests/parity_calcm.js が使用）。
+  // 本番動作には影響しない。DATA を差し替えて calcM を直接呼べるようにするだけ。
+  try { window.__tanaCalc = { calcM: calcM, forecastM: forecastM, totalsOf: totalsOf, setData: function (d) { DATA = d; } }; } catch (e) {}
 
   load(false);
 })();
