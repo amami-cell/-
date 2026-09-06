@@ -6,6 +6,8 @@ credentials/
 *.json
 # ただしダッシュボードのマニフェストはコミットする（clasp自動デプロイに必要・秘密情報なし）
 !gas/dashboard/appsscript.json
+# テストのゴールデンケース（秘密情報なし・テストに必須）もコミットする
+!tools/tests/golden_cases.json
 
 # ダウンロードファイル（一時ファイル）
 downloads/
@@ -28,6 +30,11 @@ build/
 .venv/
 venv/
 env/
+
+# Node（CIのテストで一時的に生成。コミットしない）
+node_modules/
+package.json
+package-lock.json
 
 # OS
 .DS_Store

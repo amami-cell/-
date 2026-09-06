@@ -130,11 +130,16 @@ jobs:
           FOODIST_JOURNAL_USER_ID: ${{ secrets.FOODIST_JOURNAL_USER_ID }}
           FOODIST_JOURNAL_PASSWORD: ${{ secrets.FOODIST_JOURNAL_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+          # 自由入力はスクリプト本文へ直接展開せず env 経由で受け取る（シェルインジェクション対策）。
+          IN_MONTH: ${{ inputs.month }}
+          IN_FW_FROM: ${{ inputs.fw_from }}
+          IN_STORES: ${{ inputs.stores }}
+          IN_INTERIM: ${{ inputs.interim }}
         run: |
-          MONTH="${{ inputs.month }}"
-          FW_FROM="${{ inputs.fw_from }}"
+          MONTH="$IN_MONTH"
+          FW_FROM="$IN_FW_FROM"
           DAY=$(date +%d)
-          if [ "${{ inputs.interim }}" = "true" ]; then
+          if [ "$IN_INTERIM" = "true" ]; then
             # 手動テスト: 中間として取得（対象月が空なら当月）
             M="$MONTH"; [ -z "$M" ] && M=$(date +%Y-%m)
             echo "手動テスト: $M を中間取得"
@@ -147,14 +152,19 @@ jobs:
           elif [ -n "$FW_FROM" ]; then
             TO="$MONTH"
             [ -z "$TO" ] && TO=$(date -d "$(date +%Y-%m-01) -1 day" +%Y-%m)
-            STORES_ARG=""
-            [ -n "${{ inputs.stores }}" ] && STORES_ARG="--stores ${{ inputs.stores }}"
-            echo "FW一括取得: $FW_FROM 〜 $TO ${STORES_ARG:+（店舗: ${{ inputs.stores }}）}"
-            xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO" $STORES_ARG
+            if [ -n "$IN_STORES" ]; then
+              echo "FW一括取得: $FW_FROM 〜 $TO （店舗: $IN_STORES）"
+              xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO" --stores "$IN_STORES"
+            else
+              echo "FW一括取得: $FW_FROM 〜 $TO （全店舗）"
+              xvfb-run -a python main.py --foodist-all --from "$FW_FROM" --to "$TO"
+            fi
           else
-            ARGS=""
-            [ -n "$MONTH" ] && ARGS="--month $MONTH"
-            xvfb-run -a python main.py --foodist-only $ARGS
+            if [ -n "$MONTH" ]; then
+              xvfb-run -a python main.py --foodist-only --month "$MONTH"
+            else
+              xvfb-run -a python main.py --foodist-only
+            fi
           fi
 
       - name: インフォマート取得
@@ -165,15 +175,19 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
           # サービスアカウントはDriveに保存不可（Google仕様）のためアップロードを省略
           SKIP_DRIVE_UPLOAD: "1"
+          # 自由入力は env 経由で受け取る（シェルインジェクション対策）。
+          IN_MONTH: ${{ inputs.month }}
+          IN_STORES: ${{ inputs.stores }}
+          IN_INTERIM: ${{ inputs.interim }}
         run: |
           if [ -z "$INFOMART_USER_ID" ] || [ -z "$INFOMART_PASSWORD" ]; then
             echo "::error::INFOMART_USER_ID / INFOMART_PASSWORD が未設定です"
             exit 1
           fi
           ARGS=""
-          MONTH="${{ inputs.month }}"
+          MONTH="$IN_MONTH"
           DAY=$(date +%d)
-          if [ "${{ inputs.interim }}" = "true" ]; then
+          if [ "$IN_INTERIM" = "true" ]; then
             M="$MONTH"; [ -z "$M" ] && M=$(date +%Y-%m)
             ARGS="--month $M"
           elif [ "${{ github.event_name }}" = "schedule" ] && [ "$DAY" -ge 16 ] && [ "$DAY" -le 20 ]; then
@@ -184,9 +198,10 @@ jobs:
           fi
           # 特定店舗だけの再取得（未取得アラートからの再取得など）。手動実行のみ。
           # store_id をスペース区切りで受け取り、--stores に渡す（未指定なら全店舗）。
-          if [ -n "${{ inputs.stores }}" ] && [ "${{ github.event_name }}" != "schedule" ]; then
-            ARGS="$ARGS --stores ${{ inputs.stores }}"
-            echo "インフォマート店舗指定取得: ${{ inputs.stores }}"
+          # 値は env 経由なのでシェルへのコマンド注入は起きない（語分割で個々のIDになるだけ）。
+          if [ -n "$IN_STORES" ] && [ "${{ github.event_name }}" != "schedule" ]; then
+            ARGS="$ARGS --stores $IN_STORES"
+            echo "インフォマート店舗指定取得: $IN_STORES"
           fi
           xvfb-run -a python main.py $ARGS
 
@@ -242,7 +257,8 @@ jobs:
         if: always()
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
-        run: python tools/sheet_report.py "${{ inputs.month }}" || echo "::warning::シート内容チェックに失敗しました"
+          IN_MONTH: ${{ inputs.month }}
+        run: python tools/sheet_report.py "$IN_MONTH" || echo "::warning::シート内容チェックに失敗しました"
 
       # 成否に関わらずログ・スクリーンショットを保存（失敗時の原因調査用）
       - name: ログ・スクリーンショットの保存

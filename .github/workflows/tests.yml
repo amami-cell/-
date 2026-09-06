@@ -1,0 +1,51 @@
+name: 計算ロジックのテスト
+
+# 在庫計算(calcM/calc_fd)や通知ロジックを変えたときに、JS(アプリ)とPython(通知)の
+# 計算が食い違わないか（ドリフトしないか）を自動で検知する。公開リポなのでCIは無料。
+on:
+  push:
+    paths:
+      - 'gas/dashboard/index.html'
+      - 'tools/**'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    paths:
+      - 'gas/dashboard/index.html'
+      - 'tools/**'
+      - '.github/workflows/tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: tana-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  calc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Python側: calc_fd / tana_line の純関数をゴールデンケースで検証（google依存はテスト内でスタブ）
+      - name: Python 計算テスト（pytest）
+        run: |
+          pip install pytest
+          pytest tools/tests -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Playwright 準備
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0 >/dev/null 2>&1
+          npx playwright install chromium
+
+      # JS側: アプリの calcM を実ブラウザで走らせ、同じゴールデンケース＝Python calc_fd と一致するか検証
+      - name: JS calcM パリティ（Python calc_fd との一致）
+        run: node tools/tests/parity_calcm.js
