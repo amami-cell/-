@@ -563,8 +563,8 @@
         <div class="filters">
           <label class="grp">表示</label>
           <div class="seg seg-sm" id="wideSeg" title="全表示は横スクロールでF/Dを同時に見られます">
-            <button data-w="0">項目表示</button>
-            <button data-w="1" class="on">全表示（横スクロール）</button>
+            <button data-w="0" class="on">項目表示</button>
+            <button data-w="1">全表示（横スクロール）</button>
           </div>
         </div>
         <div class="filters" id="storeModeRow" style="margin-bottom:0">
@@ -788,7 +788,7 @@
   var DATA = null;
   var view = 'list';          // 'list' | 'store'
   var fdMode = 'FD';          // 'F' | 'D' | 'FD'
-  var storeWide = true;       // 店舗画面: false=かんたん表示 / true=全表示(横スクロール)【デフォルト】
+  var storeWide = false;      // 店舗画面: false=項目表示(かんたん)【デフォルト】/ true=全表示(横スクロール)。スマホは項目表示が既定
   var compactView = 'FD';     // かんたん表示の内訳: 'FD'=FD合計3列 / 'split'=F・D5列
   var pct2View = 'incl';      // 'incl'=2%込み表示 | 'excl'=2%なし表示
   var curMonth = '';
@@ -1318,7 +1318,7 @@
     var card = document.getElementById('costJudge');
     card.textContent = '';
     var h = document.createElement('div'); h.className = 'cardh';
-    h.textContent = '🏷 原価判定（予算比・' + modeLabel() + '）';
+    h.textContent = '🏷 原価判定（仕入ベース・予算比・' + modeLabel() + '）';
     card.appendChild(h);
 
     var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; });
@@ -2302,7 +2302,7 @@
           { cls: r.unknown === null ? '' : (r.unknown > 0 ? 'pos' : 'neg') }));
       } else {
         vals.className = 'sr-vals three';
-        vals.appendChild(mini('実使用金額',
+        vals.appendChild(mini('実使用(棚卸ベース)',
           r.actual === null ? '—' : yen(r.actual),
           r.actualRate !== null ? '売上比 ' + pct(r.actualRate) : ''));
         vals.appendChild(mini('理論原価',
