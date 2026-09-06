@@ -159,16 +159,6 @@
   .cj-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cj-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; font-variant-numeric: tabular-nums; }
   .rank-val.bad { color: var(--bad); } .rank-val.warn { color: var(--warn); } .rank-val.good { color: var(--good); }
-  /* 今月の要点（全社サマリー）: 要チェック件数を一目＋タップで該当タブへ */
-  .sum-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-  .sum-tile { border: 1px solid var(--border); border-radius: 12px; padding: 9px 11px; cursor: pointer; background: var(--surface); display: flex; flex-direction: column; gap: 1px; }
-  .sum-tile:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-  .sum-tile .n { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
-  .sum-tile .n small { font-size: 12px; font-weight: 700; margin-left: 1px; }
-  .sum-tile .l { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sum-tile.alert .n { color: var(--bad); }
-  .sum-tile.warn  .n { color: var(--warn); }
-  .sum-tile.ok    .n { color: var(--good); }
   /* 全社ヒートマップ */
   .hm-head, .hm-row { display: grid; grid-template-columns: 1fr 62px 62px 62px; gap: 6px; align-items: center; }
   .hm-head { font-size: 10px; color: var(--muted); padding: 2px 0 4px; }
@@ -2114,58 +2104,38 @@
     card.appendChild(btn);
   }
 
+  // 全社サマリー: やることハブと重複する件数タイルはやめ、ハブに無い全社KPI
+  // （不明ロス総額・予算達成店数）を1カードに集約。要点の共有ボタンは維持。
   function renderSummary() {
     var card = document.getElementById('summaryCard');
     card.textContent = '';
     var rows = computeStoreRows();
+    var t = totalsOf(curMonth);
 
-    // 棚卸未入力（売上があるのに棚卸金額なし＝0含む）。区分に依らず全体で判定（未入力タブと同じ）。
-    var pending = DATA.stores.filter(function (s) {
-      var m = (DATA.metrics[curMonth] || {})[s.key];
-      var hasSales = m && (m.sales || 0) > 0;
-      var iv = (DATA.inventory[curMonth] || {})[s.key];
-      var hasInv = !!iv && (((iv.food || 0) + (iv.drink || 0)) > 0);
-      return hasSales && !hasInv;
-    }).length;
-
-    // 原価オーバー（仕入率>予算比＝原価判定の🔴🟠）。予算未取得なら「—」。
-    var judged = rows.map(costJudge).filter(function (j) { return j !== null; });
-    var costOver = judged.length ? judged.filter(function (j) { return j === 'dev' || j === 'store'; }).length : null;
-
-    // 在庫回転 要確認（15日以上）
-    var turnBad = rows.filter(function (r) { return r.turnover !== null && r.turnover >= 15; }).length;
-    // 不明ロス 要確認（絶対値2%超）
-    var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; }).length;
+    var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; }).filter(function (x) { return x.j !== null; });
+    var okCount = judged.filter(function (x) { return x.j === 'ok'; }).length;
+    var over = judged.filter(function (x) { return x.j === 'dev' || x.j === 'store'; }).map(function (x) { return x.r; });
+    var turnBad = rows.filter(function (r) { return r.turnover !== null && r.turnover >= 15; });
+    var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; });
+    // 要確認店（原価オーバー・在庫回転・不明ロスのいずれか）をユニーク集計
+    var flagged = {}; over.concat(turnBad).concat(lossBad).forEach(function (r) { flagged[r.key] = 1; });
 
     var h = document.createElement('div'); h.className = 'cardh';
     h.style.display = 'flex'; h.style.alignItems = 'center';
     var ht = document.createElement('span'); ht.style.flex = '1'; ht.style.minWidth = '0';
-    ht.textContent = '📋 今月の要点（全社・' + curMonth + '・' + modeLabel() + '）';
+    ht.textContent = '📋 今月の全社サマリー（' + curMonth + '・' + modeLabel() + '）';
     var sb = document.createElement('button'); sb.className = 'small'; sb.style.flex = 'none'; sb.textContent = '📤 共有';
     sb.onclick = openReport;
     h.appendChild(ht); h.appendChild(sb);
     card.appendChild(h);
 
-    var grid = document.createElement('div'); grid.className = 'sum-grid';
-    function tile(count, label, tab, kind) {
-      var t = document.createElement('div'); t.className = 'sum-tile';
-      var isNum = (typeof count === 'number');
-      // 件数>0なら警告色（kind=warn/alert）、0なら良好色。数値なし(予算未取得等)は無色。
-      var extra = !isNum ? '' : (count > 0 ? (kind || 'alert') : 'ok');
-      if (extra) t.classList.add(extra);
-      var n = document.createElement('div'); n.className = 'n';
-      n.textContent = isNum ? String(count) : '—';
-      if (isNum) { var sm = document.createElement('small'); sm.textContent = '店'; n.appendChild(sm); }
-      var l = document.createElement('div'); l.className = 'l'; l.textContent = label;
-      t.appendChild(n); t.appendChild(l);
-      t.onclick = function () { gotoTab(tab); };
-      grid.appendChild(t);
-    }
-    tile(pending, '棚卸 未入力', 'pending', 'alert');
-    tile(costOver, '原価オーバー', 'cost', 'alert');
-    tile(turnBad, '在庫回転 要確認(15日〜)', 'highlight', 'alert');
-    tile(lossBad, '不明ロス 要確認(2%超)', 'highlight', 'alert');
-    card.appendChild(grid);
+    var w = document.createElement('div'); w.className = 'sr-vals';
+    w.appendChild(mini('不明ロス総額', t.unknown === null ? '—' : yen(t.unknown),
+      (t.unknown !== null && t.sales) ? '売上比 ' + pct(t.unknown / t.sales) : '',
+      { cls: t.unknown === null ? '' : (t.unknown > 0 ? 'pos' : 'neg') }));
+    w.appendChild(mini('予算達成', judged.length ? okCount + '/' + judged.length + '店' : '—',
+      '要確認 ' + Object.keys(flagged).length + '店'));
+    card.appendChild(w);
   }
 
   // ── 月次レポート共有（B）: 今月の要点をコピー／画像で店長グループへ ──────────
