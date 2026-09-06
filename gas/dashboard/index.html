@@ -537,6 +537,9 @@
         </div>
       </div>
 
+      <!-- ホームの主役: 当月のやること（同じ計算をやることタブと共用） -->
+      <div class="card" id="homeTodoCard"></div>
+
       <div class="card alert-card" id="unfetchedAlertCard" style="display:none"></div>
 
       <div class="card" id="summaryCard"></div>
@@ -1743,6 +1746,11 @@
     var el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+  // やること項目のジャンプ先。ホームからでも「やること」タブへ切替えてから該当カードへスクロール。
+  function goPending(id) {
+    if (view !== 'pending') { gotoTab('pending'); setTimeout(function () { scrollToCard(id); }, 80); }
+    else { scrollToCard(id); }
+  }
   // 当月のやること項目を計算（ハブ表示・下タブのバッジ件数で共用）
   function computeTodoItems() {
     var rows = computeStoreRows();
@@ -1780,12 +1788,12 @@
 
     var items = [];
     function push(cond, ic, kind, title, sub, count, action) { if (cond) items.push({ ic: ic, kind: kind, title: title, sub: sub, count: count, action: action }); }
-    push(stockPending.length, '📦', 'alert', '棚卸を入力', '売上はあるのに棚卸金額が未入力', stockPending.length, function () { scrollToCard('stockPendingCard'); });
+    push(stockPending.length, '📦', 'alert', '棚卸を入力', '売上はあるのに棚卸金額が未入力', stockPending.length, function () { goPending('stockPendingCard'); });
     push(costOver.length, '🏷', 'alert', '原価オーバーを確認', '仕入率が予算比をオーバー', costOver.length, function () { gotoTab('cost'); });
     push(landOver.length, '🔮', 'warn', '着地オーバー見込みに手を打つ', '中間ペースだと予算オーバーで着地しそう', landOver.length, function () { gotoTab('cost'); });
     push(turnBad.length, '📦', 'warn', '在庫回転を確認（15日〜）', '在庫を持ちすぎの可能性', turnBad.length, function () { gotoTab('highlight'); });
     push(lossBad.length, '❓', 'alert', '不明ロスを確認（2%超）', '棚卸・記録の精度に改善余地', lossBad.length, function () { gotoTab('highlight'); });
-    push(lossPending.length, '📝', 'warn', 'ロスを入力', '必要ロス・廃棄ロスが未登録', lossPending.length, function () { scrollToCard('pendingCard'); });
+    push(lossPending.length, '📝', 'warn', 'ロスを入力', '必要ロス・廃棄ロスが未登録', lossPending.length, function () { goPending('pendingCard'); });
     push(actionMissing.length, '🛠', 'warn', '改善アクションを記録', '要確認の店に打ち手が未記録', actionMissing.length, function () { openStore(actionMissing[0]); });
     return items;
   }
@@ -1799,8 +1807,9 @@
     else { el.style.display = 'none'; }
   }
 
-  function renderTodoHub() {
-    var card = document.getElementById('todoHubCard'); card.textContent = '';
+  function renderTodoHub(cardId) {
+    var card = document.getElementById(cardId || 'todoHubCard'); if (!card) return;
+    card.textContent = '';
     var h = document.createElement('div'); h.className = 'cardh';
     h.textContent = '✅ 当月のやること（' + curMonth + '・' + modeLabel() + '）';
     card.appendChild(h);
@@ -2241,6 +2250,7 @@
   }
 
   function renderList() {
+    renderTodoHub('homeTodoCard');   // ホームの主役: 当月のやること
     renderUnfetchedAlert();
     renderSummary();
     var t = totalsOf(curMonth);
