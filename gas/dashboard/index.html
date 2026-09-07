@@ -479,6 +479,23 @@
   .hm-mark { font-size: 9px; margin-right: 2px; opacity: .85; }
   .comp-seg.unknown { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
 
+  /* 店舗名クイック絞り込み（一覧・50店規模で調べやすく） */
+  .store-search { position: relative; flex: 1; min-width: 0; display: flex; align-items: center; }
+  .store-search .ss-ic { position: absolute; left: 10px; font-size: 13px; opacity: .6; pointer-events: none; }
+  .store-search input { flex: 1; min-width: 0; width: 100%; padding: 8px 32px 8px 30px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); }
+  .store-search .ss-x { position: absolute; right: 4px; border: none; background: transparent; color: var(--muted);
+    font-size: 18px; line-height: 1; padding: 4px 8px; border-radius: 8px; }
+  .ss-count { font-size: 12px; color: var(--muted); flex: none; white-space: nowrap; }
+
+  /* PC等ホバー可能デバイス: 押せる行をホバーで明示（操作性・発見性） */
+  @media (hover: hover) {
+    .ru-head:hover, .rv-item:hover, .todo-row:hover, .mv-row:hover, .rank-row:hover, .hm-row:hover, .cj-row:hover {
+      background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 8px;
+    }
+    .tabbar button:hover { color: var(--accent); }
+  }
+
   /* ═══ PC / タブレット（広い画面）: 横幅を活かして一覧性・操作性を上げる ═══
      モバイル(<900px)の見た目・操作は一切変えず、ここから下だけが効く。 */
   @media (min-width: 900px) {
@@ -584,6 +601,16 @@
             <button data-m="inv" class="on">棚卸</button>
             <button data-m="cost">原価・ロス</button>
           </div>
+        </div>
+        <div class="filters" style="margin-bottom:10px">
+          <label>絞り込み</label>
+          <div class="store-search">
+            <span class="ss-ic" aria-hidden="true">🔍</span>
+            <input type="text" id="storeSearch" placeholder="店舗名で検索" autocomplete="off"
+              enterkeyhint="search" aria-label="店舗名で検索">
+            <button type="button" id="storeSearchClear" class="ss-x" title="クリア" aria-label="検索をクリア" style="display:none">×</button>
+          </div>
+          <span class="ss-count" id="storeCount"></span>
         </div>
         <div class="filters" style="margin-bottom:10px">
           <label>並べ替え</label>
@@ -997,6 +1024,7 @@
 
   // ── 一覧画面 ─────────────────────────────────────────
   var listMetric = 'inv';   // 'inv'=棚卸 | 'cost'=原価・ロス
+  var storeQuery = '';      // 店舗名クイック絞り込み（一覧）
   var rankMetric = 'turnover';   // ランキングの指標
   var rollupAxis = 'brand';  // ロールアップ軸: 'brand' | 'area'
   var rollupOpen = {};       // 展開中のグループ名
@@ -2455,6 +2483,19 @@
     refreshSortOptions();
 
     var rows = computeStoreRows();
+    var total = rows.length;
+    // 店舗名で絞り込み（大文字小文字を無視。店舗キーの数字にも一致）
+    var q = storeQuery.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter(function (r) {
+        return (r.name && r.name.toLowerCase().indexOf(q) >= 0) || (r.key && String(r.key).toLowerCase().indexOf(q) >= 0);
+      });
+    }
+    // 件数表示＆クリアボタンの出し分け
+    var cnt = document.getElementById('storeCount');
+    if (cnt) cnt.textContent = q ? (rows.length + '/' + total + '店') : (total ? total + '店' : '');
+    var clr = document.getElementById('storeSearchClear');
+    if (clr) clr.style.display = q ? '' : 'none';
     rows.sort(function (a, b) {
       if (sortKey === 'name') { var c = a.name.localeCompare(b.name, 'ja'); return sortAsc ? c : -c; }
       var x = a[sortKey], y = b[sortKey];
@@ -2549,7 +2590,7 @@
 
     if (!rows.length) {
       var e = document.createElement('div'); e.className = 'empty';
-      e.textContent = 'この月のデータはありません';
+      e.textContent = q ? ('「' + storeQuery.trim() + '」に一致する店舗はありません') : 'この月のデータはありません';
       box.appendChild(e);
     }
     fitAll();
@@ -3434,6 +3475,12 @@
     renderList();
   });
   document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
+  (function () {
+    var si = document.getElementById('storeSearch');
+    if (si) si.addEventListener('input', function () { storeQuery = this.value; renderList(); });
+    var sx = document.getElementById('storeSearchClear');
+    if (sx) sx.onclick = function () { storeQuery = ''; if (si) { si.value = ''; si.focus(); } renderList(); };
+  })();
   document.getElementById('sortDirSeg').addEventListener('click', function (e) {
     var b = e.target.closest('button'); if (!b) return;
     sortAsc = (b.dataset.dir === 'asc');
