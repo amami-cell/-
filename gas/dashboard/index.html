@@ -157,6 +157,14 @@
   .rank-val { width: 78px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; flex: none; color: var(--ink-2); }
   .rank-val { color: var(--ink); font-weight: 600; }
   .mv-list { display: grid; gap: 2px; }
+  /* 要確認の店（全社横断リスト・本部モード） */
+  .rv-item { padding: 8px 0; border-bottom: 1px dashed var(--grid); cursor: pointer; }
+  .rv-item:last-child { border-bottom: none; }
+  .rv-item:active { opacity: .55; }
+  .rv-top { display: flex; align-items: center; gap: 8px; }
+  .rv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
+  .rv-chev { flex: none; color: var(--muted); font-size: 15px; }
+  .rv-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
   .mv-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--grid); cursor: pointer; }
   .mv-row:last-child { border-bottom: none; }
   .mv-row .mv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
@@ -618,6 +626,7 @@
         </div>
       </div>
       <div class="card" id="companyTrendCard"></div>
+      <div class="card" id="reviewCard"></div>
       <div class="card" id="rollupCard"></div>
       <div class="card" id="heatCard"></div>
       <div class="card" id="anomalyCard"></div>
@@ -1642,6 +1651,53 @@
     });
   }
 
+  // ── 要確認の店（本部モード強化）: 当月の基準に触れた店を理由つきで1画面に横断表示 ──
+  // 基準は全社サマリー「要確認」と同じ（原価オーバー=予算比 / 在庫回転15日〜 / 不明ロス±2%超）。
+  function renderReviewList() {
+    var card = document.getElementById('reviewCard'); card.textContent = '';
+    var rows = computeStoreRows();
+    var items = [];
+    rows.forEach(function (r) {
+      var reasons = [];
+      var j = costJudge(r);
+      if (j === 'dev') reasons.push({ t: '原価超(理論も)', sev: 3, cls: 'sig-bad' });
+      else if (j === 'store') reasons.push({ t: '原価超(仕入)', sev: 2, cls: 'sig-bad' });
+      if (r.turnover !== null && r.turnover >= 15) reasons.push({ t: '在庫回転' + days1(r.turnover) + '日', sev: 2, cls: 'sig-warn' });
+      if (r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2) reasons.push({ t: '不明ロス' + pct(r.unknownRate), sev: 2, cls: 'sig-bad' });
+      if (reasons.length) items.push({ key: r.key, name: r.name, reasons: reasons, score: reasons.reduce(function (s, x) { return s + x.sev; }, 0) });
+    });
+    items.sort(function (a, b) { return (b.reasons.length - a.reasons.length) || (b.score - a.score); });
+
+    var h = document.createElement('div'); h.className = 'cardh';
+    h.textContent = '🚨 要確認の店（全社・' + curMonth + '・' + modeLabel() + '）';
+    card.appendChild(h);
+    var cap = document.createElement('div'); cap.style.cssText = 'font-size:11px;color:var(--muted);margin:-4px 0 8px';
+    cap.textContent = '当月の基準に触れた店。原価は予算比、在庫回転は15日〜、不明ロスは±2%超。タップで詳細へ。';
+    card.appendChild(cap);
+
+    if (!items.length) {
+      var e = document.createElement('div'); e.className = 'empty'; e.style.padding = '6px 0';
+      e.textContent = '要確認の店はありません 🎉';
+      card.appendChild(e); return;
+    }
+    items.forEach(function (it) {
+      var box = document.createElement('div'); box.className = 'rv-item';
+      var top = document.createElement('div'); top.className = 'rv-top';
+      var nm = document.createElement('div'); nm.className = 'rv-name';
+      nm.textContent = it.name;
+      var cnt = document.createElement('span'); cnt.className = 'sig'; cnt.textContent = it.reasons.length + '件';
+      var chev = document.createElement('div'); chev.className = 'rv-chev'; chev.textContent = '›';
+      top.appendChild(nm); top.appendChild(cnt); top.appendChild(chev);
+      var chips = document.createElement('div'); chips.className = 'rv-chips';
+      it.reasons.forEach(function (rr) {
+        var c = document.createElement('span'); c.className = 'sig ' + rr.cls; c.textContent = rr.t; chips.appendChild(c);
+      });
+      box.appendChild(top); box.appendChild(chips);
+      box.onclick = (function (k) { return function () { openStore(k); }; })(it.key);
+      card.appendChild(box);
+    });
+  }
+
   function renderRollup(rows) {
     var card = document.getElementById('rollupCard'); card.textContent = '';
     var axisLbl = rollupAxis === 'area' ? 'エリア' : 'ブランド';
@@ -2018,6 +2074,7 @@
     var rows = computeStoreRows();
     if (!rows.length) {
       document.getElementById('companyTrendCard').textContent = '';
+      document.getElementById('reviewCard').textContent = '';
       document.getElementById('rollupCard').textContent = '';
       document.getElementById('heatCard').textContent = '';
       document.getElementById('anomalyCard').textContent = '';
@@ -2027,6 +2084,7 @@
       return;
     }
     renderCompanyTrend();
+    renderReviewList();
     renderRollup(rows);
     renderHeatmap(rows);
     renderAnomaly(rows);
