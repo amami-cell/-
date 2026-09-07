@@ -478,6 +478,27 @@
   /* ヒートマップ・原価構成を色以外でも区別できるように（色覚差・屋外対策）*/
   .hm-mark { font-size: 9px; margin-right: 2px; opacity: .85; }
   .comp-seg.unknown { background-image: repeating-linear-gradient(45deg, rgba(255,255,255,.35) 0 3px, transparent 3px 6px); }
+
+  /* ═══ PC / タブレット（広い画面）: 横幅を活かして一覧性・操作性を上げる ═══
+     モバイル(<900px)の見た目・操作は一切変えず、ここから下だけが効く。 */
+  @media (min-width: 900px) {
+    .wrap { max-width: 1240px; padding: 18px 20px 96px; }
+    /* 店舗一覧を2カラムに（縦スクロールを半分に・並べて比較しやすく） */
+    #storeList { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+    #storeList .srow { margin-bottom: 0; }
+    /* 本部系タブ（ランキング/原価判定/やること）の独立カードを2カラムのマソンリーに。
+       先頭の操作カード(ctrl-card)だけは全幅、以降のカードが2列に流れる。 */
+    #highlightView, #costView, #pendingView { column-count: 2; column-gap: 16px; }
+    #highlightView > .card, #costView > .card, #pendingView > .card { break-inside: avoid; }
+    #highlightView > .ctrl-card, #costView > .ctrl-card, #pendingView > .ctrl-card { column-span: all; }
+    /* 下タブバーは内容幅に合わせて中央寄せ（画面幅いっぱいの間延びを防ぐ） */
+    .tabbar { left: 50%; right: auto; transform: translateX(-50%); width: 100%; max-width: 1240px;
+      border: 1px solid var(--border); border-bottom: none; border-radius: 16px 16px 0 0; }
+  }
+  /* 特に広い画面: 店舗一覧を3カラム */
+  @media (min-width: 1400px) {
+    #storeList { grid-template-columns: 1fr 1fr 1fr; }
+  }
 </style>
 </head>
 <body>
