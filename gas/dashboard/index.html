@@ -407,7 +407,7 @@
   /* ロールアップ（エリア／ブランド別） */
   .ru-row { border-bottom: 1px dashed var(--grid); }
   .ru-row:last-child { border-bottom: none; }
-  .ru-head { display: flex; align-items: center; gap: 8px; padding: 9px 0 8px; cursor: pointer; }
+  .ru-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 9px 0 8px; cursor: pointer; }
   .ru-tw { width: 16px; flex: none; color: var(--muted); font-size: 11px; transition: transform .15s ease; }
   .ru-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 700; }
   .ru-name small { font-size: 11px; color: var(--muted); font-weight: 500; margin-left: 4px; }
@@ -1651,19 +1651,26 @@
     });
   }
 
-  // ── 要確認の店（本部モード強化）: 当月の基準に触れた店を理由つきで1画面に横断表示 ──
+  // ── 要確認の判定（本部モード共通）: 当月の基準に触れた理由を配列で返す ──
   // 基準は全社サマリー「要確認」と同じ（原価オーバー=予算比 / 在庫回転15日〜 / 不明ロス±2%超）。
+  // 要確認リストとエリア/ブランド別まとめの両方で使い、基準がズレないようにする。
+  function reviewReasons(r) {
+    var reasons = [];
+    var j = costJudge(r);
+    if (j === 'dev') reasons.push({ t: '原価超(理論も)', sev: 3, cls: 'sig-bad' });
+    else if (j === 'store') reasons.push({ t: '原価超(仕入)', sev: 2, cls: 'sig-bad' });
+    if (r.turnover !== null && r.turnover >= 15) reasons.push({ t: '在庫回転' + days1(r.turnover) + '日', sev: 2, cls: 'sig-warn' });
+    if (r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2) reasons.push({ t: '不明ロス' + pct(r.unknownRate), sev: 2, cls: 'sig-bad' });
+    return reasons;
+  }
+
+  // ── 要確認の店（本部モード強化）: 当月の基準に触れた店を理由つきで1画面に横断表示 ──
   function renderReviewList() {
     var card = document.getElementById('reviewCard'); card.textContent = '';
     var rows = computeStoreRows();
     var items = [];
     rows.forEach(function (r) {
-      var reasons = [];
-      var j = costJudge(r);
-      if (j === 'dev') reasons.push({ t: '原価超(理論も)', sev: 3, cls: 'sig-bad' });
-      else if (j === 'store') reasons.push({ t: '原価超(仕入)', sev: 2, cls: 'sig-bad' });
-      if (r.turnover !== null && r.turnover >= 15) reasons.push({ t: '在庫回転' + days1(r.turnover) + '日', sev: 2, cls: 'sig-warn' });
-      if (r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2) reasons.push({ t: '不明ロス' + pct(r.unknownRate), sev: 2, cls: 'sig-bad' });
+      var reasons = reviewReasons(r);
       if (reasons.length) items.push({ key: r.key, name: r.name, reasons: reasons, score: reasons.reduce(function (s, x) { return s + x.sev; }, 0) });
     });
     items.sort(function (a, b) { return (b.reasons.length - a.reasons.length) || (b.score - a.score); });
@@ -1739,6 +1746,8 @@
       if (g.budgetRate !== null && g.budgetPurchaseRate !== null && g.budgetPurchaseRate > g.budgetRate + EPS) score += 2;
       if (g.unknownRate !== null && Math.abs(g.unknownRate) * 100 > 2) score += 2;
       g.score = score;
+      // このグループで要確認（要確認リストと同一基準）に該当する店数
+      g.review = g.members.filter(function (m) { return reviewReasons(m).length > 0; }).length;
       return g;
     }).sort(function (a, b) { return (b.score - a.score) || (b.sales - a.sales); });
 
@@ -1761,7 +1770,13 @@
         sig = document.createElement('span'); sig.className = 'sig ' + (over ? 'sig-bad' : 'sig-good');
         sig.textContent = over ? '🔴予算超' : '🟢予算内';
       }
-      head.appendChild(tw); head.appendChild(nm); if (sig) head.appendChild(sig); head.appendChild(val);
+      // 要確認の店数（0なら非表示）。エリア/ブランドを「要注意店の多さ」で比較できる。
+      var rvSig = null;
+      if (g.review > 0) {
+        rvSig = document.createElement('span'); rvSig.className = 'sig sig-bad';
+        rvSig.textContent = '要確認' + g.review + '/' + g.members.length;
+      }
+      head.appendChild(tw); head.appendChild(nm); if (sig) head.appendChild(sig); if (rvSig) head.appendChild(rvSig); head.appendChild(val);
       head.onclick = (function (key) { return function () { rollupOpen[rollupAxis + '::' + key] = !rollupOpen[rollupAxis + '::' + key]; renderRollup(rows); }; })(g.name);
       wrap.appendChild(head);
 
