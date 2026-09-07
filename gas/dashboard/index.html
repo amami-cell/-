@@ -1566,17 +1566,23 @@
   // 仕入率・不明ロス率・予算達成店の割合を、スパークライン＋最新値＋前月差(pt)で。
   function companyMonthAgg(ym) {
     var sales = 0, purchase = 0, unknown = 0, hasU = false, ok = 0, judged = 0;
+    // 予算比は「予算のある店」だけで分子分母を揃える（rollupと同じ考え方）
+    var bSales = 0, bPurchase = 0, bCost = 0, hasBudget = false;
     DATA.stores.forEach(function (s) {
       var r = calcM(s.key, ym, fdMode); if (!r) return;
       sales += r.sales; purchase += r.purchase;
       if (r.unknown !== null) { unknown += r.unknown; hasU = true; }
       var j = costJudge(r); if (j !== null) { judged++; if (j === 'ok') ok++; }
+      if (r.budgetCost && r.budgetCost > 0) { bSales += r.sales; bPurchase += r.purchase; bCost += r.budgetCost; hasBudget = true; }
     });
+    // 予算との差 = 仕入率 − 予算比（予算のある店ベース）。正=予算オーバー。
+    var budgetGap = (hasBudget && bSales > 0) ? (bPurchase / bSales - bCost / bSales) : null;
     return {
       ym: ym,
       purchaseRate: sales ? purchase / sales : null,
       unknownRate: (sales && hasU) ? unknown / sales : null,
       okRate: judged ? ok / judged : null,
+      budgetGap: budgetGap,
       ok: ok, judged: judged
     };
   }
@@ -1639,6 +1645,12 @@
       label: '不明ロス率（全社）',
       series: aggs.map(function (a) { return a.unknownRate === null ? null : a.unknownRate * 100; }),
       fmtNow: function (v) { return v === null ? '—' : v.toFixed(1) + '%'; },
+      goodWhenDown: true
+    });
+    trendRow({
+      label: '予算との差（全社・仕入率−予算比）',
+      series: aggs.map(function (a) { return a.budgetGap === null ? null : a.budgetGap * 100; }),
+      fmtNow: function (v) { return v === null ? '—' : (v > 0 ? '+' : '') + v.toFixed(1) + 'pt'; },
       goodWhenDown: true
     });
     var lastAgg = aggs[aggs.length - 1];
