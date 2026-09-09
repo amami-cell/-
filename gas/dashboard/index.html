@@ -496,6 +496,16 @@
     .tabbar button:hover { color: var(--accent); }
   }
 
+  /* 一覧の表（テーブル）表示: 全店を1画面で一望・列見出しで並べ替え */
+  #storeList.as-table { display: block; }
+  .storetbl { width: 100%; }
+  .storetbl tr.head td.sortable { cursor: pointer; user-select: none; }
+  .storetbl tr.head td.sortable.active { color: var(--accent); font-weight: 700; }
+  .storetbl tbody tr { cursor: pointer; }
+  .storetbl td.st-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .storetbl .st-x { border: none; background: transparent; color: var(--accent); font-size: 14px; padding: 2px 6px; }
+  @media (hover: hover) { .storetbl tbody tr:hover td { background: color-mix(in srgb, var(--accent) 8%, transparent); } }
+
   /* ═══ PC / タブレット（広い画面）: 横幅を活かして一覧性・操作性を上げる ═══
      モバイル(<900px)の見た目・操作は一切変えず、ここから下だけが効く。 */
   @media (min-width: 900px) {
@@ -600,6 +610,11 @@
           <div class="seg seg-sm" id="metricSeg">
             <button data-m="inv" class="on">棚卸</button>
             <button data-m="cost">原価・ロス</button>
+          </div>
+          <span class="spacer"></span>
+          <div class="seg seg-sm" id="layoutSeg" title="カード表示／全店を並べた表表示を切替">
+            <button data-l="card" class="on">カード</button>
+            <button data-l="table">表</button>
           </div>
         </div>
         <div class="filters" style="margin-bottom:10px">
@@ -1025,6 +1040,8 @@
   // ── 一覧画面 ─────────────────────────────────────────
   var listMetric = 'inv';   // 'inv'=棚卸 | 'cost'=原価・ロス
   var storeQuery = '';      // 店舗名クイック絞り込み（一覧）
+  var listLayout = 'card';  // 一覧の表示: 'card'=カード / 'table'=全店の表
+  try { var _ll = localStorage.getItem('tanaListLayout'); if (_ll === 'table' || _ll === 'card') listLayout = _ll; } catch (e) {}
   var rankMetric = 'turnover';   // ランキングの指標
   var rollupAxis = 'brand';  // ロールアップ軸: 'brand' | 'area'
   var rollupOpen = {};       // 展開中のグループ名
@@ -1079,6 +1096,17 @@
       sortKey = SORTS[listMetric][0].k;
     }
     sel.value = sortKey;
+    // 並び順トグルの表示も現在の sortAsc に同期（表の見出しクリックからでも整合）
+    var dirSeg = document.getElementById('sortDirSeg');
+    if (dirSeg) dirSeg.querySelectorAll('button').forEach(function (x) {
+      x.classList.toggle('on', (x.dataset.dir === 'asc') === sortAsc);
+    });
+  }
+  // 並べ替えキーを適用（表の見出し・カードのプルダウン共通）。同キー再クリックで昇降を反転。
+  function applySort(k) {
+    if (sortKey === k) sortAsc = !sortAsc;
+    else { sortKey = k; sortAsc = (k === 'name'); }
+    renderList();
   }
 
   function mini(label, valText, subText, opts) {
@@ -2508,7 +2536,9 @@
 
     var box = document.getElementById('storeList');
     box.textContent = '';
-    rows.forEach(function (r) {
+    box.classList.toggle('as-table', listLayout === 'table');
+    if (listLayout === 'table' && rows.length) renderStoreTable(rows, box);
+    if (listLayout !== 'table') rows.forEach(function (r) {
       var row = document.createElement('div'); row.className = 'srow';
 
       var top = document.createElement('div'); top.className = 'sr-top';
@@ -2594,6 +2624,62 @@
       box.appendChild(e);
     }
     fitAll();
+  }
+
+  // ── 一覧の表（テーブル）表示: 全店を1画面で一望・列見出しで並べ替え ──
+  function renderStoreTable(rows, box) {
+    var isInv = (listMetric === 'inv');
+    // 列定義: key があれば見出しクリックで並べ替え可（SORTSと同一キー）
+    var cols = isInv ? [
+      { t: '店舗', key: 'name', name: true, cell: function (r) { return { text: r.name }; } },
+      { t: '判定', cell: function (r) { var s = turnSignal(r.turnover); return { sig: s }; } },
+      { t: '在庫回転', key: 'turnover', num: true, cell: function (r) { return { text: r.turnover === null ? '—' : days1(r.turnover) + '日' }; } },
+      { t: '当月棚卸', key: 'invCur', num: true, cell: function (r) { return { text: r.invCur === null ? '未入力' : yen(r.invCur) }; } },
+      { t: '前月棚卸', num: true, cell: function (r) { return { text: r.invPrev === null ? '—' : yen(r.invPrev) }; } },
+      { t: '不明ロス', num: true, cell: function (r) { return { text: r.unknown === null ? '—' : yen(r.unknown), cls: (r.unknown !== null && r.unknown > 0) ? 'pos' : '' }; } },
+    ] : [
+      { t: '店舗', key: 'name', name: true, cell: function (r) { return { text: r.name }; } },
+      { t: '判定', cell: function (r) { var s = lossSignal(r); return { sig: s }; } },
+      { t: '実使用比', key: 'actualRate', num: true, cell: function (r) { return { text: r.actualRate === null ? '—' : pct(r.actualRate) }; } },
+      { t: '理論原価比', key: 'theoryRate', num: true, cell: function (r) { return { text: r.theoryRate === null ? '—' : pct(r.theoryRate) }; } },
+      { t: '不明ロス比', key: 'unknownRate', num: true, cell: function (r) { return { text: r.unknownRate === null ? '—' : pct(r.unknownRate), cls: (r.unknownRate !== null && r.unknownRate > 0) ? 'pos' : '' }; } },
+    ];
+
+    var wrap = document.createElement('div'); wrap.className = 'table-scroll';
+    var tbl = document.createElement('table'); tbl.className = 'items storetbl';
+    var thead = document.createElement('thead'); var hr = document.createElement('tr'); hr.className = 'head';
+    cols.forEach(function (c) {
+      var td = document.createElement('td'); td.className = c.num ? 'num' : 'lbl';
+      td.textContent = c.t + (c.key && sortKey === c.key ? (sortAsc ? ' ▲' : ' ▼') : '');
+      if (c.key) {
+        td.classList.add('sortable');
+        if (sortKey === c.key) td.classList.add('active');
+        td.onclick = (function (k) { return function () { applySort(k); }; })(c.key);
+      }
+      hr.appendChild(td);
+    });
+    var hx = document.createElement('td'); hx.className = 'num'; hr.appendChild(hx);   // ✏列見出し（空）
+    thead.appendChild(hr); tbl.appendChild(thead);
+
+    var tb = document.createElement('tbody');
+    rows.forEach(function (r) {
+      var tr = document.createElement('tr');
+      tr.onclick = (function (k) { return function () { openStore(k); }; })(r.key);
+      cols.forEach(function (c) {
+        var td = document.createElement('td'); td.className = c.num ? 'num' : 'lbl';
+        if (c.name) td.classList.add('st-name');
+        var out = c.cell(r);
+        if (out.sig) { var sp = document.createElement('span'); sp.className = 'sig ' + out.sig.cls; sp.textContent = out.sig.emoji + ' ' + out.sig.label; td.appendChild(sp); }
+        else { td.textContent = out.text; if (out.cls) td.classList.add(out.cls); }
+        tr.appendChild(td);
+      });
+      var xtd = document.createElement('td'); xtd.className = 'num';
+      var xb = document.createElement('button'); xb.className = 'st-x'; xb.textContent = '✏'; xb.title = curMonth + ' のロスを入力';
+      xb.onclick = (function (k) { return function (ev) { ev.stopPropagation(); openLossModal(k, curMonth); }; })(r.key);
+      xtd.appendChild(xb); tr.appendChild(xtd);
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); wrap.appendChild(tbl); box.appendChild(wrap);
   }
 
   // ── 店舗画面 ─────────────────────────────────────────
@@ -3474,6 +3560,15 @@
     this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
     renderList();
   });
+  document.getElementById('layoutSeg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    listLayout = b.dataset.l;
+    try { localStorage.setItem('tanaListLayout', listLayout); } catch (err) {}
+    this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('on', x === b); });
+    renderList();
+  });
+  // 保存済みの表示（カード/表）を初期トグルへ反映
+  document.querySelectorAll('#layoutSeg button').forEach(function (x) { x.classList.toggle('on', x.dataset.l === listLayout); });
   document.getElementById('sortSel').onchange = function () { sortKey = this.value; renderList(); };
   (function () {
     var si = document.getElementById('storeSearch');
