@@ -38,6 +38,7 @@ INVENTORY_SHEET = "月次集計"
 LOSS_SHEET = "ロス記録"
 SETTINGS_SHEET = "店舗設定"
 SUBS_SHEET = "通知購読"
+STORE_MASTER_SHEET = "店舗マスタ"  # 任意。[インフォマート名, FWキー]があれば STORE_MAP を上書き/追加（dashboard.gsと同じ）
 
 # インフォマート店舗名 → FW店舗名（dashboard.gs STORE_MAP と同一）
 STORE_MAP = {
@@ -94,8 +95,29 @@ def prev_ym(ym):
     return f"{y}-{m:02d}"
 
 
+# 店舗マスタ(任意)を反映したインフォマート名→FWキー対応表。無ければハードコードのまま（挙動不変）。
+def _build_store_map(svc):
+    m = dict(STORE_MAP)
+    try:
+        vals = svc.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID, range=f"'{STORE_MASTER_SHEET}'!A:B",
+            valueRenderOption="UNFORMATTED_VALUE"
+        ).execute().get("values", [])
+        for i, row in enumerate(vals):
+            if i == 0 or len(row) < 2:
+                continue
+            raw = str(row[0]).strip()
+            key = str(row[1]).strip()
+            if raw and key:
+                m[raw] = key
+    except Exception:
+        pass  # シート未作成/読取失敗時はハードコードのまま
+    return m
+
+
 # ── データ読み込み（dashboard.gs getDashboardData と同じ組み立て）──────────────
 def load_data(svc):
+    store_map = _build_store_map(svc)
     metrics = defaultdict(dict)   # metrics[ym][store] = {field: val, kind}
     stores = set()
     field_by_sheet = {name: key for key, name in {
@@ -146,7 +168,7 @@ def load_data(svc):
         if len(ym) != 7 or ym[4] != "-":
             continue
         raw = str(row[1]).strip()
-        store = STORE_MAP.get(raw, raw)
+        store = store_map.get(raw, raw)
         inventory[ym][store] = {
             "food": _num(row[2]) if len(row) > 2 else 0,
             "drink": _num(row[3]) if len(row) > 3 else 0,

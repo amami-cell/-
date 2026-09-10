@@ -39,6 +39,8 @@ const NOTE_SHEET = '申し送り';        // 店舗×月のメモ（E）
 const ACTION_SHEET = '改善アクション';  // 要確認店への施策記録（F）
 const GROUP_SHEET = '店舗グループ';    // 店舗のエリア／ブランド分類（ロールアップ用）
 const TARGET_SHEET = '原価目標';       // 店舗ごとの目標原価率（%）
+const STORE_MASTER_SHEET = '店舗マスタ'; // 任意。[インフォマート名, FWキー] があれば STORE_MAP を上書き/追加（無ければ従来通り）
+const DATA_MONTHS_CAP = 24;            // 起動データは直近何か月分を返すか（全期間肥大・キャッシュ超過を防ぐ。トレンド/履歴に十分）
 
 const GH_OWNER = 'amami-cell';
 const GH_REPO = '-';
@@ -227,6 +229,26 @@ function doPost(e) {
 
 // ─── データ提供 ───────────────────────────────────────────────────────────────
 
+/** インフォマート表示名→FWキーの対応表。ハードコード STORE_MAP を基に、任意の
+ * 「店舗マスタ」シート([インフォマート名, FWキー])があれば上書き/追加する（無ければ従来通り）。
+ * 店舗追加のたびコードを直さず、シート1枚で一元管理できるようにするための橋渡し。 */
+function buildStoreMap_(ss) {
+  const map = {};
+  Object.keys(STORE_MAP).forEach(function (k) { map[k] = STORE_MAP[k]; });
+  try {
+    const sh = ss.getSheetByName(STORE_MASTER_SHEET);
+    if (sh) {
+      sh.getDataRange().getValues().forEach(function (row, i) {
+        if (i === 0) return; // ヘッダー
+        const raw = String(row[0] || '').trim();
+        const key = String(row[1] || '').trim();
+        if (raw && key) map[raw] = key;
+      });
+    }
+  } catch (e) { /* シート未作成や読取失敗時はハードコードのまま（挙動不変） */ }
+  return map;
+}
+
 /** 全データを返す（5分キャッシュ）。月・店舗・F/D切替はクライアント側で行う。 */
 function getDashboardData(pass, forceRefresh) {
   if (!verifyPass_(pass)) return { authError: true };
@@ -237,6 +259,7 @@ function getDashboardData(pass, forceRefresh) {
   }
 
   const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const storeMap = buildStoreMap_(ss);   // 店舗マスタ(任意)を反映した対応表
   const monthsSet = {};
   const storesSet = {};
   const metrics = {};   // metrics[ym][storeKey] = {sales, foodPurchase, ..., kind}
@@ -271,7 +294,7 @@ function getDashboardData(pass, forceRefresh) {
       const ym = String(row[0] || '').trim();
       if (!/^\d{4}-\d{2}$/.test(ym)) return;
       const rawName = String(row[1] || '').trim();
-      const storeKey = STORE_MAP[rawName] || rawName;
+      const storeKey = storeMap[rawName] || rawName;
       if (!inventory[ym]) inventory[ym] = {};
       inventory[ym][storeKey] = {
         food: Number(row[2]) || 0,
@@ -317,7 +340,14 @@ function getDashboardData(pass, forceRefresh) {
     });
   }
 
-  const months = Object.keys(monthsSet).sort();
+  // 起動データは直近 DATA_MONTHS_CAP か月に制限（全期間肥大＝キャッシュ100KB超で
+  // 黙って再読込→GASクォータ逼迫、を防ぐ）。トレンド6か月・履歴には十分な窓。
+  const allMonths = Object.keys(monthsSet).sort();
+  const months = allMonths.slice(-DATA_MONTHS_CAP);
+  const keepYm = {}; months.forEach(function (m) { keepYm[m] = true; });
+  function pickMonths_(byYm) {
+    const o = {}; Object.keys(byYm).forEach(function (m) { if (keepYm[m]) o[m] = byYm[m]; }); return o;
+  }
   const stores = Object.keys(storesSet).sort().map(function (key) {
     const idx = key.indexOf('_');
     return {
@@ -384,12 +414,12 @@ function getDashboardData(pass, forceRefresh) {
     updatedAt: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm'),
     months: months,
     stores: stores,
-    metrics: metrics,
-    inventory: inventory,
-    losses: losses,
+    metrics: pickMonths_(metrics),
+    inventory: pickMonths_(inventory),
+    losses: pickMonths_(losses),
     storeFlags: storeFlags,
-    notes: notes,
-    actions: actions,
+    notes: pickMonths_(notes),
+    actions: pickMonths_(actions),
     storeGroups: storeGroups,
     costTargets: costTargets,
     isDefaultPass: isDefaultPass_(),   // 初期パスコード(8888)のままなら変更をうながす
@@ -398,7 +428,8 @@ function getDashboardData(pass, forceRefresh) {
   try {
     cache.put('dash_v2', JSON.stringify(out), 300);
   } catch (e) {
-    // キャッシュ上限超過時は素通し
+    // キャッシュ上限超過など。素通しはするが、診断できるようログに残す（月レンジ制限で通常は起きない想定）。
+    try { Logger.log('getDashboardData: cache put skipped: ' + e); } catch (e2) {}
   }
   return out;
 }
