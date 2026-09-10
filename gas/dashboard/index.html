@@ -496,6 +496,12 @@
     .tabbar button:hover { color: var(--accent); }
   }
 
+  /* キーボードフォーカスを可視化（押せる行） */
+  .srow:focus-visible, .storetbl tbody tr:focus-visible, .todo-row:focus-visible, .rv-item:focus-visible,
+  .ru-head:focus-visible, .mv-row:focus-visible, .rank-row:focus-visible, .hm-row:focus-visible, .cj-row:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
+  }
+
   /* 一覧の表（テーブル）表示: 全店を1画面で一望・列見出しで並べ替え */
   #storeList.as-table { display: block; }
   .storetbl { width: 100%; }
@@ -914,6 +920,7 @@
   function fitAll() {
     document.querySelectorAll('.mini .mv, .mini .mr, .rank-val, .calc-grp .f-total, .items.compact td.num, .items.compact td.rate, .items.c5 td.num, .items.c5 td.rate')
       .forEach(function (e) { fitNum(e, 9); });
+    markA11y();   // 各描画の最後に押せる行へキーボード操作属性を付与（描画経路に依らず一貫）
   }
   function daysInMonth(ym) {
     var y = +ym.slice(0, 4), m = +ym.slice(5, 7);
@@ -3227,7 +3234,8 @@
     document.getElementById('costView').style.display = view === 'cost' ? '' : 'none';
     document.getElementById('pendingView').style.display = view === 'pending' ? '' : 'none';
     // 最上部バー: F/D/FD は一覧・ランキング・原価判定で表示、店舗ナビは店舗のみ
-    var modeVis = (view === 'list' || view === 'highlight' || view === 'cost');
+    // やること(pending)も件数・着地判定が F/D/FD に依存するため、切替バーを表示して整合させる
+    var modeVis = (view === 'list' || view === 'highlight' || view === 'cost' || view === 'pending');
     document.getElementById('listModeBar').style.display = modeVis ? '' : 'none';
     document.getElementById('storeNavBar').style.display = view === 'store' ? '' : 'none';
     // 下タブバー: 一覧(店舗詳細含む) / ランキング / 原価判定 / 未入力
@@ -3246,7 +3254,30 @@
     else if (view === 'pending') renderPending();
     else if (view === 'store') renderStore();
     else renderList();
+    markA11y();   // 押せる行にキーボード操作(role/tabindex)を付与
   }
+
+  // ── アクセシビリティ: 押せる行をキーボード/読み上げでも操作可能に ──
+  // これらのクラスはいずれも onclick を持つ「押せる行」。role=button と tabindex を付け、
+  // Enter/Space での実行を委譲リスナーで受ける（内側のボタン等は各自で処理させる）。
+  var A11Y_SEL = '.srow, .storetbl tbody tr, .todo-row, .rv-item, .ru-head, .mv-row, .rank-row, .hm-row, .cj-row';
+  function markA11y(root) {
+    try {
+      (root || document).querySelectorAll(A11Y_SEL).forEach(function (el) {
+        if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+      });
+    } catch (e) {}
+  }
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    var t = e.target; if (!t || !t.closest) return;
+    if (t.closest('button, input, select, textarea, a')) return;   // 内側の操作要素は各自で
+    var row = t.closest(A11Y_SEL);
+    if (!row) return;
+    e.preventDefault();
+    row.click();
+  });
 
   // F/D/FD 切替（一覧の #fdSeg）
   function syncModeSegs() {
