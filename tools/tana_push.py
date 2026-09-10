@@ -68,8 +68,15 @@ STORE_MAP = {
 
 
 def _num(v):
+    # UNFORMATTED_VALUE では数値はそのまま来る。整形文字列(¥/円/カンマ/％/全角)も一応剥がす。
+    if isinstance(v, bool):
+        return 0.0
+    if isinstance(v, (int, float)):
+        return float(v)
     try:
-        return float(str(v).replace(",", "").replace("%", "").strip() or 0)
+        s = (str(v).replace(",", "").replace("¥", "").replace("￥", "")
+             .replace("円", "").replace("%", "").replace("％", "").strip())
+        return float(s or 0)
     except Exception:
         return 0.0
 
@@ -100,7 +107,8 @@ def load_data(svc):
     for sheet_name, field in field_by_sheet.items():
         try:
             vals = svc.spreadsheets().values().get(
-                spreadsheetId=SPREADSHEET_ID, range=f"'{sheet_name}'!A:D"
+                spreadsheetId=SPREADSHEET_ID, range=f"'{sheet_name}'!A:D",
+                valueRenderOption="UNFORMATTED_VALUE"
             ).execute().get("values", [])
         except Exception:
             continue
@@ -126,7 +134,8 @@ def load_data(svc):
     inventory = defaultdict(dict)
     try:
         vals = svc.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID, range=f"'{INVENTORY_SHEET}'!A:E"
+            spreadsheetId=SPREADSHEET_ID, range=f"'{INVENTORY_SHEET}'!A:E",
+            valueRenderOption="UNFORMATTED_VALUE"
         ).execute().get("values", [])
     except Exception:
         vals = []
@@ -147,7 +156,8 @@ def load_data(svc):
     losses = defaultdict(lambda: defaultdict(list))
     try:
         vals = svc.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID, range=f"'{LOSS_SHEET}'!A:H"
+            spreadsheetId=SPREADSHEET_ID, range=f"'{LOSS_SHEET}'!A:H",
+            valueRenderOption="UNFORMATTED_VALUE"
         ).execute().get("values", [])
     except Exception:
         vals = []
@@ -164,7 +174,8 @@ def load_data(svc):
     store_flags = {}
     try:
         vals = svc.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID, range=f"'{SETTINGS_SHEET}'!A:B"
+            spreadsheetId=SPREADSHEET_ID, range=f"'{SETTINGS_SHEET}'!A:B",
+            valueRenderOption="UNFORMATTED_VALUE"
         ).execute().get("values", [])
     except Exception:
         vals = []
@@ -283,7 +294,8 @@ def msg_summary(rows, ym):
 def load_subscriptions(svc):
     try:
         vals = svc.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID, range=f"'{SUBS_SHEET}'!A:C"
+            spreadsheetId=SPREADSHEET_ID, range=f"'{SUBS_SHEET}'!A:C",
+            valueRenderOption="UNFORMATTED_VALUE"
         ).execute().get("values", [])
     except Exception:
         return []

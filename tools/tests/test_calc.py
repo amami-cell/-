@@ -71,6 +71,20 @@ def test_calc_fd_matches_golden():
         _check(case["name"], got, case["expected"])
 
 
+def test_num_parses_numbers_and_formatted_strings():
+    # UNFORMATTED_VALUE の数値はそのまま／整形文字列(¥・カンマ・％・全角)も剥がす。
+    from tana_push import _num
+    assert _num(1000) == 1000.0
+    assert _num(1234.5) == 1234.5
+    assert _num("¥1,000") == 1000.0
+    assert _num("￥2,500円") == 2500.0
+    assert _num("2.5%") == 2.5
+    assert _num("") == 0.0
+    assert _num(None) == 0.0
+    assert _num(True) == 0.0   # 真偽値は0扱い（金額列に紛れても事故らない）
+
+
 if __name__ == "__main__":
     test_calc_fd_matches_golden()
-    print("OK: calc_fd はゴールデンケースと一致")
+    test_num_parses_numbers_and_formatted_strings()
+    print("OK: calc_fd はゴールデンケースと一致 / _num パース健全")
