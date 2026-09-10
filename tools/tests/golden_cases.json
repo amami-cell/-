@@ -51,6 +51,16 @@
       "inventory": { "2026-05": { "food": 100000, "drink": 50000 }, "2026-06": { "food": 120000, "drink": 60000 } },
       "losses": {},
       "expected": { "theory": 270000, "turnover": 20.0, "actual": 270000, "unknown": 0, "purchaseRate": 0.30, "theoryRate": 0.27, "unknownRate": 0.0, "budgetRate": null }
+    },
+    {
+      "name": "理論原価ロス(手動加算)→ theoryに上乗せ",
+      "ym": "2026-06",
+      "prevYm": "2026-05",
+      "storeFlag": false,
+      "metrics": { "2026-06": { "sales": 1000000, "foodSales": 600000, "drinkSales": 400000, "foodPurchase": 200000, "drinkPurchase": 100000, "foodTheory": 180000, "drinkTheory": 90000, "budgetFoodCost": 0, "budgetDrinkCost": 0, "kind": "確定" } },
+      "inventory": { "2026-05": { "food": 100000, "drink": 50000 }, "2026-06": { "food": 120000, "drink": 60000 } },
+      "losses": { "2026-06": [ { "kind": "必要ロス", "amount": 5000 }, { "kind": "廃棄ロス", "amount": 3000 }, { "kind": "理論原価", "amount": 10000 } ] },
+      "expected": { "theory": 300000, "turnover": 18.0, "actual": 270000, "unknown": -38000, "purchaseRate": 0.30, "theoryRate": 0.30, "unknownRate": -0.038, "budgetRate": null }
     }
   ]
 }
