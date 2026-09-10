@@ -502,6 +502,14 @@
     outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 8px;
   }
 
+  /* 一覧上部の「詳細設定」折りたたみ（初期表示を短く・対象月は常時表示） */
+  .ctrl-more { border-top: 1px dashed var(--grid); margin-top: 4px; padding-top: 6px; }
+  .ctrl-more > summary { cursor: pointer; font-size: 12px; color: var(--muted); list-style: none; padding: 2px 0; user-select: none; }
+  .ctrl-more > summary::-webkit-details-marker { display: none; }
+  .ctrl-more > summary::before { content: '▸ '; }
+  .ctrl-more[open] > summary::before { content: '▾ '; }
+  .ctrl-more[open] .filters:first-of-type { margin-top: 8px; }
+
   /* 一覧の表（テーブル）表示: 全店を1画面で一望・列見出しで並べ替え */
   #storeList.as-table { display: block; }
   .storetbl { width: 100%; }
@@ -584,20 +592,23 @@
           <button class="small" id="mNext">▶</button>
           <span class="kind-badge" id="kindBadge" style="display:none">中間データ含む</span>
         </div>
-        <div class="filters">
-          <label class="grp">表示</label>
-          <div class="seg seg-sm" id="pctSeg" title="クレジット手数料2%を理論原価に乗せるかの表示切替">
-            <button data-p="incl" class="on">2%込み</button>
-            <button data-p="excl">2%なし</button>
+        <details class="ctrl-more">
+          <summary>詳細設定（2%表示・目標・取込）</summary>
+          <div class="filters">
+            <label class="grp">表示</label>
+            <div class="seg seg-sm" id="pctSeg" title="クレジット手数料2%を理論原価に乗せるかの表示切替">
+              <button data-p="incl" class="on">2%込み</button>
+              <button data-p="excl">2%なし</button>
+            </div>
+            <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙ 2%設定</button>
+            <button class="small" id="btnTargetSetup" title="店舗ごとの目標原価率を設定">🎯 目標</button>
           </div>
-          <button class="small" id="btnPctSetup" title="店舗ごとの2%込み済み設定">⚙ 2%設定</button>
-          <button class="small" id="btnTargetSetup" title="店舗ごとの目標原価率を設定">🎯 目標</button>
-        </div>
-        <div class="filters" style="margin-bottom:0">
-          <label class="grp">取込</label>
-          <button class="primary small" id="btnFwAll">⟳ FW</button>
-          <button class="primary small" id="btnImAll">⟳ インフォマート</button>
-        </div>
+          <div class="filters" style="margin-bottom:0">
+            <label class="grp">取込</label>
+            <button class="primary small" id="btnFwAll">⟳ FW</button>
+            <button class="primary small" id="btnImAll">⟳ インフォマート</button>
+          </div>
+        </details>
       </div>
 
       <!-- ホームの主役: 当月のやること（同じ計算をやることタブと共用） -->
@@ -739,7 +750,7 @@
   <!-- 下タブバー -->
   <nav class="tabbar" id="tabbar" style="display:none">
     <button data-tab="list" class="on"><span class="ic">📋</span><span>一覧</span></button>
-    <button data-tab="highlight"><span class="ic">🏅</span><span>ランキング</span></button>
+    <button data-tab="highlight"><span class="ic">📊</span><span>本部分析</span></button>
     <button data-tab="cost"><span class="ic">🏷</span><span>原価判定</span></button>
     <button data-tab="pending"><span class="ic">📝</span><span>やること</span><span class="tab-badge" id="todoBadge" style="display:none">0</span></button>
   </nav>
@@ -2386,11 +2397,8 @@
 
     var judged = rows.map(function (r) { return { r: r, j: costJudge(r) }; }).filter(function (x) { return x.j !== null; });
     var okCount = judged.filter(function (x) { return x.j === 'ok'; }).length;
-    var over = judged.filter(function (x) { return x.j === 'dev' || x.j === 'store'; }).map(function (x) { return x.r; });
-    var turnBad = rows.filter(function (r) { return r.turnover !== null && r.turnover >= 15; });
-    var lossBad = rows.filter(function (r) { return r.unknownRate !== null && Math.abs(r.unknownRate) * 100 > 2; });
-    // 要確認店（原価オーバー・在庫回転・不明ロスのいずれか）をユニーク集計
-    var flagged = {}; over.concat(turnBad).concat(lossBad).forEach(function (r) { flagged[r.key] = 1; });
+    // 「要確認」は本部タブの要確認リスト/まとめと同じ単一基準(reviewReasons)で数える（定義のブレ防止）
+    var flagged = {}; rows.forEach(function (r) { if (reviewReasons(r).length) flagged[r.key] = 1; });
 
     var h = document.createElement('div'); h.className = 'cardh';
     h.style.display = 'flex'; h.style.alignItems = 'center';
