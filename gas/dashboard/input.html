@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>棚卸 入力</title>
+<style>
+  :root{ --bg:#f6f7f9; --card:#fff; --line:#e5e7eb; --ink:#1f2937; --sub:#6b7280; --brand:#2563eb; --red:#dc2626; --ok:#16a34a; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif; font-size:15px; line-height:1.6; }
+  .wrap{ max-width:560px; margin:0 auto; padding:16px 14px 60px; }
+  h1{ font-size:18px; margin:4px 0 2px; }
+  .sub{ color:var(--sub); font-size:13px; margin-bottom:14px; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:14px; }
+  .muted{ color:var(--sub); font-size:13px; }
+  label{ display:block; font-size:12px; color:var(--sub); margin:6px 0 2px; }
+  select,input[type=text],input[type=number]{ width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font-size:16px; background:#fff; }
+  .row{ border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; background:#fafafa; }
+  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .btn{ display:inline-block; border:0; border-radius:9px; padding:11px 14px; font-size:15px; font-weight:600; cursor:pointer; }
+  .btn.primary{ background:var(--brand); color:#fff; width:100%; }
+  .btn.ghost{ background:#eef2ff; color:var(--brand); }
+  .btn.sm{ padding:6px 10px; font-size:13px; }
+  .btn.del{ background:#fef2f2; color:var(--red); }
+  .btn:disabled{ opacity:.55; cursor:default; }
+  .rowhead{ display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .item{ display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding:8px 0; gap:8px; }
+  .item:last-child{ border-bottom:0; }
+  .tag{ display:inline-block; font-size:11px; padding:1px 7px; border-radius:999px; background:#eef2ff; color:var(--brand); margin-right:6px; }
+  .tag.waste{ background:#fef2f2; color:var(--red); }
+  .tag.need{ background:#fff7ed; color:#b45309; }
+  .tag.theory{ background:#ecfeff; color:#0e7490; }
+  .amt{ font-variant-numeric:tabular-nums; font-weight:700; }
+  #msg{ margin:10px 0; padding:10px 12px; border-radius:8px; font-size:14px; display:none; }
+  #msg.ok{ background:#ecfdf5; color:var(--ok); display:block; }
+  #msg.err{ background:#fef2f2; color:var(--red); display:block; }
+  .center{ text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <script>
+    var STORE = '<?= STORE ?>';
+    var YM = '<?= YM ?>';
+    var TOKEN = '<?= TOKEN ?>';
+    var STORE_NAME = '<?= STORE_NAME ?>';
+    var VALID = '<?= VALID ?>';
+  </script>
+
+  <div id="invalid" class="card" style="display:none">
+    <h1>リンクが無効です</h1>
+    <p class="muted">このリンクは期限切れか、月・店舗が一致していません。最新の月のリンクをご利用いただくか、本部にお問い合わせください。</p>
+  </div>
+
+  <div id="app" style="display:none">
+    <h1 id="ttl">棚卸 入力</h1>
+    <div class="sub" id="ttlsub"></div>
+
+    <div class="card">
+      <div class="rowhead">
+        <b>ロス・理論原価を入力</b>
+        <button class="btn ghost sm" type="button" onclick="addRow()">＋行を追加</button>
+      </div>
+      <div class="muted" style="margin-bottom:8px">種別・区分（フード/ドリンク）・金額・内容を入れて「登録する」を押してください。何度でも追加できます。</div>
+      <div id="rows"></div>
+      <div id="msg"></div>
+      <button id="saveBtn" class="btn primary" type="button" onclick="save()">登録する</button>
+    </div>
+
+    <div class="card">
+      <div class="rowhead"><b id="curTtl">登録済み</b><span class="muted" id="curCount"></span></div>
+      <div id="cur" class="muted">読み込み中…</div>
+    </div>
+
+    <p class="center muted" style="font-size:12px">入力するとアプリに反映されます。金額は税抜など普段の入力ルールに合わせてください。</p>
+  </div>
+</div>
+
+<script>
+  var KINDS = ['廃棄ロス','必要ロス','理論原価'];
+  var CATS = ['フード','ドリンク'];
+  var TAGCLS = { '廃棄ロス':'waste', '必要ロス':'need', '理論原価':'theory' };
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function el(id){ return document.getElementById(id); }
+  function yen(n){ return '¥' + (Number(n)||0).toLocaleString('ja-JP'); }
+
+  function rowHtml(idx){
+    var opt=function(arr,sel){ return arr.map(function(v){ return '<option'+(v===sel?' selected':'')+'>'+v+'</option>'; }).join(''); };
+    return '<div class="row" data-i="'+idx+'">'+
+      '<div class="rowhead"><span class="muted">項目 '+(idx+1)+'</span>'+
+        '<button class="btn del sm" type="button" onclick="rmRow('+idx+')">削除</button></div>'+
+      '<div class="grid">'+
+        '<div><label>種別</label><select class="k">'+opt(KINDS)+'</select></div>'+
+        '<div><label>区分</label><select class="c">'+opt(CATS)+'</select></div>'+
+      '</div>'+
+      '<label>金額（円）</label><input class="a" type="number" inputmode="numeric" min="1" step="1" placeholder="例: 3000">'+
+      '<label>内容（メモ）</label><input class="m" type="text" maxlength="200" placeholder="例: キャベツ廃棄 / 賄い分 など">'+
+    '</div>';
+  }
+  var rowN=0;
+  function addRow(){ var d=document.createElement('div'); d.innerHTML=rowHtml(rowN++); el('rows').appendChild(d.firstChild); }
+  function rmRow(i){ var n=document.querySelector('.row[data-i="'+i+'"]'); if(n) n.parentNode.removeChild(n); if(!el('rows').children.length) addRow(); }
+
+  function collect(){
+    var out=[], rows=el('rows').querySelectorAll('.row');
+    for(var i=0;i<rows.length;i++){
+      var r=rows[i], a=r.querySelector('.a').value, m=r.querySelector('.m').value.trim();
+      if(a==='' && m==='') continue;   // 空行はスキップ
+      out.push({ kind:r.querySelector('.k').value, cat:r.querySelector('.c').value, amount:Number(a), memo:m });
+    }
+    return out;
+  }
+
+  function setMsg(t,cls){ var m=el('msg'); m.textContent=t; m.className=cls||''; if(!cls) m.style.display='none'; }
+
+  function save(){
+    var items=collect();
+    if(!items.length){ setMsg('入力された項目がありません。金額と内容を入れてください。','err'); return; }
+    var btn=el('saveBtn'); btn.disabled=true; btn.textContent='登録中…'; setMsg('');
+    var done=false;
+    var to=setTimeout(function(){ if(done) return; btn.disabled=false; btn.textContent='登録する'; setMsg('時間がかかっています。通信状況をご確認のうえ、もう一度お試しください。','err'); }, 20000);
+    google.script.run
+      .withSuccessHandler(function(res){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent='登録する';
+        if(res&&res.ok){ setMsg('✅ '+res.recs.length+'件を登録しました。','ok'); el('rows').innerHTML=''; rowN=0; addRow(); loadCur(); }
+        else { setMsg('登録できませんでした: '+((res&&res.message)||'不明なエラー'),'err'); } })
+      .withFailureHandler(function(e){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent='登録する'; setMsg('通信エラー: '+((e&&e.message)||''),'err'); })
+      .saveInputLosses(STORE, YM, TOKEN, items);
+  }
+
+  function delItem(id){
+    if(!confirm('この項目を削除しますか？')) return;
+    google.script.run
+      .withSuccessHandler(function(res){ if(res&&res.ok){ loadCur(); } else { alert('削除できませんでした: '+((res&&res.message)||'')); } })
+      .withFailureHandler(function(e){ alert('通信エラー: '+((e&&e.message)||'')); })
+      .deleteInputLoss(STORE, YM, TOKEN, id);
+  }
+  window.delItem=delItem;
+
+  function renderCur(items){
+    el('curCount').textContent = items.length ? (items.length+'件') : '';
+    if(!items.length){ el('cur').innerHTML='<span class="muted">まだありません。</span>'; return; }
+    var total=0;
+    var html=items.map(function(it){ total+=Number(it.amount)||0;
+      return '<div class="item"><div><span class="tag '+(TAGCLS[it.kind]||'')+'">'+esc(it.kind)+'</span>'+
+        '<span class="muted">'+esc(it.cat)+'</span><div>'+esc(it.memo)+'</div></div>'+
+        '<div style="text-align:right"><div class="amt">'+yen(it.amount)+'</div>'+
+        '<button class="btn del sm" type="button" onclick="delItem(\''+esc(it.id)+'\')">削除</button></div></div>'; }).join('');
+    el('cur').innerHTML = html + '<div class="item"><b>合計</b><b class="amt">'+yen(total)+'</b></div>';
+  }
+
+  function loadCur(){
+    el('cur').innerHTML='<span class="muted">読み込み中…</span>';
+    google.script.run
+      .withSuccessHandler(function(res){ if(res&&res.ok){ renderCur(res.items||[]); } else { el('cur').innerHTML='<span class="muted">読み込めませんでした。</span>'; } })
+      .withFailureHandler(function(e){ el('cur').innerHTML='<span class="muted">通信エラー。再読み込みしてください。</span>'; })
+      .getInputPageData(STORE, YM, TOKEN);
+  }
+
+  (function init(){
+    if(VALID!=='1'){ el('invalid').style.display='block'; return; }
+    el('app').style.display='block';
+    var m=YM.match(/^(\d{4})-(\d{2})$/);
+    el('ttl').textContent = STORE_NAME + ' 棚卸入力';
+    el('ttlsub').textContent = m ? (m[1]+'年'+(+m[2])+'月分') : YM;
+    el('curTtl').textContent = (m ? (+m[2])+'月' : YM) + ' の登録済み';
+    addRow();
+    loadCur();
+  })();
+</script>
+</body>
+</html>
