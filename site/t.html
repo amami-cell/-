@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>棚卸 入力</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #f6f7f9; }
+  #f { border: 0; width: 100%; height: 100%; display: block; }
+  #err { display: none; font-family: -apple-system, sans-serif; padding: 20px; color: #1f2937; line-height: 1.7; }
+  #err b { color: #dc2626; }
+</style>
+</head>
+<body>
+<!--
+  棚卸 入力ページの「iframe包み」。
+  直接 script.google.com/exec を開くと、複数Googleアカウント環境で
+  「ファイルを開けません」になることがあるため、Google以外のページ(GitHub Pages)に
+  GAS入力ページを全画面iframeで埋め込んで表示する（メインアプリと同じ方式）。
+  このページ自身の ?s=..&ym=..&t=.. をそのまま入力ページへ受け渡す。
+-->
+<iframe id="f" allow="clipboard-write"></iframe>
+<div id="err">
+  <h2>リンクが不完全です</h2>
+  <p>お手数ですが、本部から届いた<b>最新のリンク</b>をもう一度開いてください。</p>
+</div>
+<script>
+  (function () {
+    var EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+    var q = (location.search || '').replace(/^\?/, '');
+    // 最低限 s と t が無ければエラー表示（誤タップ・切れリンク対策）
+    if (!/(^|&)s=/.test(q) || !/(^|&)t=/.test(q)) {
+      document.getElementById('f').style.display = 'none';
+      document.getElementById('err').style.display = 'block';
+      return;
+    }
+    document.getElementById('f').src = EXEC + '?input=1' + (q ? ('&' + q) : '');
+  })();
+</script>
+</body>
+</html>

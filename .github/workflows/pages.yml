@@ -1,0 +1,42 @@
+name: Pages公開（入力ページ包み）
+
+# site/ を GitHub Pages に公開する。入力ページの「iframe包み」(t.html)を
+# Google以外のオリジンで配信し、複数Googleアカウント環境やLINEでも開けるようにする。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pagesを有効化・設定
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - name: 成果物をアップロード（site/）
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: デプロイ
+        id: deployment
+        uses: actions/deploy-pages@v4
