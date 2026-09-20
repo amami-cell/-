@@ -158,7 +158,73 @@ function inputPage_(e) {
   return out;
 }
 
-/** 入力ページの現在値（その店×月のロス/理論原価一覧）を返す。トークン必須。 */
+/** 'YYYY-MM' の前月。 */
+function prevYm_(ym) {
+  var y = parseInt(ym.slice(0, 4), 10), mo = parseInt(ym.slice(5, 7), 10);
+  return Utilities.formatDate(new Date(y, mo - 2, 1), 'Asia/Tokyo', 'yyyy-MM');
+}
+/** その月の日数。 */
+function daysInMonth_(ym) {
+  var y = parseInt(ym.slice(0, 4), 10), mo = parseInt(ym.slice(5, 7), 10);
+  return new Date(y, mo, 0).getDate();
+}
+
+/**
+ * 入力ページ用: その店×月の「棚数値の土台」を返す（FD合算）。
+ * ロス（廃棄/必要/理論原価）は含めず、クライアント側で下書きと合算して即時計算する。
+ * 理論原価は会社ルールの2%込み（inc2でないなら売上×2%を加算）に正規化して返す。
+ */
+function inputMetrics_(store, ym) {
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var m = {}; var kind = '';
+  Object.keys(METRIC_SHEETS).forEach(function (k) {
+    var sh = ss.getSheetByName(METRIC_SHEETS[k]);
+    if (!sh || sh.getLastRow() < 2) { m[k] = 0; return; }
+    var v = sh.getDataRange().getValues();
+    for (var i = 1; i < v.length; i++) {
+      if (String(v[i][0]).trim() === ym && String(v[i][1]).trim() === store) {
+        var kd = String(v[i][3] || '').trim();
+        if (m[k] === undefined || kd === '確定') { m[k] = Number(v[i][2]) || 0; if (kd) kind = kd; }
+      }
+    }
+    if (m[k] === undefined) m[k] = 0;
+  });
+  // 棚卸高（月次集計）: 当月・前月。店舗マスタ(任意)で表記ゆれを吸収。
+  var storeMap = buildStoreMap_(ss);
+  var pym = prevYm_(ym);
+  var invCur = null, invPrev = null;
+  var invSheet = ss.getSheetByName(INVENTORY_SHEET);
+  if (invSheet && invSheet.getLastRow() > 1) {
+    var iv = invSheet.getDataRange().getValues();
+    for (var j = 1; j < iv.length; j++) {
+      var iym = String(iv[j][0]).trim();
+      var skey = storeMap[String(iv[j][1]).trim()] || String(iv[j][1]).trim();
+      if (skey !== store) continue;
+      var val = (Number(iv[j][2]) || 0) + (Number(iv[j][3]) || 0);   // フード+ドリンク
+      if (iym === ym) invCur = val; else if (iym === pym) invPrev = val;
+    }
+  }
+  // 2%込みフラグ
+  var inc2 = false;
+  var setSheet = ss.getSheetByName(SETTINGS_SHEET);
+  if (setSheet && setSheet.getLastRow() > 1) {
+    var sv = setSheet.getDataRange().getValues();
+    for (var s = 1; s < sv.length; s++) {
+      if (String(sv[s][0]).trim() === store) { inc2 = (sv[s][1] === true || String(sv[s][1]).toUpperCase() === 'TRUE'); break; }
+    }
+  }
+  var sales = m.sales || 0;
+  var purchase = (m.foodPurchase || 0) + (m.drinkPurchase || 0);
+  var theory = (m.foodTheory || 0) + (m.drinkTheory || 0);
+  if (!inc2) theory += ((m.foodSales || 0) + (m.drinkSales || 0)) * 0.02;  // 2%込みに正規化
+  var hasData = !!(sales || purchase || theory || invCur !== null);
+  return {
+    hasData: hasData, sales: sales, purchase: purchase, theoryBase: Math.round(theory),
+    invCur: invCur, invPrev: invPrev, days: daysInMonth_(ym), interim: (kind === '中間')
+  };
+}
+
+/** 入力ページの現在値（その店×月のロス/理論原価一覧＋棚数値の土台）を返す。トークン必須。 */
 function getInputPageData(store, ym, token) {
   if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です（月やリンクをご確認ください）' };
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -169,11 +235,13 @@ function getInputPageData(store, ym, token) {
     for (var i = 1; i < v.length; i++) {
       var r = v[i];
       if (String(r[1]) === ym && String(r[2]) === store) {
-        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || '') });
+        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || ''), name: String(r[8] || '') });
       }
     }
   }
-  return { ok: true, store: store, storeName: storeDisplayName_(store), ym: ym, items: items };
+  var metrics = null;
+  try { metrics = inputMetrics_(store, ym); } catch (er) { metrics = null; }
+  return { ok: true, store: store, storeName: storeDisplayName_(store), ym: ym, items: items, metrics: metrics };
 }
 
 /** 委任入力からロス/理論原価を登録する。トークン必須（管理パスコード不要）。 */
@@ -642,6 +710,7 @@ function getDashboardData(pass, forceRefresh) {
         memo: String(row[5] || ''),
         amount: Number(row[6]) || 0,
         ts: String(row[7] || ''),
+        name: String(row[8] || ''),
       });
     });
   }
@@ -822,7 +891,10 @@ function lossSheet_(ss) {
   let sh = ss.getSheetByName(LOSS_SHEET);
   if (!sh) {
     sh = ss.insertSheet(LOSS_SHEET);
-    sh.appendRow(['ID', '年月', '店舗', '種別', '区分', '内容', '金額', '登録日時']);
+    sh.appendRow(['ID', '年月', '店舗', '種別', '区分', '内容', '金額', '登録日時', '担当者']);
+  } else if (sh.getLastColumn() < 9) {
+    // 既存シートに担当者列が無ければ見出しを補う（過去データはそのまま）。
+    sh.getRange(1, 9).setValue('担当者');
   }
   return sh;
 }
@@ -840,7 +912,7 @@ function addLosses(pass, storeKey, ym, kind, items) {
   if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
   if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
   // 全項目に同じ種別を付けて共通処理へ（従来どおり addLosses は単一種別）。
-  var withKind = (items || []).map(function (it) { it = it || {}; return { kind: kind, cat: it.cat, memo: it.memo, amount: it.amount }; });
+  var withKind = (items || []).map(function (it) { it = it || {}; return { kind: kind, cat: it.cat, memo: it.memo, amount: it.amount, name: it.name }; });
   return writeLossItems_(storeKey, ym, withKind);
 }
 
@@ -864,12 +936,15 @@ function writeLossItems_(storeKey, ym, items) {
     const kind = String(it.kind || '').trim();
     const cat = String(it.cat || '').trim();
     const memo = String(it.memo || '').trim().slice(0, 200);
+    const name = String(it.name || '').trim().slice(0, 40);
     const amount = Number(it.amount);
     if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: (i + 1) + '行目: 種別が不正です' };
     if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: (i + 1) + '行目: 区分が不正です' };
-    if (!memo) return { ok: false, message: (i + 1) + '行目: 内容を入力してください' };
+    if (!memo) return { ok: false, message: (i + 1) + '行目: ' + (kind === '理論原価' ? '変更理由' : '内容') + 'を入力してください' };
+    // 理論原価の打ち換えは「誰が変更したか」を残すため担当者名を必須にする。
+    if (kind === '理論原価' && !name) return { ok: false, message: (i + 1) + '行目: 理論原価の変更には担当者名が必要です' };
     if (!isFinite(amount) || amount <= 0) return { ok: false, message: (i + 1) + '行目: 金額は1円以上で入力してください' };
-    recs.push({ id: Utilities.getUuid(), kind: kind, cat: cat, memo: memo, amount: Math.round(amount), ts: ts });
+    recs.push({ id: Utilities.getUuid(), kind: kind, cat: cat, memo: memo, amount: Math.round(amount), ts: ts, name: name });
   }
 
   const lock = LockService.getScriptLock();
@@ -877,8 +952,8 @@ function writeLossItems_(storeKey, ym, items) {
   try {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sh = lossSheet_(ss);
-    const rows = recs.map(function (r) { return [r.id, ym, storeKey, r.kind, r.cat, r.memo, r.amount, r.ts]; });
-    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+    const rows = recs.map(function (r) { return [r.id, ym, storeKey, r.kind, r.cat, r.memo, r.amount, r.ts, r.name || '']; });
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
     CacheService.getScriptCache().remove('dash_v2');
     return { ok: true, recs: recs };
   } finally {

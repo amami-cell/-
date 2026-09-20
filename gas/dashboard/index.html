@@ -2480,6 +2480,28 @@
   // URLはサーバ側で署名するため取得が必要。店舗を開いた時に先読みしておき、
   // タップ時は即コピー（＝iOS等でもユーザー操作直後に同期コピーできる）。
   var inputLinkCache = {};   // { storeKey: { ym: url } }
+  function storeNameOf(key) {
+    var s = (DATA.stores || []).filter(function (x) { return x.key === key; })[0];
+    if (s) return s.name;
+    var i = String(key).indexOf('_'); return i > 0 ? key.slice(i + 1) : key;
+  }
+  // 催促メッセージ: その月の棚数値（理論原価・棚卸高・不明ロス・回転）＋入力URL。
+  function catchupMessage(store, ym, url) {
+    var r = calcM(store, ym, 'FD');
+    var mm = String(ym).match(/^(\d{4})-(\d{2})$/);
+    var L = ['【' + storeNameOf(store) + '】' + (mm ? (mm[1] + '年' + (+mm[2]) + '月') : ym) + ' 棚卸'];
+    if (!r) { L.push('まだ棚卸データがありません。'); }
+    else {
+      if (r.theory) L.push('理論原価: ' + yen(r.theory) + (r.theoryRate != null ? '（売上比 ' + (r.theoryRate * 100).toFixed(1) + '%）' : ''));
+      if (r.invCur != null) L.push('棚卸高: ' + yen(r.invCur));
+      if (r.actual != null) L.push('実際原価: ' + yen(r.actual));
+      if (r.unknown != null) L.push('不明ロス: ' + yen(r.unknown) + (r.unknownRate != null ? '（売上比 ' + (r.unknownRate * 100).toFixed(1) + '%）' : ''));
+      if (r.turnover != null) L.push('在庫回転: ' + r.turnover.toFixed(1) + '日');
+    }
+    L.push('▼ロス・理論原価の入力/修正はこちら（この店・この月専用）');
+    L.push(url);
+    return L.join('\n');
+  }
   function prefetchInputLinks(store) {
     if (!store || inputLinkCache[store]) return;
     google.script.run
@@ -2489,7 +2511,7 @@
   }
   function copyInputUrl(store, ym, btn) {
     var cached = inputLinkCache[store] && inputLinkCache[store][ym];
-    if (cached) { copyToClipboard(cached, '入力URLをコピーしました（担当者へ送れます）'); return; }
+    if (cached) { copyToClipboard(catchupMessage(store, ym, cached), '棚数値＋入力URLをコピー（担当者へ送れます）'); return; }
     var orig = btn.textContent; btn.disabled = true; btn.textContent = '取得中…';
     google.script.run
       .withSuccessHandler(function (res) {
@@ -2497,7 +2519,7 @@
         if (res && res.ok && res.links && res.links[ym]) {
           if (!inputLinkCache[store]) inputLinkCache[store] = {};
           for (var k in res.links) inputLinkCache[store][k] = res.links[k];
-          copyToClipboard(res.links[ym], '入力URLをコピーしました（担当者へ送れます）');
+          copyToClipboard(catchupMessage(store, ym, res.links[ym]), '棚数値＋入力URLをコピー（担当者へ送れます）');
         } else if (res && res.authError) { toast('パスワードエラー'); }
         else { toast('URLを取得できませんでした'); }
       })
@@ -3065,7 +3087,7 @@
         list.forEach(function (l) {
           var it = document.createElement('div'); it.className = 'loss-item';
           var c1 = document.createElement('span'); c1.className = 'cat'; c1.textContent = l.cat;
-          var c2 = document.createElement('span'); c2.className = 'memo'; c2.textContent = l.memo;
+          var c2 = document.createElement('span'); c2.className = 'memo'; c2.textContent = l.memo + (l.name ? '（' + l.name + '）' : '');
           var c3 = document.createElement('span'); c3.className = 'amt'; c3.textContent = yen(l.amount);
           var del = document.createElement('button'); del.className = 'del'; del.textContent = '✕';
           del.title = '削除';
@@ -3084,7 +3106,7 @@
       lb.appendChild(addBtn);
       // 催促用: この店・この月の入力URLをコピー（担当者に送ってロス/理論原価を入力してもらう）
       var urlBtn = document.createElement('button'); urlBtn.className = 'btn-copyurl';
-      urlBtn.textContent = '🔗 入力URLをコピー（催促用）';
+      urlBtn.textContent = '🔗 催促メッセージをコピー（棚数値＋入力URL）';
       (function (ymC) { urlBtn.onclick = function () { copyInputUrl(curStore, ymC, urlBtn); }; })(ym);
       lb.appendChild(urlBtn);
       card.appendChild(lb);
@@ -3109,6 +3131,17 @@
     var t = document.createElement('div'); t.className = 'title';
     t.textContent = ym + ' の' + kind + (isTheory ? 'を追加（理由つき・複数OK）' : 'を登録（複数まとめて入力OK）');
     f.appendChild(t);
+
+    // 理論原価の打ち換えは「誰が変更したか」を残すため担当者名を必須にする。
+    var nameInput = null;
+    if (isTheory) {
+      var nrow = document.createElement('div'); nrow.className = 'lr-line';
+      var nlab = document.createElement('span'); nlab.className = 'op'; nlab.textContent = '担当者';
+      nameInput = document.createElement('input'); nameInput.type = 'text'; nameInput.maxLength = 40;
+      nameInput.placeholder = '変更した人の名前（必須）'; nameInput.className = 'f-name';
+      nameInput.addEventListener('input', function () { nameInput.classList.remove('invalid'); });
+      nrow.appendChild(nlab); nrow.appendChild(nameInput); f.appendChild(nrow);
+    }
 
     var itemsWrap = document.createElement('div');
     itemsWrap.style.cssText = 'display:flex;flex-direction:column;gap:6px;min-width:0';
@@ -3199,6 +3232,12 @@
       });
       if (hasInvalid) { msg.className = 'msg err'; msg.textContent = 'ピンクの欄が打ち込めていません。埋めてから更新してください'; return; }
       if (!items.length) { msg.className = 'msg err'; msg.textContent = '1件も入力されていません'; return; }
+      // 理論原価の変更は担当者名を必須にする（誰が変えたか記録）
+      if (isTheory) {
+        var who = nameInput ? nameInput.value.trim() : '';
+        if (!who) { nameInput.classList.add('invalid'); msg.className = 'msg err'; msg.textContent = '担当者名を入力してください（理論原価の変更に必要）'; nameInput.focus(); return; }
+        items.forEach(function (it) { it.name = who; });
+      }
       save.disabled = true;
       msg.className = 'msg'; msg.textContent = items.length + '件を登録中…';
       google.script.run
