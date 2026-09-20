@@ -1,0 +1,38 @@
+name: 診断 デプロイ一覧
+
+# 稼働中のデプロイ構成を調べるための一時的な診断ワークフロー（手動実行のみ）。
+# clasp deployments を表示して、Webアプリの /exec がどのデプロイか・版ずれが無いかを確認する。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: clasp をインストール
+        run: npm install -g @google/clasp@2.4.2
+      - name: 認証情報を復元
+        env:
+          RC: ${{ secrets.CLASPRC_JSON }}
+        run: printf '%s' "$RC" > "$HOME/.clasprc.json"
+      - name: .clasp.json を作成
+        working-directory: gas/dashboard
+        env:
+          SID: ${{ secrets.CLASP_SCRIPT_ID }}
+        run: printf '{"scriptId":"%s","rootDir":"."}' "$SID" > .clasp.json
+      - name: デプロイ一覧
+        working-directory: gas/dashboard
+        run: |
+          echo "===== clasp deployments ====="
+          clasp deployments || true
+          echo "===== versions ====="
+          clasp versions || true
