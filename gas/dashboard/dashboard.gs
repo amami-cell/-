@@ -83,6 +83,8 @@ function doGet(e) {
   if (e && e.parameter && e.parameter.input) return inputPage_(e);
   // 月次LINE送信用: 各店舗の入力リンクを返すJSONエンドポイント（キーで保護）。
   if (e && e.parameter && e.parameter.links) return inputLinksEndpoint_(e);
+  // セットアップ支援ページ（要パスコード）: 設定すべき値を表示し、宛先シートも自動用意する。
+  if (e && e.parameter && e.parameter.setup === 'links') return setupPage_(e);
   // GASはコンテンツを別オリジンのiframe内で描画するため、iOSではiframe内の
   // localStorage（保存パスコード）が保持されず毎回ログインになる。対策として
   // URLに ?p=パスコード を付けておくと、それを画面に埋め込んで自動ログインする。
@@ -233,14 +235,87 @@ function inputLinks_(ym) {
   return { ok: true, ym: ym, base: base, stores: stores };
 }
 
-/** links エンドポイント本体。INPUT_LINKS_KEY 必須（未設定なら拒否＝fail-closed）。 */
+/** links エンドポイントの認証キー。未設定なら自動生成して保存（セットアップを楽にする）。 */
+function inputLinksKey_() {
+  var pp = PropertiesService.getScriptProperties();
+  var k = pp.getProperty(INPUT_LINKS_KEY_PROP);
+  if (!k) { k = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8); pp.setProperty(INPUT_LINKS_KEY_PROP, k); }
+  return k;
+}
+
+/** links エンドポイント本体。キー必須（一致しなければ拒否＝fail-closed）。 */
 function inputLinksEndpoint_(e) {
-  var need = PropertiesService.getScriptProperties().getProperty(INPUT_LINKS_KEY_PROP) || '';
-  if (!need) return jsonOut_({ ok: false, error: 'INPUT_LINKS_KEY 未設定（スクリプトプロパティに設定してください）' });
+  var need = inputLinksKey_();
   if (String(e.parameter.k || '') !== need) return jsonOut_({ ok: false, error: 'forbidden' });
   var ym = String(e.parameter.ym || '');
   if (!/^\d{4}-\d{2}$/.test(ym)) return jsonOut_({ ok: false, error: 'bad-ym（?ym=YYYY-MM）' });
   try { return jsonOut_(inputLinks_(ym)); } catch (err) { return jsonOut_({ ok: false, error: String(err) }); }
+}
+
+// 月次LINE送信の店舗↔グループ対応シート（Python: tools/tana_month.py が読む）。
+const LINE_STORE_DEST_SHEET = '店舗LINE宛先';
+
+/** 「店舗LINE宛先」シートを用意する。無ければ作成し、現在の店舗名を1列目に前入れ（グループIDは空）。 */
+function ensureStoreDestSheet_(ss) {
+  var sh = ss.getSheetByName(LINE_STORE_DEST_SHEET);
+  var created = false;
+  if (!sh) {
+    sh = ss.insertSheet(LINE_STORE_DEST_SHEET);
+    sh.appendRow(['店舗', 'グループID']);
+    created = true;
+  }
+  // 既存の店舗表記を集める（重複前入れを防ぐ）
+  var have = {};
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().forEach(function (r) { var v = String(r[0] || '').trim(); if (v) have[v] = true; });
+  }
+  var keys = allStoreKeys_(ss);
+  var add = [];
+  keys.forEach(function (k) { var name = storeDisplayName_(k); if (!have[name] && !have[k]) add.push([name, '']); });
+  if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 2).setValues(add);
+  return { created: created, added: add.length, total: keys.length };
+}
+
+/** セットアップ支援ページ（要パスコード）。設定値を表示し、宛先シートも自動用意する。 */
+function setupPage_(e) {
+  if (!verifyPass_(e && e.parameter && e.parameter.p)) {
+    return HtmlService.createHtmlOutput('<meta charset="utf-8"><body style="font-family:sans-serif;padding:20px">パスコードが必要です。アプリのURLの末尾に <b>?setup=links&amp;p=あなたのパスコード</b> を付けて開いてください。</body>')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var key = inputLinksKey_();
+  var base = execBaseUrl_();
+  var sheetInfo = { created: false, added: 0, total: 0 };
+  try { sheetInfo = ensureStoreDestSheet_(ss); } catch (er) {}
+  var ym = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM');
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var testUrl = base + '?links=1&k=' + encodeURIComponent(key) + '&ym=' + ym;
+  var html = '' +
+    '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<body style="font-family:-apple-system,sans-serif;max-width:640px;margin:0 auto;padding:18px 14px;color:#1f2937;line-height:1.7">' +
+    '<h2>棚卸 月次入力リンク：セットアップ</h2>' +
+    '<p>下の2つを <b>GitHubのSecrets</b>（Settings → Secrets and variables → Actions）に登録してください。' +
+    '「店舗LINE宛先」シートは自動で用意しました（各店の<b>グループID</b>だけ入れてください）。</p>' +
+    '<h3>① GitHub Secrets に登録（2つ）</h3>' +
+    '<div style="background:#f6f7f9;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:8px 0">' +
+    '<div style="font-size:12px;color:#6b7280">INPUT_LINKS_KEY</div>' +
+    '<div style="font-family:monospace;word-break:break-all;user-select:all;font-size:15px">' + esc(key) + '</div></div>' +
+    '<div style="background:#f6f7f9;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin:8px 0">' +
+    '<div style="font-size:12px;color:#6b7280">TANA_EXEC_URL</div>' +
+    '<div style="font-family:monospace;word-break:break-all;user-select:all;font-size:15px">' + esc(base) + '</div></div>' +
+    '<p style="font-size:13px;color:#6b7280">※ GASのスクリプトプロパティ側の INPUT_LINKS_KEY は自動設定済みです（触らなくてOK）。上の値と一致しています。</p>' +
+    '<h3>② 店舗LINE宛先シート</h3>' +
+    '<p>シート「<b>店舗LINE宛先</b>」を' + (sheetInfo.created ? '<b>新規作成</b>し、' : '確認し、') + '店舗名を' + esc(String(sheetInfo.added)) + '件前入れしました（全' + esc(String(sheetInfo.total)) + '店）。' +
+    'B列の<b>グループID</b>に、各店のLINEグループIDを入れてください（既存の「LINE宛先」取得で拾えます）。</p>' +
+    '<h3>③ 動作確認</h3>' +
+    '<p>この確認用URLを開くと、各店の入力URLがJSONで出ます（今月分）:</p>' +
+    '<div style="background:#f6f7f9;border:1px solid #e5e7eb;border-radius:8px;padding:12px;word-break:break-all;user-select:all;font-family:monospace;font-size:13px">' + esc(testUrl) + '</div>' +
+    '<p style="font-size:13px;color:#6b7280;margin-top:18px">⚠️ このページはパスコードで保護されています。パスコードが初期値(8888)のままなら、🔒から変更をおすすめします。</p>' +
+    '</body>';
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('棚卸 セットアップ')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
 // ─── パスワード（閲覧ロック）────────────────────────────────────────────────────
