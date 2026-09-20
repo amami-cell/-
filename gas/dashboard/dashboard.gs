@@ -78,6 +78,11 @@ const STORE_MAP = {
 var APP_FAVICON = 'data:image/png;base64,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';
 
 function doGet(e) {
+  // 委任入力（店舗×月の署名トークン付きリンク）: 管理パスコード不要で、その店・その月の
+  // ロス/理論原価だけを入力できる専用ページ。/exec?input=1&s=店舗&ym=YYYY-MM&t=署名
+  if (e && e.parameter && e.parameter.input) return inputPage_(e);
+  // 月次LINE送信用: 各店舗の入力リンクを返すJSONエンドポイント（キーで保護）。
+  if (e && e.parameter && e.parameter.links) return inputLinksEndpoint_(e);
   // GASはコンテンツを別オリジンのiframe内で描画するため、iOSではiframe内の
   // localStorage（保存パスコード）が保持されず毎回ログインになる。対策として
   // URLに ?p=パスコード を付けておくと、それを画面に埋め込んで自動ログインする。
@@ -94,6 +99,148 @@ function doGet(e) {
   // data URIが弾かれる環境でもアプリが落ちないよう try/catch で保護。
   try { out.setFaviconUrl(APP_FAVICON); } catch (e2) {}
   return out;
+}
+
+// ─── 委任入力（店舗×月の署名トークン付きリンク）─────────────────────────────────
+// 店長に「その店・その月だけ」入力してもらう共有URLの仕組み。管理パスコードは渡さない。
+// トークン = HMAC-SHA256(店舗|月, 秘密鍵) なので、他店・他月のリンクは偽造できない。
+
+const INPUT_SECRET_PROP = 'INPUT_TOKEN_SECRET';   // 署名の秘密鍵（無ければ自動生成して保存）
+const INPUT_LINKS_KEY_PROP = 'INPUT_LINKS_KEY';   // links エンドポイントの認証キー（LINE送信役が持つ）
+const EXEC_URL_PROP = 'EXEC_URL';                 // 明示指定したい場合の /exec ベースURL（未設定なら自動取得）
+
+function inputSecret_() {
+  var pp = PropertiesService.getScriptProperties();
+  var s = pp.getProperty(INPUT_SECRET_PROP);
+  if (!s) { s = Utilities.getUuid() + Utilities.getUuid(); pp.setProperty(INPUT_SECRET_PROP, s); }
+  return s;
+}
+
+/** 店舗×月の署名トークン（URL安全なbase64、末尾=を除去）。 */
+function inputToken_(store, ym) {
+  var raw = Utilities.computeHmacSha256Signature(String(store) + '|' + String(ym), inputSecret_());
+  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
+}
+
+function verifyInputToken_(store, ym, token) {
+  return !!token && String(token) === inputToken_(store, ym);
+}
+
+/** 店舗キー(0001015_店名) → 表示名(店名)。 */
+function storeDisplayName_(key) {
+  var s = String(key || ''); var i = s.indexOf('_'); return i > 0 ? s.slice(i + 1) : s;
+}
+
+function jsonOut_(o) {
+  return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** 委任入力ページ（input.html）を返す。 */
+function inputPage_(e) {
+  var s = String(e.parameter.s || '');
+  var ym = String(e.parameter.ym || '');
+  var t = String(e.parameter.t || '');
+  var tpl = HtmlService.createTemplateFromFile('input');
+  tpl.STORE = s;
+  tpl.YM = ym;
+  tpl.TOKEN = t;
+  tpl.STORE_NAME = storeDisplayName_(s);
+  tpl.VALID = verifyInputToken_(s, ym, t) ? '1' : '';
+  var out = tpl.evaluate()
+    .setTitle('棚卸 入力 ' + storeDisplayName_(s))
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  try { out.setFaviconUrl(APP_FAVICON); } catch (e2) {}
+  return out;
+}
+
+/** 入力ページの現在値（その店×月のロス/理論原価一覧）を返す。トークン必須。 */
+function getInputPageData(store, ym, token) {
+  if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です（月やリンクをご確認ください）' };
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = ss.getSheetByName(LOSS_SHEET);
+  var items = [];
+  if (sh && sh.getLastRow() > 1) {
+    var v = sh.getDataRange().getValues();
+    for (var i = 1; i < v.length; i++) {
+      var r = v[i];
+      if (String(r[1]) === ym && String(r[2]) === store) {
+        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || '') });
+      }
+    }
+  }
+  return { ok: true, store: store, storeName: storeDisplayName_(store), ym: ym, items: items };
+}
+
+/** 委任入力からロス/理論原価を登録する。トークン必須（管理パスコード不要）。 */
+function saveInputLosses(store, ym, token, items) {
+  if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です（月やリンクをご確認ください）' };
+  return writeLossItems_(store, ym, items);
+}
+
+/** 委任入力から1件削除する。トークン＋店舗＋月＋IDが一致した行だけ消す（他店を消せない）。 */
+function deleteInputLoss(store, ym, token, id) {
+  if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です' };
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = ss.getSheetByName(LOSS_SHEET);
+  if (!sh) return { ok: false, message: 'ロス記録シートがありません' };
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var v = sh.getDataRange().getValues();
+    for (var i = v.length - 1; i >= 1; i--) {
+      if (String(v[i][0]) === String(id) && String(v[i][1]) === ym && String(v[i][2]) === store) {
+        sh.deleteRow(i + 1);
+        CacheService.getScriptCache().remove('dash_v2');
+        return { ok: true };
+      }
+    }
+    return { ok: false, message: '該当の項目が見つかりません（既に削除済みかも）' };
+  } finally { lock.releaseLock(); }
+}
+
+/** 全店舗キー（月次集計の各シートに現れる店舗）。入力リンク生成用。 */
+function allStoreKeys_(ss) {
+  var set = {};
+  Object.keys(METRIC_SHEETS).forEach(function (key) {
+    var sh = ss.getSheetByName(METRIC_SHEETS[key]);
+    if (!sh) return;
+    sh.getDataRange().getValues().forEach(function (row) {
+      var ym = String(row[0] || '').trim(), store = String(row[1] || '').trim();
+      if (/^\d{4}-\d{2}$/.test(ym) && store) set[store] = true;
+    });
+  });
+  return Object.keys(set).sort();
+}
+
+/** /exec のベースURL（明示設定 EXEC_URL 優先、無ければ getService().getUrl()）。 */
+function execBaseUrl_() {
+  var u = PropertiesService.getScriptProperties().getProperty(EXEC_URL_PROP);
+  if (u) return u;
+  try { return ScriptApp.getService().getUrl(); } catch (e) { return ''; }
+}
+
+/** 指定月の、各店舗の委任入力URL一覧を返す（LINE送信役が使う）。 */
+function inputLinks_(ym) {
+  var base = execBaseUrl_();
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var keys = allStoreKeys_(ss);
+  var stores = keys.map(function (k) {
+    return {
+      key: k, name: storeDisplayName_(k),
+      url: base + '?input=1&s=' + encodeURIComponent(k) + '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(k, ym))
+    };
+  });
+  return { ok: true, ym: ym, base: base, stores: stores };
+}
+
+/** links エンドポイント本体。INPUT_LINKS_KEY 必須（未設定なら拒否＝fail-closed）。 */
+function inputLinksEndpoint_(e) {
+  var need = PropertiesService.getScriptProperties().getProperty(INPUT_LINKS_KEY_PROP) || '';
+  if (!need) return jsonOut_({ ok: false, error: 'INPUT_LINKS_KEY 未設定（スクリプトプロパティに設定してください）' });
+  if (String(e.parameter.k || '') !== need) return jsonOut_({ ok: false, error: 'forbidden' });
+  var ym = String(e.parameter.ym || '');
+  if (!/^\d{4}-\d{2}$/.test(ym)) return jsonOut_({ ok: false, error: 'bad-ym（?ym=YYYY-MM）' });
+  try { return jsonOut_(inputLinks_(ym)); } catch (err) { return jsonOut_({ ok: false, error: String(err) }); }
 }
 
 // ─── パスワード（閲覧ロック）────────────────────────────────────────────────────
@@ -520,11 +667,22 @@ function lossSheet_(ss) {
  */
 function addLosses(pass, storeKey, ym, kind, items) {
   if (!verifyPass_(pass)) return { ok: false, authError: true, message: 'パスワードが違います' };
+  if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
+  // 全項目に同じ種別を付けて共通処理へ（従来どおり addLosses は単一種別）。
+  var withKind = (items || []).map(function (it) { it = it || {}; return { kind: kind, cat: it.cat, memo: it.memo, amount: it.amount }; });
+  return writeLossItems_(storeKey, ym, withKind);
+}
+
+/**
+ * ロス/理論原価を項目ごとの種別で一括登録する共通コア（認証は呼び出し側で済ませる）。
+ * addLosses（パスコード）と saveInputLosses（署名トークン）の両方から使う。
+ * @param {Array<{kind:string, cat:string, memo:string, amount:number}>} items
+ */
+function writeLossItems_(storeKey, ym, items) {
   storeKey = String(storeKey || '').trim();
   ym = String(ym || '').trim();
   if (!storeKey) return { ok: false, message: '店舗が不正です' };
   if (!/^\d{4}-\d{2}$/.test(ym)) return { ok: false, message: '月の形式が不正です' };
-  if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
   if (!items || !items.length) return { ok: false, message: '入力された項目がありません' };
   if (items.length > 50) return { ok: false, message: '一度に登録できるのは50件までです' };
 
@@ -532,9 +690,11 @@ function addLosses(pass, storeKey, ym, kind, items) {
   const recs = [];
   for (let i = 0; i < items.length; i++) {
     const it = items[i] || {};
+    const kind = String(it.kind || '').trim();
     const cat = String(it.cat || '').trim();
     const memo = String(it.memo || '').trim().slice(0, 200);
     const amount = Number(it.amount);
+    if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: (i + 1) + '行目: 種別が不正です' };
     if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: (i + 1) + '行目: 区分が不正です' };
     if (!memo) return { ok: false, message: (i + 1) + '行目: 内容を入力してください' };
     if (!isFinite(amount) || amount <= 0) return { ok: false, message: (i + 1) + '行目: 金額は1円以上で入力してください' };
