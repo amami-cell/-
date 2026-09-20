@@ -237,6 +237,24 @@ function inputLinks_(ym) {
   return { ok: true, ym: ym, base: base, stores: stores };
 }
 
+/** アプリ内から呼ぶ: その店の各月の入力URL（署名トークン付き）を返す。催促時にコピーして送る用。 */
+function getStoreInputLinks(pass, storeKey, yms) {
+  if (!verifyPass_(pass)) return { ok: false, authError: true };
+  storeKey = String(storeKey || '').trim();
+  if (!storeKey) return { ok: false, message: '店舗が不正です' };
+  var base = execBaseUrl_();
+  if (!base) return { ok: false, message: 'アプリURLを取得できませんでした' };
+  var list = (yms && yms.length) ? yms : [Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM')];
+  var links = {};
+  list.forEach(function (ym) {
+    ym = String(ym || '').trim();
+    if (!/^\d{4}-\d{2}$/.test(ym)) return;
+    links[ym] = base + '?input=1&s=' + encodeURIComponent(storeKey) +
+      '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(storeKey, ym));
+  });
+  return { ok: true, links: links };
+}
+
 /** links エンドポイントの認証キー。未設定なら自動生成して保存（セットアップを楽にする）。 */
 function inputLinksKey_() {
   var pp = PropertiesService.getScriptProperties();
