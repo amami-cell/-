@@ -16,17 +16,23 @@
   label{ display:block; font-size:12px; color:var(--sub); margin:6px 0 2px; }
   select,input[type=text],input[type=number]{ width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-size:16px; background:#fff; }
   input.req-on{ border-color:var(--amber); background:#fffdf5; }
-  /* 棚数値カード */
-  .kpis{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .kpi{ background:#f9fafb; border:1px solid var(--line); border-radius:10px; padding:9px 10px; }
-  .kpi .k{ font-size:11px; color:var(--sub); }
-  .kpi .v{ font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; }
-  .kpi .s{ font-size:11px; color:var(--sub); }
-  .kpi.hl{ background:#eff6ff; border-color:#bfdbfe; }
-  .kpi.warn .v{ color:var(--red); }
-  .kpi.good .v{ color:var(--ok); }
-  .flash{ animation:fl .6s ease; }
-  @keyframes fl{ 0%{ background:#fef9c3; } 100%{ } }
+  /* 棚数値の表（アプリと同じ見た目） */
+  .sumhead{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; color:var(--sub); flex-wrap:wrap; }
+  .sumhead .sales{ color:var(--ink); font-weight:700; }
+  .sumhead .turn{ background:#eef2ff; color:var(--brand); border-radius:999px; padding:2px 10px; font-size:12px; font-weight:700; }
+  table.items{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  table.items td{ border-bottom:1px solid var(--line); padding:8px; font-size:14px; }
+  table.items tr:last-child td{ border-bottom:0; }
+  table.items td.lbl{ width:46%; color:var(--sub); }
+  table.items td.num{ width:33%; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
+  table.items td.rate{ width:21%; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; color:var(--sub); font-size:12px; }
+  table.items tr.head td{ color:var(--sub); font-size:11px; background:#f9fafb; font-weight:600; }
+  table.items tr.strong td{ font-weight:800; background:#f9fafb; }
+  table.items td.indent{ padding-left:1.6em; }
+  table.items td.pos{ color:var(--red); }   /* 不明ロス プラス=ロス過大 */
+  table.items td.neg{ color:var(--ok); }    /* 不明ロス マイナス=余り */
+  #sumtbl.updated{ animation:fl .7s ease; }
+  @keyframes fl{ from{ background:#fef9c3; } to{ background:transparent; } }
   /* 入力行 */
   .row{ border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:10px; background:#fafafa; }
   .grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
@@ -75,7 +81,8 @@
     <!-- 棚数値（即時計算） -->
     <div class="card">
       <h2>📊 この月の棚数値 <span class="muted" id="liveTag" style="font-weight:400"></span></h2>
-      <div class="kpis" id="kpis"></div>
+      <div class="sumhead"><span class="sales" id="sumSales"></span><span class="turn" id="sumTurn" style="display:none"></span></div>
+      <div class="table-wrap" style="overflow-x:auto"><table class="items" id="sumtbl"></table></div>
       <div class="muted" id="kpiNote" style="margin-top:8px;font-size:12px"></div>
     </div>
 
@@ -180,6 +187,7 @@
     });
     return { need:need, waste:waste, theoryAdj:theoryAdj };
   }
+  function rate(v, sales){ return (v!=null && sales)? ((v/sales*100).toFixed(1)+'%') : ''; }
   function recalc(){
     if(!M){ return; }
     var draft=collect();
@@ -192,24 +200,36 @@
     var theoryDays=M.interim?15:(M.days||30);
     var turnover=(invCur!=null && theory>0)?(invCur/(theory/theoryDays)):null;
     var sales=M.sales||0;
-    var uRate=(sales&&unknown!=null)?unknown/sales:null;
 
-    var tiles=[
-      { k:'棚卸高', v:yen(invCur), s:'' },
-      { k:'理論原価', v:yen(theory), s:(sales?('売上比 '+(theory/sales*100).toFixed(1)+'%'):''), cls:'hl' },
-      { k:'実際原価', v:yen(actual), s:'前月棚+仕入−当月棚' },
-      { k:'不明ロス', v:yen(unknown), s:(uRate!=null?('売上比 '+(uRate*100).toFixed(1)+'%'):''), cls:(unknown!=null&&Math.abs(uRate||0)*100>2?'warn':(unknown!=null?'good':'')) },
-      { k:'廃棄ロス計', v:yen(s.waste), s:'' },
-      { k:'必要ロス計', v:yen(s.need), s:'' },
-      { k:'在庫回転', v:(turnover!=null?turnover.toFixed(1)+'日':'—'), s:'棚卸高÷1日理論原価' },
-      { k:'理論原価の追加', v:yen(s.theoryAdj), s:'手動で加えた分' }
+    // アプリと同じ行構成の表
+    var rows=[
+      { l:'前月棚金', v:invPrev },
+      { l:'当月仕入', v:(M.purchase||0) },
+      { l:'当月棚金', v:invCur },
+      { l:'当月実使用', v:actual, strong:true },
+      { l:'理論原価', v:theory },
+      { l:'必要ロス', v:s.need, indent:true },
+      { l:'廃棄ロス', v:s.waste, indent:true },
+      { l:'不明ロス', v:unknown, strong:true, cls:(unknown==null?'':(unknown>0?'pos':'neg')) }
     ];
-    el('kpis').innerHTML=tiles.map(function(t){
-      return '<div class="kpi '+(t.cls||'')+'"><div class="k">'+t.k+'</div><div class="v">'+t.v+'</div>'+(t.s?'<div class="s">'+t.s+'</div>':'')+'</div>';
-    }).join('');
+    var html='<tr class="head"><td class="lbl">項目</td><td class="num">ＦＤ合計</td><td class="rate">売上比</td></tr>';
+    rows.forEach(function(r){
+      html+='<tr'+(r.strong?' class="strong"':'')+'>'+
+        '<td class="lbl'+(r.indent?' indent':'')+'">'+r.l+'</td>'+
+        '<td class="num'+(r.cls?' '+r.cls:'')+'">'+yen(r.v)+'</td>'+
+        '<td class="rate">'+rate(r.v, sales)+'</td></tr>';
+    });
+    var tbl=el('sumtbl'); tbl.innerHTML=html;
+    // 更新を一瞬ハイライト（入力に反応したのが分かるように）
+    tbl.classList.remove('updated'); void tbl.offsetWidth; if(draft.length) tbl.classList.add('updated');
+
+    el('sumSales').textContent = sales? ('売上 '+yen(sales)) : '';
+    var t=el('sumTurn');
+    if(turnover!=null){ t.style.display='inline-block'; t.textContent='在庫回転 '+turnover.toFixed(1)+'日'; } else { t.style.display='none'; }
+
     el('liveTag').textContent = draft.length? '（入力中の速報）' : '（登録済みの内容）';
-    if(!M.hasData){ el('kpiNote').textContent='※ この月のFWデータ（売上・仕入・棚卸高）がまだ取り込まれていません。ロスの入力は先にできます。'; }
-    else if(invCur==null || invPrev==null){ el('kpiNote').textContent='※ 棚卸高が未取得のため、実際原価・不明ロスは表示できません（ロス・理論原価は登録できます）。'; }
+    if(!M.hasData){ el('kpiNote').textContent='※ この月のデータ（売上・仕入・棚卸高）がまだ取り込まれていません。ロスの入力は先にできます。'; }
+    else if(invCur==null || invPrev==null){ el('kpiNote').textContent='※ 棚卸高が未取得のため、当月実使用・不明ロスは「—」表示です（ロス・理論原価は登録できます）。'; }
     else { el('kpiNote').textContent=''; }
   }
 
