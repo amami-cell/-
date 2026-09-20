@@ -46,6 +46,13 @@
   }
   button.btn-input:active { transform: scale(.96); }
   button.btn-input.big { width: 100%; padding: 12px 14px; font-size: 14px; border-radius: 12px; }
+  /* 催促用「入力URLをコピー」：緑ボタンと対の淡色ボタン（担当者へURLを送る用） */
+  button.btn-copyurl {
+    width: 100%; padding: 10px 14px; font-size: 13px; font-weight: 700; border-radius: 12px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--grid)); color: var(--accent);
+  }
+  button.btn-copyurl:active { transform: scale(.96); }
   button:disabled { opacity: .5; cursor: default; }
   select {
     font: inherit; padding: 6px 10px; border: 1px solid var(--border);
@@ -2460,12 +2467,42 @@
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
   }
-  function copyReport() {
-    var txt = reportText();
+  function copyToClipboard(txt, okMsg) {
+    okMsg = okMsg || 'コピーしました';
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(txt).then(function () { toast('コピーしました'); },
-        function () { legacyCopy(txt); toast('コピーしました'); });
-    } else { legacyCopy(txt); toast('コピーしました'); }
+      navigator.clipboard.writeText(txt).then(function () { toast(okMsg); },
+        function () { legacyCopy(txt); toast(okMsg); });
+    } else { legacyCopy(txt); toast(okMsg); }
+  }
+  function copyReport() { copyToClipboard(reportText()); }
+
+  // ── 催促用: その店・その月の入力URL（署名トークン付き）をコピー ──
+  // URLはサーバ側で署名するため取得が必要。店舗を開いた時に先読みしておき、
+  // タップ時は即コピー（＝iOS等でもユーザー操作直後に同期コピーできる）。
+  var inputLinkCache = {};   // { storeKey: { ym: url } }
+  function prefetchInputLinks(store) {
+    if (!store || inputLinkCache[store]) return;
+    google.script.run
+      .withSuccessHandler(function (res) { if (res && res.ok && res.links) inputLinkCache[store] = res.links; })
+      .withFailureHandler(function () {})
+      .getStoreInputLinks(PASS, store, DATA.months);
+  }
+  function copyInputUrl(store, ym, btn) {
+    var cached = inputLinkCache[store] && inputLinkCache[store][ym];
+    if (cached) { copyToClipboard(cached, '入力URLをコピーしました（担当者へ送れます）'); return; }
+    var orig = btn.textContent; btn.disabled = true; btn.textContent = '取得中…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false; btn.textContent = orig;
+        if (res && res.ok && res.links && res.links[ym]) {
+          if (!inputLinkCache[store]) inputLinkCache[store] = {};
+          for (var k in res.links) inputLinkCache[store][k] = res.links[k];
+          copyToClipboard(res.links[ym], '入力URLをコピーしました（担当者へ送れます）');
+        } else if (res && res.authError) { toast('パスワードエラー'); }
+        else { toast('URLを取得できませんでした'); }
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = orig; toast('通信エラー: ' + ((e && e.message) || '')); })
+      .getStoreInputLinks(PASS, store, [ym]);
   }
   function reportImage() {
     var lines = reportText().split('\n');
@@ -3045,6 +3082,11 @@
       addBtn.textContent = '✏ ロス・理論原価を入力';
       (function (ymC) { addBtn.onclick = function () { openLossModal(curStore, ymC); }; })(ym);
       lb.appendChild(addBtn);
+      // 催促用: この店・この月の入力URLをコピー（担当者に送ってロス/理論原価を入力してもらう）
+      var urlBtn = document.createElement('button'); urlBtn.className = 'btn-copyurl';
+      urlBtn.textContent = '🔗 入力URLをコピー（催促用）';
+      (function (ymC) { urlBtn.onclick = function () { copyInputUrl(curStore, ymC, urlBtn); }; })(ym);
+      lb.appendChild(urlBtn);
       card.appendChild(lb);
 
       box.appendChild(card);
@@ -3055,6 +3097,7 @@
       e.textContent = 'この店舗のデータはまだありません';
       box.appendChild(e);
     }
+    prefetchInputLinks(curStore);   // 催促用URLを先読み（タップ時に即コピーできるように）
     fitAll();
   }
 
