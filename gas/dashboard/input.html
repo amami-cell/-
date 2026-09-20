@@ -24,11 +24,15 @@
   .sumhead{ display:flex; justify-content:flex-start; align-items:center; gap:6px; margin-bottom:10px; font-size:13px; color:var(--sub); flex-wrap:wrap; }
   .sumhead .sales{ color:var(--ink); font-weight:700; }
   .sumhead .turn{ background:#eef2ff; color:var(--brand); border-radius:999px; padding:2px 10px; font-size:12px; font-weight:700; white-space:nowrap; }
+  .sumhead .legend{ color:var(--sub); font-size:11px; }
   table.items{ width:100%; border-collapse:collapse; table-layout:fixed; min-width:360px; }
   table.items td{ border-bottom:1px solid var(--line); padding:7px 6px; font-size:13px; }
   table.items tr:last-child td{ border-bottom:0; }
   table.items td.lbl{ width:31%; color:var(--sub); white-space:nowrap; }
   table.items td.num{ width:23%; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; font-weight:600; }
+  table.items td.num .amt{ display:block; }
+  table.items td.num .r{ display:block; font-size:10px; color:var(--sub); font-weight:400; margin-top:1px; }
+  table.items td.pos .r, table.items td.neg .r{ color:var(--sub); }
   table.items tr.head td{ color:var(--sub); font-size:11px; background:#f9fafb; font-weight:600; text-align:right; }
   table.items tr.head td.lbl{ text-align:left; }
   table.items tr.strong td{ font-weight:800; background:#f9fafb; }
@@ -238,7 +242,8 @@
       function cell(x){
         var v=x[r.k];
         var cls='num'+(r.unk?(v==null?'':(v>0?' pos':' neg')):'');
-        return '<td class="'+cls+'">'+yen(v)+'</td>';
+        var rt=(v!=null && x.sales)?((v/x.sales*100).toFixed(1)+'%'):'';
+        return '<td class="'+cls+'"><span class="amt">'+yen(v)+'</span>'+(rt?'<span class="r">'+rt+'</span>':'')+'</td>';
       }
       html+='<tr'+(r.strong?' class="strong"':'')+'><td class="lbl'+(r.indent?' indent':'')+'">'+r.l+'</td>'+
         cell(fd)+cell(f)+cell(d)+'</tr>';
@@ -246,12 +251,11 @@
     var tbl=el('sumtbl'); tbl.innerHTML=html;
     tbl.classList.remove('updated'); void tbl.offsetWidth; if(draft.length) tbl.classList.add('updated');
 
-    // 上部チップ（合計基準の要点）
+    // 上部チップ（売上・在庫回転＋各セルの下段が売上比の説明）
     var chips=[];
     if(fd.sales) chips.push('<span class="sales">売上 '+yen(fd.sales)+'</span>');
-    if(fd.theoryRate!=null) chips.push('<span class="turn">原価率 '+(fd.theoryRate*100).toFixed(1)+'%</span>');
     if(fd.turnover!=null) chips.push('<span class="turn">在庫回転 '+fd.turnover.toFixed(1)+'日</span>');
-    if(fd.unknownRate!=null) chips.push('<span class="turn">不明ロス '+(fd.unknownRate*100).toFixed(1)+'%</span>');
+    chips.push('<span class="legend">数字の下＝売上比</span>');
     el('sumChips').innerHTML=chips.join('');
 
     el('liveTag').textContent = draft.length? '（入力中の速報）' : '（登録済みの内容）';
