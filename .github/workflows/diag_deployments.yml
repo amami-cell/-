@@ -34,5 +34,14 @@ jobs:
         run: |
           echo "===== clasp deployments ====="
           clasp deployments || true
-          echo "===== versions ====="
-          clasp versions || true
+      - name: 匿名アクセス確認（ランナーは未ログイン＝担当者と同条件）
+        run: |
+          BASE="https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec"
+          echo "===== 1) 素の /exec ====="
+          curl -sS -L -o main.html -w "http=%{http_code} final=%{url_effective}\n" "$BASE" || true
+          echo "--- 先頭300字 ---"; head -c 300 main.html; echo
+          echo "===== 2) /exec?input=1（無効トークン）====="
+          curl -sS -L -o in.html -w "http=%{http_code} final=%{url_effective}\n" "$BASE?input=1&s=test&ym=2025-01&t=bad" || true
+          echo "--- 先頭300字 ---"; head -c 300 in.html; echo
+          echo "===== 判定 ====="
+          if grep -qi 'accounts.google.com\|Sign in\|ログイン' main.html; then echo "→ 素の/execもログイン要求＝@79は匿名不可（アクセス設定が全員になっていない）"; else echo "→ 素の/execは匿名OKの可能性"; fi
