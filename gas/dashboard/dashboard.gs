@@ -85,6 +85,8 @@ function doGet(e) {
   if (e && e.parameter && e.parameter.links) return inputLinksEndpoint_(e);
   // セットアップ支援ページ（要パスコード）: 設定すべき値を表示し、宛先シートも自動用意する。
   if (e && e.parameter && e.parameter.setup === 'links') return setupPage_(e);
+  // 配布用ページ（要パスコード）: 店舗ごとの入力URLを一覧＋コピーボタンで表示（担当者に手で送る用）。
+  if (e && e.parameter && e.parameter.share) return sharePage_(e);
   // GASはコンテンツを別オリジンのiframe内で描画するため、iOSではiframe内の
   // localStorage（保存パスコード）が保持されず毎回ログインになる。対策として
   // URLに ?p=パスコード を付けておくと、それを画面に埋め込んで自動ログインする。
@@ -314,6 +316,82 @@ function setupPage_(e) {
     '</body>';
   return HtmlService.createHtmlOutput(html)
     .setTitle('棚卸 セットアップ')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/** 配布用ページ（要パスコード）: 店舗ごとの入力URLを一覧＋コピーボタンで出す。担当者に手で送る用。 */
+function sharePage_(e) {
+  var p = e && e.parameter && e.parameter.p;
+  if (!verifyPass_(p)) {
+    return HtmlService.createHtmlOutput('<meta charset="utf-8"><body style="font-family:sans-serif;padding:20px">パスコードが必要です。URLの末尾に <b>?share=1&amp;p=あなたのパスコード</b> を付けて開いてください。</body>')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  // 対象月: ?ym=YYYY-MM が正しければそれ、無ければ今月。
+  var ym = String((e && e.parameter && e.parameter.ym) || '');
+  if (!/^\d{4}-\d{2}$/.test(ym)) ym = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM');
+  var data = inputLinks_(ym);
+  var base = data.base;
+  var pEnc = encodeURIComponent(String(p));
+  // 前月・翌月（月切り替え用）
+  var ymShift = function (s, d) {
+    var y = parseInt(s.slice(0, 4), 10), m = parseInt(s.slice(5, 7), 10) - 1 + d;
+    var nd = new Date(y, m, 1); return Utilities.formatDate(nd, 'Asia/Tokyo', 'yyyy-MM');
+  };
+  var navUrl = function (targetYm) { return base + '?share=1&p=' + pEnc + '&ym=' + encodeURIComponent(targetYm); };
+  var ymLabel = ym.slice(0, 4) + '年' + parseInt(ym.slice(5, 7), 10) + '月';
+
+  var cards = data.stores.map(function (s, i) {
+    var id = 'u' + i;
+    return '<div class="card">' +
+      '<div class="nm">' + esc(s.name) + '</div>' +
+      '<div class="url" id="' + id + '">' + esc(s.url) + '</div>' +
+      '<div class="btns">' +
+        '<button class="btn copy" type="button" onclick="cp(\'' + id + '\',this)">URLをコピー</button>' +
+        '<button class="btn msg" type="button" onclick="cpMsg(\'' + id + '\',this)">メッセージ丸ごとコピー</button>' +
+      '</div></div>';
+  }).join('');
+  if (!data.stores.length) cards = '<p class="muted">対象の店舗が見つかりませんでした。売上/仕入シートにデータのある月をお選びください。</p>';
+
+  var html = '' +
+    '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<style>' +
+    ':root{--bg:#f6f7f9;--card:#fff;--line:#e5e7eb;--ink:#1f2937;--sub:#6b7280;--brand:#2563eb;}' +
+    '*{box-sizing:border-box;}body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;font-size:15px;line-height:1.6;}' +
+    '.wrap{max-width:600px;margin:0 auto;padding:16px 14px 60px;}' +
+    'h1{font-size:19px;margin:2px 0 2px;}.lead{color:var(--sub);font-size:13px;margin-bottom:12px;}' +
+    '.mo{display:flex;align-items:center;justify-content:space-between;background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:14px;}' +
+    '.mo b{font-size:16px;}.mo a{color:var(--brand);text-decoration:none;font-size:14px;padding:6px 10px;border-radius:8px;background:#eef2ff;}' +
+    '.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 12px 10px;margin-bottom:10px;}' +
+    '.nm{font-weight:700;font-size:16px;margin-bottom:6px;}' +
+    '.url{font-family:monospace;font-size:12px;word-break:break-all;color:var(--sub);background:#f6f7f9;border-radius:8px;padding:8px;user-select:all;}' +
+    '.btns{display:flex;gap:8px;margin-top:8px;}' +
+    '.btn{flex:1;border:0;border-radius:9px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;}' +
+    '.btn.copy{background:var(--brand);color:#fff;}.btn.msg{background:#eef2ff;color:var(--brand);}' +
+    '.btn.done{background:#16a34a !important;color:#fff !important;}' +
+    '.muted{color:var(--sub);}.hint{font-size:12px;color:var(--sub);margin:14px 2px 0;}' +
+    '</style>' +
+    '<body><div class="wrap">' +
+    '<h1>店舗別 入力URL</h1>' +
+    '<div class="lead">各店の「URLをコピー」を押して、担当者のLINE等に貼って送ってください。担当者はロス・理論原価を入力できます（アプリに反映されます）。</div>' +
+    '<div class="mo"><a href="' + navUrl(ymShift(ym, -1)) + '">◀ 前の月</a><b>' + esc(ymLabel) + '</b><a href="' + navUrl(ymShift(ym, 1)) + '">次の月 ▶</a></div>' +
+    cards +
+    '<p class="hint">※このリンク（署名トークン付き）はその店・その月だけ入力できます。他店・他月の入力はできません。月が替わったら上の「次の月」で新しいURLを配ってください。</p>' +
+    '</div>' +
+    '<script>' +
+    'var YM=' + JSON.stringify(ym) + ';' +
+    'function flash(btn,txt){var o=btn.textContent;btn.textContent=txt;btn.classList.add("done");setTimeout(function(){btn.textContent=o;btn.classList.remove("done");},1400);}' +
+    'function doCopy(text,btn,label){' +
+      'if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(function(){flash(btn,label);},function(){legacy(text,btn,label);});}' +
+      'else{legacy(text,btn,label);}}' +
+    'function legacy(text,btn,label){var t=document.createElement("textarea");t.value=text;t.style.position="fixed";t.style.opacity="0";document.body.appendChild(t);t.focus();t.select();try{document.execCommand("copy");flash(btn,label);}catch(e){alert("コピーできませんでした。URLを長押しで選択してコピーしてください。");}document.body.removeChild(t);}' +
+    'function cp(id,btn){doCopy(document.getElementById(id).textContent,btn,"コピー完了✓");}' +
+    'function cpMsg(id,btn){var m=YM.slice(0,4)+"年"+parseInt(YM.slice(5,7),10)+"月分の棚卸（ロス・理論原価）の入力をお願いします。\\n▼こちらから入力してください\\n"+document.getElementById(id).textContent;doCopy(m,btn,"コピー完了✓");}' +
+    '</script></body>';
+
+  return HtmlService.createHtmlOutput(html)
+    .setTitle('店舗別 入力URL')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
