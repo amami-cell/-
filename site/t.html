@@ -6,21 +6,31 @@
 <title>棚卸 入力</title>
 <link rel="icon" href="data:,">
 <style>
-  html, body { margin: 0; height: 100%; background: #f6f7f9; }
-  #f { border: 0; width: 100%; height: 100%; display: block; }
-  #err { display: none; font-family: -apple-system, sans-serif; padding: 20px; color: #1f2937; line-height: 1.7; }
+  html, body { margin: 0; height: 100%; background: #f6f7f9; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif; }
+  #f { border: 0; width: 100%; height: 100%; display: block; background: #f6f7f9; }
+  /* 読み込み中の表示（iframeが出るまで/出ないときも真っ白にしない） */
+  #load { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #6b7280; padding: 24px; text-align: center; }
+  #load .sp { width: 30px; height: 30px; border: 3px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #load a { display: inline-block; margin-top: 6px; background: #2563eb; color: #fff; text-decoration: none; font-weight: 700; padding: 12px 18px; border-radius: 10px; font-size: 15px; }
+  /* 常時表示の控えめなフォールバック（開かないとき用） */
+  #fb { position: fixed; left: 0; right: 0; bottom: 0; text-align: center; padding: 8px; background: rgba(246,247,249,.92); border-top: 1px solid #e5e7eb; font-size: 13px; }
+  #fb a { color: #2563eb; text-decoration: none; font-weight: 700; }
+  #err { display: none; padding: 20px; color: #1f2937; line-height: 1.7; }
   #err b { color: #dc2626; }
 </style>
 </head>
 <body>
 <!--
-  棚卸 入力ページの「iframe包み」。
-  直接 script.google.com/exec を開くと、複数Googleアカウント環境で
-  「ファイルを開けません」になることがあるため、Google以外のページ(GitHub Pages)に
-  GAS入力ページを全画面iframeで埋め込んで表示する（メインアプリと同じ方式）。
-  このページ自身の ?s=..&ym=..&t=.. をそのまま入力ページへ受け渡す。
+  棚卸 入力ページの「iframe包み」。script.google.com を直接開くと複数Googleアカウント
+  環境で「ファイルを開けません」になるため、Google以外のページ(GitHub Pages)に
+  GAS入力ページを全画面iframeで埋め込んで表示する。
+  ?s=..&ym=..&t=.. をそのまま入力ページへ受け渡す。真っ白防止に読み込み表示と
+  「ブラウザで開く」フォールバックを常設する。
 -->
-<iframe id="f" allow="clipboard-write"></iframe>
+<div id="load"><div class="sp"></div><div>入力ページを開いています…</div><a id="load-open" href="#" target="_top">▶ 開かないときはこちらをタップ</a></div>
+<iframe id="f" allow="clipboard-write" referrerpolicy="no-referrer"></iframe>
+<div id="fb">表示されない場合は <a id="fb-open" href="#" target="_top">ブラウザで開く</a></div>
 <div id="err">
   <h2>リンクが不完全です</h2>
   <p>お手数ですが、本部から届いた<b>最新のリンク</b>をもう一度開いてください。</p>
@@ -29,13 +39,30 @@
   (function () {
     var EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
     var q = (location.search || '').replace(/^\?/, '');
-    // 最低限 s と t が無ければエラー表示（誤タップ・切れリンク対策）
     if (!/(^|&)s=/.test(q) || !/(^|&)t=/.test(q)) {
       document.getElementById('f').style.display = 'none';
+      document.getElementById('load').style.display = 'none';
+      document.getElementById('fb').style.display = 'none';
       document.getElementById('err').style.display = 'block';
       return;
     }
-    document.getElementById('f').src = EXEC + '?input=1' + (q ? ('&' + q) : '');
+    var src = EXEC + '?input=1' + (q ? ('&' + q) : '');
+    var iframe = document.getElementById('f');
+    document.getElementById('load-open').href = src;   // 直接（トップレベル）で開くフォールバック
+    document.getElementById('fb-open').href = src;
+    iframe.src = src;
+    // iframeが表示できたら読み込み表示を消す。数秒たっても表示できなければ案内を残す。
+    iframe.addEventListener('load', function () {
+      var l = document.getElementById('load'); if (l) l.style.display = 'none';
+    });
+    setTimeout(function () {
+      var l = document.getElementById('load');
+      if (l && l.style.display !== 'none') {
+        // まだ読めていない：スピナーを止め、開くボタンを目立たせる
+        var sp = l.querySelector('.sp'); if (sp) sp.style.display = 'none';
+        l.querySelector('div:nth-child(2)').textContent = '表示に時間がかかっています。下のボタンで開いてください。';
+      }
+    }, 4000);
   })();
 </script>
 </body>
