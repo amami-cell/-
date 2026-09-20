@@ -187,9 +187,10 @@ function daysInMonth_(ym) {
 }
 
 /**
- * 入力ページ用: その店×月の「棚数値の土台」を返す（FD合算）。
- * ロス（廃棄/必要/理論原価）は含めず、クライアント側で下書きと合算して即時計算する。
- * 理論原価は会社ルールの2%込み（inc2でないなら売上×2%を加算）に正規化して返す。
+ * 入力ページ用: その店×月の「棚数値の土台」を F/D 別に返す。
+ * ロス（廃棄/必要/理論原価）は含めず、クライアントが区分ごとに下書きと合算して即時計算する。
+ * 理論原価は会社ルールの2%込み（inc2でないなら各区分の売上×2%を加算）に正規化して返す。
+ * FD合計はクライアントで f+d して求める。
  */
 function inputMetrics_(store, ym) {
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -206,10 +207,10 @@ function inputMetrics_(store, ym) {
     }
     if (m[k] === undefined) m[k] = 0;
   });
-  // 棚卸高（月次集計）: 当月・前月。店舗マスタ(任意)で表記ゆれを吸収。
+  // 棚卸高（月次集計）: 当月・前月を F/D 別に。店舗マスタ(任意)で表記ゆれを吸収。
   var storeMap = buildStoreMap_(ss);
   var pym = prevYm_(ym);
-  var invCur = null, invPrev = null;
+  var invCurF = null, invCurD = null, invPrevF = null, invPrevD = null;
   var invSheet = ss.getSheetByName(INVENTORY_SHEET);
   if (invSheet && invSheet.getLastRow() > 1) {
     var iv = invSheet.getDataRange().getValues();
@@ -217,8 +218,9 @@ function inputMetrics_(store, ym) {
       var iym = String(iv[j][0]).trim();
       var skey = storeMap[String(iv[j][1]).trim()] || String(iv[j][1]).trim();
       if (skey !== store) continue;
-      var val = (Number(iv[j][2]) || 0) + (Number(iv[j][3]) || 0);   // フード+ドリンク
-      if (iym === ym) invCur = val; else if (iym === pym) invPrev = val;
+      var vf = Number(iv[j][2]) || 0, vd = Number(iv[j][3]) || 0;
+      if (iym === ym) { invCurF = vf; invCurD = vd; }
+      else if (iym === pym) { invPrevF = vf; invPrevD = vd; }
     }
   }
   // 2%込みフラグ
@@ -230,15 +232,18 @@ function inputMetrics_(store, ym) {
       if (String(sv[s][0]).trim() === store) { inc2 = (sv[s][1] === true || String(sv[s][1]).toUpperCase() === 'TRUE'); break; }
     }
   }
-  var sales = m.sales || 0;
-  var purchase = (m.foodPurchase || 0) + (m.drinkPurchase || 0);
-  var theory = (m.foodTheory || 0) + (m.drinkTheory || 0);
-  if (!inc2) theory += ((m.foodSales || 0) + (m.drinkSales || 0)) * 0.02;  // 2%込みに正規化
-  var hasData = !!(sales || purchase || theory || invCur !== null);
-  return {
-    hasData: hasData, sales: sales, purchase: purchase, theoryBase: Math.round(theory),
-    invCur: invCur, invPrev: invPrev, days: daysInMonth_(ym), interim: (kind === '中間')
+  var f = {
+    sales: m.foodSales || 0, purchase: m.foodPurchase || 0,
+    theoryBase: Math.round((m.foodTheory || 0) + (inc2 ? 0 : (m.foodSales || 0) * 0.02)),
+    invCur: invCurF, invPrev: invPrevF
   };
+  var d = {
+    sales: m.drinkSales || 0, purchase: m.drinkPurchase || 0,
+    theoryBase: Math.round((m.drinkTheory || 0) + (inc2 ? 0 : (m.drinkSales || 0) * 0.02)),
+    invCur: invCurD, invPrev: invPrevD
+  };
+  var hasData = !!((m.sales || 0) || f.purchase || d.purchase || f.theoryBase || d.theoryBase || invCurF !== null || invCurD !== null);
+  return { hasData: hasData, days: daysInMonth_(ym), interim: (kind === '中間'), f: f, d: d };
 }
 
 /** 入力ページの現在値（その店×月のロス/理論原価一覧＋棚数値の土台）を返す。トークン必須。 */
