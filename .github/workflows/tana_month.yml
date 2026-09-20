@@ -1,0 +1,65 @@
+name: 棚卸 月次LINE送信
+
+# 各店舗のLINEグループへ「その月の結果＋入力URL（署名トークン付き）」を送る。
+# 店舗↔グループの対応は スプレッドシートの「店舗LINE宛先」シート（列: 店舗, グループID）で管理。
+# 必要なSecrets: LINE_CHANNEL_TOKEN / GOOGLE_SERVICE_ACCOUNT_JSON / TANA_EXEC_URL / INPUT_LINKS_KEY
+#   （INPUT_LINKS_KEY は GAS のスクリプトプロパティと同じ値にする）
+
+on:
+  workflow_dispatch:
+    inputs:
+      ym:
+        description: "対象月 YYYY-MM（空=前月）"
+        required: false
+        default: ""
+      dry_run:
+        description: "true=送らず内容だけ表示"
+        required: false
+        default: "false"
+  schedule:
+    - cron: "0 0 6 * *"   # 毎月6日 JST 9:00（前月＝月末に確定した月の結果を送る）
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tana-month
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 依存インストール
+        run: pip install --quiet google-api-python-client google-auth
+      - name: 認証情報を復元
+        env:
+          SA_RAW: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SA_B64: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_B64 }}
+        run: |
+          mkdir -p credentials
+          if [ -n "$SA_RAW" ]; then
+            printf '%s' "$SA_RAW" > credentials/service_account.json
+          else
+            printf '%s' "$SA_B64" | tr -d ' \t\r\n' | base64 -d > credentials/service_account.json 2>/dev/null || true
+          fi
+          python -c "import json; d=json.load(open('credentials/service_account.json')); assert 'private_key' in d" \
+            || { echo "::error::サービスアカウントJSONが読めません（Secret GOOGLE_SERVICE_ACCOUNT_JSON を確認）"; exit 1; }
+      - name: 送信
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ./credentials/service_account.json
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          TANA_EXEC_URL: ${{ secrets.TANA_EXEC_URL }}
+          INPUT_LINKS_KEY: ${{ secrets.INPUT_LINKS_KEY }}
+          # 自由入力はコマンドへ直接展開せず env 経由で受け取り、形式を検証してから使う（インジェクション対策）。
+          YM_IN: ${{ inputs.ym }}
+          DRY_IN: ${{ inputs.dry_run }}
+        run: |
+          ARGS=""
+          if printf '%s' "$YM_IN" | grep -qE '^[0-9]{4}-[0-9]{2}$'; then ARGS="--ym $YM_IN"; fi
+          if [ "$DRY_IN" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python tools/tana_month.py $ARGS
