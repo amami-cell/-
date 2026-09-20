@@ -1,0 +1,30 @@
+name: 診断 Pages確認
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Pagesの包みページを確認
+        run: |
+          U="https://amami-cell.github.io/-/t.html?s=0001006&ym=2026-08&t=CItAtAllr832nybq7g7H3-mChMqMMhQauRU26M47c0M"
+          echo "URL: $U"
+          # 反映待ち込みで数回リトライ
+          for i in 1 2 3 4 5; do
+            code=$(curl -sS -L -o body.html -D head.txt -w "%{http_code}" "$U" || true)
+            echo "try$i http=$code"
+            [ "$code" = "200" ] && break
+            sleep 8
+          done
+          echo "--- Content-Type ---"; grep -i '^content-type:' head.txt
+          echo "--- 本文（先頭800字） ---"; head -c 800 body.html; echo
+          echo "--- 判定 ---"
+          grep -qi '棚卸 入力' body.html && echo "  [OK] 包みページが配信されている"
+          grep -qi 'macros/s/AKfycbyvVFW' body.html && echo "  [OK] 入力ページ(/exec)へのiframe指定あり"
+          grep -qi '404\|not found' body.html && echo "  [NG] 404"
