@@ -284,10 +284,17 @@ function allStoreKeys_(ss) {
   return Object.keys(set).sort();
 }
 
-/** /exec のベースURL（明示設定 EXEC_URL 優先、無ければ getService().getUrl()）。 */
+// このアプリの公開 /exec URL（外部の担当者が開ける安定URL）。
+// ScriptApp.getService().getUrl() は実行中デプロイのURLを返し、外部から
+// 「ファイルを開けません」になる場合があるため、確定URLを既定にする。
+// 別デプロイへ移す時だけ スクリプトプロパティ EXEC_URL で上書きできる。
+const KNOWN_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+
+/** /exec のベースURL（明示設定 EXEC_URL 優先 → 確定URL → 自動取得）。 */
 function execBaseUrl_() {
   var u = PropertiesService.getScriptProperties().getProperty(EXEC_URL_PROP);
   if (u) return u;
+  if (KNOWN_EXEC_URL) return KNOWN_EXEC_URL;
   try { return ScriptApp.getService().getUrl(); } catch (e) { return ''; }
 }
 
