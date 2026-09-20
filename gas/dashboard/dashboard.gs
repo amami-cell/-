@@ -327,7 +327,8 @@ function inputLinks_(ym) {
   var stores = keys.map(function (k) {
     return {
       key: k, name: storeDisplayName_(k),
-      url: base + '?input=1&s=' + encodeURIComponent(storeIdParam_(k)) + '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(k, ym))
+      // openExternalBrowser=1: LINE内蔵ブラウザはGASを開けないため、端末の既定ブラウザ(Safari等)で開かせる。
+      url: base + '?input=1&s=' + encodeURIComponent(storeIdParam_(k)) + '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(k, ym)) + '&openExternalBrowser=1'
     };
   });
   return { ok: true, ym: ym, base: base, stores: stores };
@@ -345,8 +346,9 @@ function getStoreInputLinks(pass, storeKey, yms) {
   list.forEach(function (ym) {
     ym = String(ym || '').trim();
     if (!/^\d{4}-\d{2}$/.test(ym)) return;
+    // openExternalBrowser=1: LINE内蔵ブラウザはGASを開けないため、端末の既定ブラウザ(Safari等)で開かせる。
     links[ym] = base + '?input=1&s=' + encodeURIComponent(storeIdParam_(storeKey)) +
-      '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(storeKey, ym));
+      '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(storeKey, ym)) + '&openExternalBrowser=1';
   });
   return { ok: true, links: links };
 }
