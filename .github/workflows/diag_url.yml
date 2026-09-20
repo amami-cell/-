@@ -1,0 +1,34 @@
+name: 診断 URL応答
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: 実URLの応答を確認
+        run: |
+          B="https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec"
+          probe () {
+            local name="$1"; local url="$2"
+            echo "========== $name =========="
+            echo "URL: $url"
+            curl -sS -L -A "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" \
+              -o body.html -D head.txt -w "http=%{http_code} redirects=%{num_redirects} final=%{url_effective}\n" "$url" || true
+            echo "--- 応答ヘッダ(先頭) ---"; head -n 15 head.txt
+            echo "--- 本文の判定 ---"
+            grep -qi 'userCodeAppPanel\|ppConfig' body.html && echo "  [OK] GASアプリHTMLが返っている"
+            grep -qi 'ファイルを開くことができません\|Sorry, unable to open' body.html && echo "  [NG] Driveの『開けません』ページ"
+            grep -qi 'リンクが無効' body.html && echo "  [i] 入力ページ(トークン無効表示)"
+            grep -qi 'accounts.google.com' body.html && echo "  [i] ログイン系の記述あり"
+            echo "--- タイトル ---"; grep -oi '<title>[^<]*</title>' body.html | head -1
+            echo "--- 本文先頭400字 ---"; head -c 400 body.html; echo
+          }
+          probe "1) 素の/exec(メインアプリ)" "$B"
+          probe "2) 入力ページ(実トークン)" "$B?input=1&s=0001006&ym=2026-08&t=CItAtAllr832nybq7g7H3-mChMqMMhQauRU26M47c0M"
+          probe "3) 入力ページ(短縮ID・無効トークン)" "$B?input=1&s=0001006&ym=2026-08&t=bad"
