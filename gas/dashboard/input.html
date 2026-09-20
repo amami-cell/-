@@ -16,6 +16,10 @@
   label{ display:block; font-size:12px; color:var(--sub); margin:6px 0 2px; }
   select,input[type=text],input[type=number]{ width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-size:16px; background:#fff; }
   input.req-on{ border-color:var(--amber); background:#fffdf5; }
+  /* 合計/フード/ドリンク 切替 */
+  .seg{ display:flex; gap:4px; background:#eef2f7; border-radius:10px; padding:3px; margin:2px 0 10px; }
+  .seg button{ flex:1; border:0; background:transparent; border-radius:8px; padding:8px 4px; font-size:13px; font-weight:700; color:var(--sub); cursor:pointer; }
+  .seg button.on{ background:#fff; color:var(--brand); box-shadow:0 1px 2px rgba(0,0,0,.08); }
   /* 棚数値の表（アプリと同じ見た目） */
   .sumhead{ display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; color:var(--sub); flex-wrap:wrap; }
   .sumhead .sales{ color:var(--ink); font-weight:700; }
@@ -81,6 +85,11 @@
     <!-- 棚数値（即時計算） -->
     <div class="card">
       <h2>📊 この月の棚数値 <span class="muted" id="liveTag" style="font-weight:400"></span></h2>
+      <div class="seg" id="sumSeg">
+        <button type="button" data-m="FD" class="on" onclick="setMode('FD',this)">合計</button>
+        <button type="button" data-m="F" onclick="setMode('F',this)">フード</button>
+        <button type="button" data-m="D" onclick="setMode('D',this)">ドリンク</button>
+      </div>
       <div class="sumhead"><span class="sales" id="sumSales"></span><span class="turn" id="sumTurn" style="display:none"></span></div>
       <div class="table-wrap" style="overflow-x:auto"><table class="items" id="sumtbl"></table></div>
       <div class="muted" id="kpiNote" style="margin-top:8px;font-size:12px"></div>
@@ -176,10 +185,34 @@
     return out;
   }
 
-  // ── 即時計算（サーバのcalcMと同じ式・FD合算）──
-  function sums(items){
+  // ── 表示区分（合計/フード/ドリンク）──
+  var MODE='FD';   // 'FD' | 'F' | 'D'
+  function setMode(m,btn){
+    MODE=m;
+    var seg=el('sumSeg').querySelectorAll('button');
+    for(var i=0;i<seg.length;i++) seg[i].className=(seg[i].getAttribute('data-m')===m)?'on':'';
+    recalc();
+  }
+  // 選択区分の土台値（F/D はそのまま、FD は f+d）
+  function baseOf(mode){
+    if(!M) return null;
+    var f=M.f||{}, d=M.d||{};
+    if(mode==='F') return f;
+    if(mode==='D') return d;
+    var addN=function(a,b){ return (a==null&&b==null)?null:((a||0)+(b||0)); };
+    return {
+      sales:(f.sales||0)+(d.sales||0),
+      purchase:(f.purchase||0)+(d.purchase||0),
+      theoryBase:(f.theoryBase||0)+(d.theoryBase||0),
+      invCur:addN(f.invCur,d.invCur), invPrev:addN(f.invPrev,d.invPrev)
+    };
+  }
+  // ロス集計（区分で絞る）: FD=全て / F=フード / D=ドリンク
+  function sums(items, mode){
     var need=0,waste=0,theoryAdj=0;
     items.forEach(function(l){
+      if(mode==='F' && l.cat!=='フード') return;
+      if(mode==='D' && l.cat!=='ドリンク') return;
       var amt=Number(l.amount)||0;
       if(l.kind==='必要ロス') need+=amt;
       else if(l.kind==='廃棄ロス') waste+=amt;
@@ -192,19 +225,20 @@
     if(!M){ return; }
     var draft=collect();
     var all=SAVED.concat(draft);
-    var s=sums(all);
-    var theory=(M.theoryBase||0)+s.theoryAdj;
-    var invCur=(M.invCur==null?null:M.invCur), invPrev=(M.invPrev==null?null:M.invPrev);
-    var actual=(invPrev!=null && invCur!=null)?(invPrev+(M.purchase||0)-invCur):null;
+    var b=baseOf(MODE)||{};
+    var s=sums(all, MODE);
+    var theory=(b.theoryBase||0)+s.theoryAdj;
+    var invCur=(b.invCur==null?null:b.invCur), invPrev=(b.invPrev==null?null:b.invPrev);
+    var actual=(invPrev!=null && invCur!=null)?(invPrev+(b.purchase||0)-invCur):null;
     var unknown=(actual!=null)?(actual-theory-s.need-s.waste):null;
     var theoryDays=M.interim?15:(M.days||30);
     var turnover=(invCur!=null && theory>0)?(invCur/(theory/theoryDays)):null;
-    var sales=M.sales||0;
+    var sales=b.sales||0;
 
     // アプリと同じ行構成の表
     var rows=[
       { l:'前月棚金', v:invPrev },
-      { l:'当月仕入', v:(M.purchase||0) },
+      { l:'当月仕入', v:(b.purchase||0) },
       { l:'当月棚金', v:invCur },
       { l:'当月実使用', v:actual, strong:true },
       { l:'理論原価', v:theory },
@@ -212,7 +246,8 @@
       { l:'廃棄ロス', v:s.waste, indent:true },
       { l:'不明ロス', v:unknown, strong:true, cls:(unknown==null?'':(unknown>0?'pos':'neg')) }
     ];
-    var html='<tr class="head"><td class="lbl">項目</td><td class="num">ＦＤ合計</td><td class="rate">売上比</td></tr>';
+    var colLbl = MODE==='F'?'フード':(MODE==='D'?'ドリンク':'ＦＤ合計');
+    var html='<tr class="head"><td class="lbl">項目</td><td class="num">'+colLbl+'</td><td class="rate">売上比</td></tr>';
     rows.forEach(function(r){
       html+='<tr'+(r.strong?' class="strong"':'')+'>'+
         '<td class="lbl'+(r.indent?' indent':'')+'">'+r.l+'</td>'+
