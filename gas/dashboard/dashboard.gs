@@ -290,11 +290,12 @@ function allStoreKeys_(ss) {
 // 別デプロイへ移す時だけ スクリプトプロパティ EXEC_URL で上書きできる。
 const KNOWN_EXEC_URL = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
 
-/** /exec のベースURL（明示設定 EXEC_URL 優先 → 確定URL → 自動取得）。 */
+/** /exec のベースURL。誤爆防止のため確定URLを最優先で使う（自動取得は @HEAD 等の
+ *  外部で開けないURLを返すことがあるため使わない）。移設時のみ定数を書き換える。 */
 function execBaseUrl_() {
+  if (KNOWN_EXEC_URL) return KNOWN_EXEC_URL;
   var u = PropertiesService.getScriptProperties().getProperty(EXEC_URL_PROP);
   if (u) return u;
-  if (KNOWN_EXEC_URL) return KNOWN_EXEC_URL;
   try { return ScriptApp.getService().getUrl(); } catch (e) { return ''; }
 }
 
