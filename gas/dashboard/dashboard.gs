@@ -135,13 +135,30 @@ function storeDisplayName_(key) {
   var s = String(key || ''); var i = s.indexOf('_'); return i > 0 ? s.slice(i + 1) : s;
 }
 
+/** 店舗キー(0001015_店名) → 短縮ID(0001015)。入力URLを短くしてLINEで開きやすくする。 */
+function storeIdParam_(key) {
+  var s = String(key || ''); var i = s.indexOf('_'); return i > 0 ? s.slice(0, i) : s;
+}
+
+/** URLの s=（短縮ID or 完全キー）→ 実際の店舗キー(0001015_店名)。IDなら前方一致で復元。 */
+function resolveStoreKey_(s) {
+  s = String(s || '').trim();
+  if (!s || s.indexOf('_') >= 0) return s;   // 空/既に完全キーはそのまま
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var keys = allStoreKeys_(ss);
+    for (var i = 0; i < keys.length; i++) { if (keys[i].indexOf(s + '_') === 0) return keys[i]; }
+  } catch (e) {}
+  return s;   // 見つからなければそのまま（トークン検証で弾かれる）
+}
+
 function jsonOut_(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 }
 
 /** 委任入力ページ（input.html）を返す。 */
 function inputPage_(e) {
-  var s = String(e.parameter.s || '');
+  var s = resolveStoreKey_(String(e.parameter.s || ''));   // 短縮IDでも完全キーでも受ける
   var ym = String(e.parameter.ym || '');
   var t = String(e.parameter.t || '');
   var tpl = HtmlService.createTemplateFromFile('input');
@@ -226,6 +243,7 @@ function inputMetrics_(store, ym) {
 
 /** 入力ページの現在値（その店×月のロス/理論原価一覧＋棚数値の土台）を返す。トークン必須。 */
 function getInputPageData(store, ym, token) {
+  store = resolveStoreKey_(store);
   if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です（月やリンクをご確認ください）' };
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sh = ss.getSheetByName(LOSS_SHEET);
@@ -246,12 +264,14 @@ function getInputPageData(store, ym, token) {
 
 /** 委任入力からロス/理論原価を登録する。トークン必須（管理パスコード不要）。 */
 function saveInputLosses(store, ym, token, items) {
+  store = resolveStoreKey_(store);
   if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です（月やリンクをご確認ください）' };
   return writeLossItems_(store, ym, items);
 }
 
 /** 委任入力から1件削除する。トークン＋店舗＋月＋IDが一致した行だけ消す（他店を消せない）。 */
 function deleteInputLoss(store, ym, token, id) {
+  store = resolveStoreKey_(store);
   if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です' };
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var sh = ss.getSheetByName(LOSS_SHEET);
@@ -307,7 +327,7 @@ function inputLinks_(ym) {
   var stores = keys.map(function (k) {
     return {
       key: k, name: storeDisplayName_(k),
-      url: base + '?input=1&s=' + encodeURIComponent(k) + '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(k, ym))
+      url: base + '?input=1&s=' + encodeURIComponent(storeIdParam_(k)) + '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(k, ym))
     };
   });
   return { ok: true, ym: ym, base: base, stores: stores };
@@ -325,7 +345,7 @@ function getStoreInputLinks(pass, storeKey, yms) {
   list.forEach(function (ym) {
     ym = String(ym || '').trim();
     if (!/^\d{4}-\d{2}$/.test(ym)) return;
-    links[ym] = base + '?input=1&s=' + encodeURIComponent(storeKey) +
+    links[ym] = base + '?input=1&s=' + encodeURIComponent(storeIdParam_(storeKey)) +
       '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(storeKey, ym));
   });
   return { ok: true, links: links };
