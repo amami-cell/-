@@ -319,6 +319,20 @@ function execBaseUrl_() {
   try { return ScriptApp.getService().getUrl(); } catch (e) { return ''; }
 }
 
+// 入力ページの「iframe包み」(GitHub Pages)。script.google.com を直接開くと
+// 複数Googleアカウント環境やLINE内蔵ブラウザで「ファイルを開けません」になるため、
+// Google以外のオリジンに包んで配信する（site/t.html）。担当者に配るのはこのURL。
+const PAGES_INPUT_URL = 'https://amami-cell.github.io/-/t.html';
+
+/** 担当者に配る入力URL（Pages包み経由・署名トークン付き・LINEはSafariで開かせる）。 */
+function inputShareUrl_(storeKey, ym) {
+  return PAGES_INPUT_URL +
+    '?s=' + encodeURIComponent(storeIdParam_(storeKey)) +
+    '&ym=' + encodeURIComponent(ym) +
+    '&t=' + encodeURIComponent(inputToken_(storeKey, ym)) +
+    '&openExternalBrowser=1';   // LINE内蔵ブラウザ回避（端末の既定ブラウザで開く）
+}
+
 /** 指定月の、各店舗の委任入力URL一覧を返す（LINE送信役が使う）。 */
 function inputLinks_(ym) {
   var base = execBaseUrl_();
@@ -327,8 +341,7 @@ function inputLinks_(ym) {
   var stores = keys.map(function (k) {
     return {
       key: k, name: storeDisplayName_(k),
-      // openExternalBrowser=1: LINE内蔵ブラウザはGASを開けないため、端末の既定ブラウザ(Safari等)で開かせる。
-      url: base + '?input=1&s=' + encodeURIComponent(storeIdParam_(k)) + '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(k, ym)) + '&openExternalBrowser=1'
+      url: inputShareUrl_(k, ym)
     };
   });
   return { ok: true, ym: ym, base: base, stores: stores };
@@ -346,9 +359,7 @@ function getStoreInputLinks(pass, storeKey, yms) {
   list.forEach(function (ym) {
     ym = String(ym || '').trim();
     if (!/^\d{4}-\d{2}$/.test(ym)) return;
-    // openExternalBrowser=1: LINE内蔵ブラウザはGASを開けないため、端末の既定ブラウザ(Safari等)で開かせる。
-    links[ym] = base + '?input=1&s=' + encodeURIComponent(storeIdParam_(storeKey)) +
-      '&ym=' + encodeURIComponent(ym) + '&t=' + encodeURIComponent(inputToken_(storeKey, ym)) + '&openExternalBrowser=1';
+    links[ym] = inputShareUrl_(storeKey, ym);
   });
   return { ok: true, links: links };
 }
