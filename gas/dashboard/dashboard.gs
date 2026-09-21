@@ -295,6 +295,42 @@ function deleteInputLoss(store, ym, token, id) {
   } finally { lock.releaseLock(); }
 }
 
+/** 委任入力から1件を修正する。トークン＋店舗＋月＋IDが一致した行だけ更新（他店を触れない）。 */
+function updateInputLoss(store, ym, token, id, item) {
+  store = resolveStoreKey_(store);
+  if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true, message: 'リンクが無効です' };
+  id = String(id || '').trim();
+  if (!id) return { ok: false, message: 'IDが不正です' };
+  item = item || {};
+  var kind = String(item.kind || '').trim();
+  var cat = String(item.cat || '').trim();
+  var memo = String(item.memo || '').trim().slice(0, 200);
+  var name = String(item.name || '').trim().slice(0, 40);
+  var amount = Number(item.amount);
+  if (['廃棄ロス', '必要ロス', '理論原価'].indexOf(kind) < 0) return { ok: false, message: '種別が不正です' };
+  if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: '区分が不正です' };
+  if (!memo) return { ok: false, message: (kind === '理論原価' ? '変更理由' : '内容') + 'を入力してください' };
+  if (kind === '理論原価' && !name) return { ok: false, message: '理論原価の変更には担当者名が必要です' };
+  if (!isFinite(amount) || amount <= 0) return { ok: false, message: '金額は1円以上で入力してください' };
+  var lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try {
+    var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    var sh = ss.getSheetByName(LOSS_SHEET);
+    if (!sh) return { ok: false, message: 'ロス記録シートがありません' };
+    var v = sh.getDataRange().getValues();
+    for (var i = v.length - 1; i >= 1; i--) {
+      if (String(v[i][0]) === id && String(v[i][1]) === ym && String(v[i][2]) === store) {
+        var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+        // 列: 4種別,5区分,6内容,7金額,8登録日時,9担当者
+        sh.getRange(i + 1, 4, 1, 6).setValues([[kind, cat, memo, Math.round(amount), ts, name]]);
+        CacheService.getScriptCache().remove('dash_v2');
+        return { ok: true };
+      }
+    }
+    return { ok: false, message: '該当の項目が見つかりません（既に削除済みかも）' };
+  } finally { lock.releaseLock(); }
+}
+
 /** 全店舗キー（月次集計の各シートに現れる店舗）。入力リンク生成用。 */
 function allStoreKeys_(ss) {
   var set = {};
