@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>棚卸ダッシュボード</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #f6f7f9; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif; }
+  #f { border: 0; width: 100%; height: 100%; display: block; background: #f6f7f9; }
+  #load { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: #6b7280; padding: 24px; text-align: center; }
+  #load .sp { width: 30px; height: 30px; border: 3px solid #e5e7eb; border-top-color: #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #load a, #fb a { color: #2563eb; text-decoration: none; font-weight: 700; }
+  #fb { position: fixed; left: 0; right: 0; bottom: 0; text-align: center; padding: 8px; background: rgba(246,247,249,.92); border-top: 1px solid #e5e7eb; font-size: 13px; }
+</style>
+</head>
+<body>
+<!--
+  棚卸ダッシュボード本体の「iframe包み」。ローカルhtml(file://)から開くと環境により
+  真っ白になるため、GitHub Pages上でGASアプリを全画面iframe表示する。
+  ?p=パスコード を付けると自動ログイン（本体の ?p= に受け渡す）。
+-->
+<div id="load"><div class="sp"></div><div>アプリを開いています…</div><a id="load-open" href="#" target="_top">▶ 開かないときはこちらをタップ</a></div>
+<iframe id="f" allow="clipboard-write"></iframe>
+<div id="fb">表示されない場合は <a id="fb-open" href="#" target="_top">ブラウザで開く</a></div>
+<script>
+  (function () {
+    var EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+    var q = (location.search || '').replace(/^\?/, '');
+    var src = EXEC + (q ? ('?' + q) : '');
+    var iframe = document.getElementById('f');
+    document.getElementById('load-open').href = src;
+    document.getElementById('fb-open').href = src;
+    iframe.src = src;
+    iframe.addEventListener('load', function () { var l = document.getElementById('load'); if (l) l.style.display = 'none'; });
+    setTimeout(function () {
+      var l = document.getElementById('load');
+      if (l && l.style.display !== 'none') { var sp = l.querySelector('.sp'); if (sp) sp.style.display = 'none'; l.querySelector('div:nth-child(2)').textContent = '表示に時間がかかっています。下のボタンで開いてください。'; }
+    }, 4000);
+  })();
+</script>
+</body>
+</html>
