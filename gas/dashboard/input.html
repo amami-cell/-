@@ -315,8 +315,16 @@
     var to=setTimeout(function(){ if(done)return; btn.disabled=false; btn.textContent=addLbl; setPMsg('時間がかかっています。通信状況をご確認ください。','err'); },20000);
     function onOk(res){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent=addLbl;
       if(res&&res.ok){
-        if(isEdit){ setPMsg('✅ 修正しました。','ok'); closePanel(); loadCur(); }
-        else { setPMsg('✅ 追加しました。続けて入力できます。','ok'); el('pAmt').value=''; el('pMemo').value=''; el('pAmt').focus(); loadCur(); }
+        if(isEdit){
+          // ローカルのSAVEDを直接更新（再読込せず即反映）
+          for(var i=0;i<SAVED.length;i++){ if(String(SAVED[i].id)===String(editId)){ SAVED[i].kind=item.kind; SAVED[i].cat=item.cat; SAVED[i].amount=item.amount; SAVED[i].memo=item.memo; SAVED[i].name=item.name; break; } }
+          render(); closePanel();
+        } else {
+          // 保存の戻り値(recs)をSAVEDに足して即反映
+          if(res.recs && res.recs.length){ res.recs.forEach(function(r){ SAVED.push(r); }); }
+          else { SAVED.push(item); }   // 念のためのフォールバック
+          setPMsg('✅ 追加しました。続けて入力できます。','ok'); el('pAmt').value=''; el('pMemo').value=''; el('pAmt').focus(); render();
+        }
       } else { setPMsg((isEdit?'修正':'登録')+'できませんでした: '+((res&&res.message)||'不明なエラー'),'err'); } }
     function onErr(e){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent=addLbl; setPMsg('通信エラー: '+((e&&e.message)||''),'err'); }
     if(isEdit){
@@ -329,7 +337,9 @@
   function delItem(id){
     if(!confirm('この項目を削除しますか？')) return;
     google.script.run
-      .withSuccessHandler(function(res){ if(res&&res.ok){ loadCur(); } else { alert('削除できませんでした: '+((res&&res.message)||'')); } })
+      .withSuccessHandler(function(res){
+        if(res&&res.ok){ SAVED=SAVED.filter(function(it){ return String(it.id)!==String(id); }); render(); }
+        else { alert('削除できませんでした: '+((res&&res.message)||'')); } })
       .withFailureHandler(function(e){ alert('通信エラー: '+((e&&e.message)||'')); })
       .deleteInputLoss(STORE, YM, TOKEN, id);
   }

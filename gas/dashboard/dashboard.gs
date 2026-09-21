@@ -185,6 +185,11 @@ function daysInMonth_(ym) {
   var y = parseInt(ym.slice(0, 4), 10), mo = parseInt(ym.slice(5, 7), 10);
   return new Date(y, mo, 0).getDate();
 }
+/** セル値を 'YYYY-MM' 文字列に正規化（Sheetsが年月を日付型に変換していても拾えるように）。 */
+function ymStr_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM');
+  return String(v == null ? '' : v).trim();
+}
 
 /**
  * 入力ページ用: その店×月の「棚数値の土台」を F/D 別に返す。
@@ -257,7 +262,7 @@ function getInputPageData(store, ym, token) {
     var v = sh.getDataRange().getValues();
     for (var i = 1; i < v.length; i++) {
       var r = v[i];
-      if (String(r[1]) === ym && String(r[2]) === store) {
+      if (ymStr_(r[1]) === ym && String(r[2]) === store) {
         items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || ''), name: String(r[8] || '') });
       }
     }
@@ -285,7 +290,7 @@ function deleteInputLoss(store, ym, token, id) {
   try {
     var v = sh.getDataRange().getValues();
     for (var i = v.length - 1; i >= 1; i--) {
-      if (String(v[i][0]) === String(id) && String(v[i][1]) === ym && String(v[i][2]) === store) {
+      if (String(v[i][0]) === String(id) && ymStr_(v[i][1]) === ym && String(v[i][2]) === store) {
         sh.deleteRow(i + 1);
         CacheService.getScriptCache().remove('dash_v2');
         return { ok: true };
@@ -319,7 +324,7 @@ function updateInputLoss(store, ym, token, id, item) {
     if (!sh) return { ok: false, message: 'ロス記録シートがありません' };
     var v = sh.getDataRange().getValues();
     for (var i = v.length - 1; i >= 1; i--) {
-      if (String(v[i][0]) === id && String(v[i][1]) === ym && String(v[i][2]) === store) {
+      if (String(v[i][0]) === id && ymStr_(v[i][1]) === ym && String(v[i][2]) === store) {
         var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
         // 列: 4種別,5区分,6内容,7金額,8登録日時,9担当者
         sh.getRange(i + 1, 4, 1, 6).setValues([[kind, cat, memo, Math.round(amount), ts, name]]);
@@ -780,7 +785,7 @@ function getDashboardData(pass, forceRefresh) {
     lossSheet.getDataRange().getValues().forEach(function (row, i) {
       if (i === 0) return; // ヘッダー
       const id = String(row[0] || '').trim();
-      const ym = String(row[1] || '').trim();
+      const ym = ymStr_(row[1]);
       const store = String(row[2] || '').trim();
       if (!id || !/^\d{4}-\d{2}$/.test(ym) || !store) return;
       if (!losses[ym]) losses[ym] = {};
@@ -1035,7 +1040,11 @@ function writeLossItems_(storeKey, ym, items) {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     const sh = lossSheet_(ss);
     const rows = recs.map(function (r) { return [r.id, ym, storeKey, r.kind, r.cat, r.memo, r.amount, r.ts, r.name || '']; });
-    sh.getRange(sh.getLastRow() + 1, 1, rows.length, 9).setValues(rows);
+    const startRow = sh.getLastRow() + 1;
+    const range = sh.getRange(startRow, 1, rows.length, 9);
+    // 年月(2列目)を日付に自動変換されないようテキスト書式にしてから書く（'2026-08'のまま保存）。
+    try { sh.getRange(startRow, 2, rows.length, 1).setNumberFormat('@'); } catch (e) {}
+    range.setValues(rows);
     CacheService.getScriptCache().remove('dash_v2');
     return { ok: true, recs: recs };
   } finally {
