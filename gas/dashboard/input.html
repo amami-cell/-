@@ -62,6 +62,7 @@
   .litem .amt{ font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap; }
   .litem .who{ font-size:11px; color:var(--sub); }
   .litem .del{ border:0; background:transparent; color:var(--red); font-size:14px; cursor:pointer; padding:0 2px; }
+  .litem .edit{ border:0; background:transparent; color:var(--brand); font-size:14px; cursor:pointer; padding:0 2px; }
   .ltag{ display:inline-block; font-size:10px; padding:0 6px; border-radius:999px; margin-right:4px; }
   .lsub{ text-align:right; font-weight:800; margin-top:6px; font-variant-numeric:tabular-nums; }
   .empty{ color:var(--sub); font-size:12px; padding:8px 0; }
@@ -98,6 +99,12 @@
       <!-- 追加パネル（セルをタップで開く） -->
       <div id="panel">
         <div class="ttl"><span id="pTag"></span><span id="pTtl"></span></div>
+        <div id="pEditKC" style="display:none">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div><label>種別</label><select id="pKindSel" onchange="onEditKind()" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:16px;background:#fff"></select></div>
+            <div><label>区分</label><select id="pCatSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:16px;background:#fff"></select></div>
+          </div>
+        </div>
         <label>金額（円）</label>
         <input id="pAmt" type="number" inputmode="numeric" min="1" step="1" placeholder="例: 3000">
         <label id="pMemoLbl">内容（メモ）</label>
@@ -129,9 +136,12 @@
 
 <script>
   var KIND_TAG = { '廃棄ロス':'waste', '必要ロス':'need', '理論原価':'theory' };
+  var KINDS = ['廃棄ロス','必要ロス','理論原価'];
+  var CATS = ['フード','ドリンク'];
   var M = null;      // 棚数値の土台（f/d）
   var SAVED = [];    // 登録済みのロス/理論原価
   var PANEL = null;  // { kind, cat }
+  var editId = null; // 修正中の項目ID（null=新規追加）
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function el(id){ return document.getElementById(id); }
   function yen(n){ return (n==null||isNaN(n))?'—':('¥'+Math.round(Number(n)).toLocaleString('ja-JP')); }
@@ -230,47 +240,90 @@
         var tag=KIND_TAG[it.kind]||''; var who=it.name?('<span class="who">・'+esc(it.name)+'</span>'):'';
         return '<div class="litem"><div class="top"><div><span class="ltag '+tag+'">'+esc(it.kind).replace('ロス','')+'</span>'+
           '<span class="memo">'+esc(it.memo)+'</span>'+who+'</div>'+
-          '<div style="display:flex;align-items:center;gap:6px"><span class="amt">'+yen(it.amount)+'</span>'+
-          '<button class="del" type="button" onclick="delItem(\''+esc(it.id)+'\')">✕</button></div></div></div>';
+          '<div style="display:flex;align-items:center;gap:4px"><span class="amt">'+yen(it.amount)+'</span>'+
+          '<button class="edit" type="button" title="修正" onclick="openEdit(\''+esc(it.id)+'\')">✎</button>'+
+          '<button class="del" type="button" title="削除" onclick="delItem(\''+esc(it.id)+'\')">✕</button></div></div></div>';
       }).join('');
       box.innerHTML = html + '<div class="lsub">合計 '+yen(total)+'</div>';
     });
   }
 
-  // ── 追加パネル ──
+  // ── 追加/修正パネル ──
+  function memoLabelFor(kind){ return (kind==='理論原価')?'変更理由（必須）':'内容（メモ）'; }
+  function memoPhFor(kind){ return (kind==='理論原価')?'例: 急な宴会の仕入で理論原価を修正':'例: キャベツ廃棄 / 賄い分 など'; }
+  function opt(arr,sel){ return arr.map(function(v){ return '<option'+(v===sel?' selected':'')+'>'+v+'</option>'; }).join(''); }
+
+  // 新規追加（セルタップ）: 種別・区分は固定
   function openAdd(kind, cat){
-    PANEL = { kind:kind, cat:cat };
+    editId = null; PANEL = { kind:kind, cat:cat };
     var catCls = cat==='フード'?'food':'drink';
+    el('pTag').style.display=''; el('pEditKC').style.display='none';
     el('pTag').innerHTML = '<span class="tag '+(KIND_TAG[kind]||'')+'">'+esc(kind)+'</span><span class="tag '+catCls+'">'+esc(cat)+'</span> ';
     el('pTtl').textContent = 'を追加';
-    el('pMemoLbl').textContent = (kind==='理論原価')?'変更理由（必須）':'内容（メモ）';
-    el('pMemo').placeholder = (kind==='理論原価')?'例: 急な宴会の仕入で理論原価を修正':'例: キャベツ廃棄 / 賄い分 など';
+    el('pMemoLbl').textContent = memoLabelFor(kind);
+    el('pMemo').placeholder = memoPhFor(kind);
     el('pNameWrap').style.display = (kind==='理論原価')?'block':'none';
     el('pAmt').value=''; el('pMemo').value=''; el('pName').value='';
+    el('pAdd').textContent='＋ 追加する';
     setPMsg('');
     el('panel').classList.add('on');
     el('panel').scrollIntoView({ behavior:'smooth', block:'center' });
     el('pAmt').focus();
   }
-  function closePanel(){ el('panel').classList.remove('on'); PANEL=null; }
+  // 修正（登録後）: 種別・区分も変更できる
+  function openEdit(id){
+    var it=null; for(var i=0;i<SAVED.length;i++){ if(String(SAVED[i].id)===String(id)){ it=SAVED[i]; break; } }
+    if(!it){ alert('項目が見つかりません。'); return; }
+    editId = id; PANEL = null;
+    el('pTag').style.display='none'; el('pEditKC').style.display='block';
+    el('pKindSel').innerHTML = opt(KINDS, it.kind);
+    el('pCatSel').innerHTML = opt(CATS, it.cat);
+    el('pTtl').textContent = ' を修正';
+    el('pMemoLbl').textContent = memoLabelFor(it.kind);
+    el('pMemo').placeholder = memoPhFor(it.kind);
+    el('pNameWrap').style.display = (it.kind==='理論原価')?'block':'none';
+    el('pAmt').value = it.amount; el('pMemo').value = it.memo||''; el('pName').value = it.name||'';
+    el('pAdd').textContent='✓ 修正を保存';
+    setPMsg('');
+    el('panel').classList.add('on');
+    el('panel').scrollIntoView({ behavior:'smooth', block:'center' });
+    el('pAmt').focus();
+  }
+  // 修正パネルで種別を変えたら 内容ラベル・担当者欄を追従
+  function onEditKind(){
+    var kind=el('pKindSel').value;
+    el('pMemoLbl').textContent = memoLabelFor(kind);
+    el('pMemo').placeholder = memoPhFor(kind);
+    el('pNameWrap').style.display = (kind==='理論原価')?'block':'none';
+  }
+  function closePanel(){ el('panel').classList.remove('on'); PANEL=null; editId=null; }
   function setPMsg(t,cls){ var m=el('pmsg'); m.textContent=t||''; m.className=cls||''; }
 
   function doAdd(){
-    if(!PANEL) return;
+    var isEdit = !!editId;
+    var kind = isEdit ? el('pKindSel').value : (PANEL&&PANEL.kind);
+    var cat  = isEdit ? el('pCatSel').value  : (PANEL&&PANEL.cat);
+    if(!kind||!cat) return;
     var amt=Number(el('pAmt').value), memo=el('pMemo').value.trim(), name=el('pName').value.trim();
     if(!isFinite(amt)||amt<=0){ setPMsg('金額を1円以上で入力してください。','err'); el('pAmt').focus(); return; }
-    if(!memo){ setPMsg((PANEL.kind==='理論原価'?'変更理由':'内容')+'を入力してください。','err'); el('pMemo').focus(); return; }
-    if(PANEL.kind==='理論原価' && !name){ setPMsg('担当者名を入力してください。','err'); el('pName').focus(); return; }
-    var item={ kind:PANEL.kind, cat:PANEL.cat, amount:amt, memo:memo, name:name };
+    if(!memo){ setPMsg((kind==='理論原価'?'変更理由':'内容')+'を入力してください。','err'); el('pMemo').focus(); return; }
+    if(kind==='理論原価' && !name){ setPMsg('担当者名を入力してください。','err'); el('pName').focus(); return; }
+    var item={ kind:kind, cat:cat, amount:amt, memo:memo, name:name };
+    var addLbl = isEdit ? '✓ 修正を保存' : '＋ 追加する';
     var btn=el('pAdd'); btn.disabled=true; btn.textContent='保存中…';
     var done=false;
-    var to=setTimeout(function(){ if(done)return; btn.disabled=false; btn.textContent='＋ 追加する'; setPMsg('時間がかかっています。通信状況をご確認ください。','err'); },20000);
-    google.script.run
-      .withSuccessHandler(function(res){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent='＋ 追加する';
-        if(res&&res.ok){ setPMsg('✅ 追加しました。続けて入力できます。','ok'); el('pAmt').value=''; el('pMemo').value=''; el('pAmt').focus(); loadCur(); }
-        else{ setPMsg('登録できませんでした: '+((res&&res.message)||'不明なエラー'),'err'); } })
-      .withFailureHandler(function(e){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent='＋ 追加する'; setPMsg('通信エラー: '+((e&&e.message)||''),'err'); })
-      .saveInputLosses(STORE, YM, TOKEN, [item]);
+    var to=setTimeout(function(){ if(done)return; btn.disabled=false; btn.textContent=addLbl; setPMsg('時間がかかっています。通信状況をご確認ください。','err'); },20000);
+    function onOk(res){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent=addLbl;
+      if(res&&res.ok){
+        if(isEdit){ setPMsg('✅ 修正しました。','ok'); closePanel(); loadCur(); }
+        else { setPMsg('✅ 追加しました。続けて入力できます。','ok'); el('pAmt').value=''; el('pMemo').value=''; el('pAmt').focus(); loadCur(); }
+      } else { setPMsg((isEdit?'修正':'登録')+'できませんでした: '+((res&&res.message)||'不明なエラー'),'err'); } }
+    function onErr(e){ done=true; clearTimeout(to); btn.disabled=false; btn.textContent=addLbl; setPMsg('通信エラー: '+((e&&e.message)||''),'err'); }
+    if(isEdit){
+      google.script.run.withSuccessHandler(onOk).withFailureHandler(onErr).updateInputLoss(STORE, YM, TOKEN, editId, item);
+    } else {
+      google.script.run.withSuccessHandler(onOk).withFailureHandler(onErr).saveInputLosses(STORE, YM, TOKEN, [item]);
+    }
   }
 
   function delItem(id){
@@ -280,7 +333,7 @@
       .withFailureHandler(function(e){ alert('通信エラー: '+((e&&e.message)||'')); })
       .deleteInputLoss(STORE, YM, TOKEN, id);
   }
-  window.openAdd=openAdd; window.delItem=delItem; window.doAdd=doAdd; window.closePanel=closePanel;
+  window.openAdd=openAdd; window.openEdit=openEdit; window.onEditKind=onEditKind; window.delItem=delItem; window.doAdd=doAdd; window.closePanel=closePanel;
 
   function loadCur(){
     google.script.run
