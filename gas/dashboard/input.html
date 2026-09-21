@@ -49,6 +49,7 @@
   .btn{ border:0; border-radius:9px; padding:12px 14px; font-size:15px; font-weight:700; cursor:pointer; }
   .btn.primary{ background:var(--ok); color:#fff; flex:1; }
   .btn.ghost{ background:#eef2ff; color:var(--brand); }
+  .btn.danger{ background:#fef2f2; color:var(--red); border:1px solid #fecaca; }
   .btn:disabled{ opacity:.55; }
   #pmsg{ margin-top:8px; font-size:13px; display:none; }
   #pmsg.ok{ color:var(--ok); display:block; } #pmsg.err{ color:var(--red); display:block; }
@@ -118,6 +119,7 @@
           <button class="btn primary" id="pAdd" type="button" onclick="doAdd()">＋ 追加する</button>
           <button class="btn ghost" type="button" onclick="closePanel()">閉じる</button>
         </div>
+        <button class="btn danger" id="pDel" type="button" style="display:none;width:100%;margin-top:8px" onclick="delFromPanel()">🗑 この項目を削除</button>
       </div>
     </div>
 
@@ -218,9 +220,11 @@
 
     var chips=[];
     if(fd.sales) chips.push('<span class="sales">売上 '+yen(fd.sales)+'</span>');
-    if(f.turnover!=null) chips.push('<span class="turn">回転 フード '+f.turnover.toFixed(1)+'日</span>');
-    if(d.turnover!=null) chips.push('<span class="turn">回転 ドリンク '+d.turnover.toFixed(1)+'日</span>');
-    if(fd.turnover!=null) chips.push('<span class="turn">回転 FD '+fd.turnover.toFixed(1)+'日</span>');
+    var tv=[];
+    if(f.turnover!=null) tv.push('F '+f.turnover.toFixed(1)+'日');
+    if(d.turnover!=null) tv.push('D '+d.turnover.toFixed(1)+'日');
+    if(fd.turnover!=null) tv.push('FD '+fd.turnover.toFixed(1)+'日');
+    if(tv.length) chips.push('<span class="turn">在庫回転日数 '+tv.join('　')+'</span>');
     chips.push('<span class="legend">数字の下＝総売上比</span>');
     el('sumChips').innerHTML=chips.join('');
 
@@ -244,8 +248,7 @@
         return '<div class="litem"><div class="top"><div><span class="ltag '+tag+'">'+esc(it.kind).replace('ロス','')+'</span>'+
           '<span class="memo">'+esc(it.memo)+'</span>'+who+'</div>'+
           '<div style="display:flex;align-items:center;gap:4px"><span class="amt">'+yen(it.amount)+'</span>'+
-          '<button class="edit" type="button" title="修正" onclick="openEdit(\''+esc(it.id)+'\')">✎</button>'+
-          '<button class="del" type="button" title="削除" onclick="delItem(\''+esc(it.id)+'\')">✕</button></div></div></div>';
+          '<button class="edit" type="button" title="修正・削除" onclick="openEdit(\''+esc(it.id)+'\')">✎ 修正</button></div></div></div>';
       }).join('');
       box.innerHTML = html + '<div class="lsub">合計 '+yen(total)+'</div>';
     });
@@ -268,6 +271,7 @@
     el('pNameWrap').style.display = (kind==='理論原価')?'block':'none';
     el('pAmt').value=''; el('pMemo').value=''; el('pName').value='';
     el('pAdd').textContent='＋ 追加する';
+    el('pDel').style.display='none';
     setPMsg('');
     el('panel').classList.add('on');
     el('panel').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -287,6 +291,7 @@
     el('pNameWrap').style.display = (it.kind==='理論原価')?'block':'none';
     el('pAmt').value = it.amount; el('pMemo').value = it.memo||''; el('pName').value = it.name||'';
     el('pAdd').textContent='✓ 修正を保存';
+    el('pDel').style.display='block';
     setPMsg('');
     el('panel').classList.add('on');
     el('panel').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -337,16 +342,19 @@
     }
   }
 
-  function delItem(id){
+  // 削除は編集パネル内からのみ（誤タップ防止）。確認のうえ実行。
+  function delFromPanel(){
+    if(!editId) return;
     if(!confirm('この項目を削除しますか？')) return;
+    var id=editId, btn=el('pDel'); btn.disabled=true; btn.textContent='削除中…';
     google.script.run
-      .withSuccessHandler(function(res){
-        if(res&&res.ok){ SAVED=SAVED.filter(function(it){ return String(it.id)!==String(id); }); render(); }
-        else { alert('削除できませんでした: '+((res&&res.message)||'')); } })
-      .withFailureHandler(function(e){ alert('通信エラー: '+((e&&e.message)||'')); })
+      .withSuccessHandler(function(res){ btn.disabled=false; btn.textContent='🗑 この項目を削除';
+        if(res&&res.ok){ SAVED=SAVED.filter(function(it){ return String(it.id)!==String(id); }); render(); closePanel(); }
+        else { setPMsg('削除できませんでした: '+((res&&res.message)||''),'err'); } })
+      .withFailureHandler(function(e){ btn.disabled=false; btn.textContent='🗑 この項目を削除'; setPMsg('通信エラー: '+((e&&e.message)||''),'err'); })
       .deleteInputLoss(STORE, YM, TOKEN, id);
   }
-  window.openAdd=openAdd; window.openEdit=openEdit; window.onEditKind=onEditKind; window.delItem=delItem; window.doAdd=doAdd; window.closePanel=closePanel;
+  window.openAdd=openAdd; window.openEdit=openEdit; window.onEditKind=onEditKind; window.delFromPanel=delFromPanel; window.doAdd=doAdd; window.closePanel=closePanel;
 
   function loadCur(){
     google.script.run
@@ -363,6 +371,9 @@
     var m=YM.match(/^(\d{4})-(\d{2})$/);
     el('ttl').textContent = STORE_NAME + ' 棚卸入力';
     el('ttlsub').textContent = m ? (m[1]+'年'+(+m[2])+'月分') : YM;
+    el('sumtbl').innerHTML = '<tr><td style="padding:18px;text-align:center;color:var(--sub)">棚数値を読み込み中…</td></tr>';
+    el('colF').innerHTML = '<div class="empty">読み込み中…</div>';
+    el('colD').innerHTML = '<div class="empty">読み込み中…</div>';
     loadCur();
   })();
 </script>
