@@ -355,7 +355,11 @@ function updateInputLoss(store, ym, token, id, item) {
   if (['フード', 'ドリンク'].indexOf(cat) < 0) return { ok: false, message: '区分が不正です' };
   if (!memo) return { ok: false, message: (kind === '理論原価' ? '変更理由' : '内容') + 'を入力してください' };
   if (kind === '理論原価' && !name) return { ok: false, message: '理論原価の変更には担当者名が必要です' };
-  if (!isFinite(amount) || amount <= 0) return { ok: false, message: '金額は1円以上で入力してください' };
+  if (kind === '理論原価') {
+    if (!isFinite(amount) || Math.round(amount) === 0) return { ok: false, message: '金額（差分）が0です' };
+  } else {
+    if (!isFinite(amount) || amount <= 0) return { ok: false, message: '金額は1円以上で入力してください' };
+  }
   var lock = LockService.getScriptLock(); lock.waitLock(10000);
   try {
     var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -1069,7 +1073,12 @@ function writeLossItems_(storeKey, ym, items) {
     if (!memo) return { ok: false, message: (i + 1) + '行目: ' + (kind === '理論原価' ? '変更理由' : '内容') + 'を入力してください' };
     // 理論原価の打ち換えは「誰が変更したか」を残すため担当者名を必須にする。
     if (kind === '理論原価' && !name) return { ok: false, message: (i + 1) + '行目: 理論原価の変更には担当者名が必要です' };
-    if (!isFinite(amount) || amount <= 0) return { ok: false, message: (i + 1) + '行目: 金額は1円以上で入力してください' };
+    // 理論原価は「合計を訂正」で減らす場合マイナス差分になるため 0以外を許可。ロスは1円以上。
+    if (kind === '理論原価') {
+      if (!isFinite(amount) || Math.round(amount) === 0) return { ok: false, message: (i + 1) + '行目: 金額（差分）が0です' };
+    } else {
+      if (!isFinite(amount) || amount <= 0) return { ok: false, message: (i + 1) + '行目: 金額は1円以上で入力してください' };
+    }
     recs.push({ id: Utilities.getUuid(), kind: kind, cat: cat, memo: memo, amount: Math.round(amount), ts: ts, name: name });
   }
 
