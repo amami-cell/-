@@ -2487,16 +2487,26 @@
   }
   // 催促メッセージ: その月の棚数値（理論原価・棚卸高・不明ロス・回転）＋入力URL。
   function catchupMessage(store, ym, url) {
-    var r = calcM(store, ym, 'FD');
+    var rF = calcM(store, ym, 'F'), rD = calcM(store, ym, 'D'), rFD = calcM(store, ym, 'FD');
     var mm = String(ym).match(/^(\d{4})-(\d{2})$/);
-    var L = ['【' + storeNameOf(store) + '】' + (mm ? (mm[1] + '年' + (+mm[2]) + '月') : ym) + ' 棚卸'];
-    if (!r) { L.push('まだ棚卸データがありません。'); }
+    var L = ['【' + storeNameOf(store) + '】'];
+    L.push((mm ? (mm[1] + '年' + (+mm[2]) + '月') : ym) + ' 棚卸項目');
+    if (!rFD) { L.push('まだ棚卸データがありません。'); }
     else {
-      if (r.theory) L.push('理論原価: ' + yen(r.theory) + (r.theoryRate != null ? '（売上比 ' + (r.theoryRate * 100).toFixed(1) + '%）' : ''));
-      if (r.invCur != null) L.push('棚卸高: ' + yen(r.invCur));
-      if (r.actual != null) L.push('実際原価: ' + yen(r.actual));
-      if (r.unknown != null) L.push('不明ロス: ' + yen(r.unknown) + (r.unknownRate != null ? '（売上比 ' + (r.unknownRate * 100).toFixed(1) + '%）' : ''));
-      if (r.turnover != null) L.push('在庫回転: ' + r.turnover.toFixed(1) + '日');
+      // 不明ロス（F/D/FD それぞれ 金額＋売上比）
+      var line = function (lbl, r) {
+        if (!r || r.unknown == null) return lbl + '　—';
+        var pc = (r.unknownRate != null) ? ('　' + (r.unknownRate * 100).toFixed(1) + '%') : '';
+        return lbl + '　' + yen(r.unknown) + pc;
+      };
+      L.push('不明ロス');
+      L.push(line('F', rF));
+      L.push(line('D', rD));
+      L.push(line('FD', rFD));
+      // FD不明ロスが ±1% 以上ならアラート追記
+      if (rFD.unknownRate != null && Math.abs(rFD.unknownRate) * 100 >= 1) {
+        L.push('⚠️ FDの不明ロスが±1%以上です。要確認。');
+      }
     }
     L.push('▼ロス・理論原価の入力/修正はこちら（この店・この月専用）');
     L.push(url);
