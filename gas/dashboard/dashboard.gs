@@ -198,9 +198,18 @@ function ymStr_(v) {
  * FD合計はクライアントで f+d して求める。
  */
 function inputMetrics_(store, ym) {
+  // 棚数値の土台（売上・仕入・理論原価・棚卸高）はFWの取込で日次程度しか変わらないため
+  // 短時間キャッシュして初回以降の表示を速くする（ロスは別途 fresh に読むので即時反映される）。
+  var cache = CacheService.getScriptCache();
+  var ck = 'im2_' + store + '_' + ym;
+  var hit = cache.get(ck);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+
   var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
   var m = {}; var kind = '';
-  Object.keys(METRIC_SHEETS).forEach(function (k) {
+  // 入力ページで必要な指標だけ読む（予算列は使わないので読まない＝シート読取を削減）。
+  var NEED = ['sales', 'foodSales', 'drinkSales', 'foodPurchase', 'drinkPurchase', 'foodTheory', 'drinkTheory'];
+  NEED.forEach(function (k) {
     var sh = ss.getSheetByName(METRIC_SHEETS[k]);
     if (!sh || sh.getLastRow() < 2) { m[k] = 0; return; }
     var v = sh.getDataRange().getValues();
@@ -248,7 +257,9 @@ function inputMetrics_(store, ym) {
     invCur: invCurD, invPrev: invPrevD
   };
   var hasData = !!((m.sales || 0) || f.purchase || d.purchase || f.theoryBase || d.theoryBase || invCurF !== null || invCurD !== null);
-  return { hasData: hasData, days: daysInMonth_(ym), interim: (kind === '中間'), f: f, d: d };
+  var out = { hasData: hasData, days: daysInMonth_(ym), interim: (kind === '中間'), f: f, d: d };
+  try { cache.put(ck, JSON.stringify(out), 1800); } catch (e) {}   // 30分
+  return out;
 }
 
 /** 入力ページの現在値（その店×月のロス/理論原価一覧＋棚数値の土台）を返す。トークン必須。 */
