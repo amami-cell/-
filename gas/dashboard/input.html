@@ -68,7 +68,15 @@
   .litem .del{ border:0; background:transparent; color:var(--red); font-size:14px; cursor:pointer; padding:0 2px; }
   .litem .edit{ border:0; background:transparent; color:var(--brand); font-size:14px; cursor:pointer; padding:0 2px; }
   .ltag{ display:inline-block; font-size:10px; padding:0 6px; border-radius:999px; margin-right:4px; }
-  .lsub{ text-align:right; font-weight:800; margin-top:6px; font-variant-numeric:tabular-nums; }
+  .lsub{ text-align:right; font-weight:800; margin-top:6px; font-variant-numeric:tabular-nums; border-top:1px solid var(--line); padding-top:6px; }
+  /* 種別グループ（廃棄/必要/理論原価）を色帯で軽く区切る */
+  .lgroup{ margin-bottom:8px; padding-left:7px; border-left:3px solid var(--line); }
+  .lgroup.waste{ border-left-color:#fca5a5; }
+  .lgroup.need{ border-left-color:#fdba74; }
+  .lgroup.theory{ border-left-color:#67e8f9; }
+  .ghead{ display:flex; justify-content:space-between; align-items:center; margin:1px 0 2px; }
+  .gsub{ font-size:12px; color:var(--sub); font-weight:700; font-variant-numeric:tabular-nums; }
+  .lgroup .litem{ padding:5px 0; }
   .empty{ color:var(--sub); font-size:12px; padding:8px 0; }
   .center{ text-align:center; }
 </style>
@@ -249,19 +257,26 @@
   // 下部：フード/ドリンクの登録詳細
   function renderDetail(){
     el('curCount').textContent = SAVED.length? ('計'+SAVED.length+'件') : '';
+    var ORDER=['廃棄ロス','必要ロス','理論原価'];   // 種別ごとにグループ表示（理論原価は最後）
     ['フード','ドリンク'].forEach(function(cat){
       var box = el(cat==='フード'?'colF':'colD');
       var items = SAVED.filter(function(it){ return it.cat===cat; });
       if(!items.length){ box.innerHTML='<div class="empty">まだありません</div>'; return; }
-      var total=0;
-      var html=items.map(function(it){ total+=Number(it.amount)||0;
-        var tag=KIND_TAG[it.kind]||''; var who=it.name?('<span class="who">・'+esc(it.name)+'</span>'):'';
-        return '<div class="litem"><div class="top"><div><span class="ltag '+tag+'">'+esc(it.kind).replace('ロス','')+'</span>'+
-          '<span class="memo">'+esc(it.memo)+'</span>'+who+'</div>'+
-          '<div style="display:flex;align-items:center;gap:4px"><span class="amt">'+yen(it.amount)+'</span>'+
-          '<button class="edit" type="button" title="修正・削除" onclick="openEdit(\''+esc(it.id)+'\')">✎ 修正</button></div></div></div>';
-      }).join('');
-      box.innerHTML = html + '<div class="lsub">合計 '+yen(total)+'</div>';
+      var html=''; var grand=0;
+      ORDER.forEach(function(kind){
+        var g=items.filter(function(it){ return it.kind===kind; });
+        if(!g.length) return;
+        var tag=KIND_TAG[kind]||''; var sub=0;
+        var rows=g.map(function(it){ sub+=Number(it.amount)||0; grand+=Number(it.amount)||0;
+          var who=it.name?('<span class="who">・'+esc(it.name)+'</span>'):'';
+          return '<div class="litem"><div class="top"><div class="memo">'+esc(it.memo)+who+'</div>'+
+            '<div style="display:flex;align-items:center;gap:4px"><span class="amt">'+yen(it.amount)+'</span>'+
+            '<button class="edit" type="button" title="修正・削除" onclick="openEdit(\''+esc(it.id)+'\')">✎ 修正</button></div></div></div>';
+        }).join('');
+        html+='<div class="lgroup '+tag+'"><div class="ghead"><span class="ltag '+tag+'">'+esc(kind)+'</span>'+
+          '<span class="gsub">'+yen(sub)+'</span></div>'+rows+'</div>';
+      });
+      box.innerHTML = html + '<div class="lsub">合計 '+yen(grand)+'</div>';
     });
   }
 
