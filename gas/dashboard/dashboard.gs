@@ -283,6 +283,34 @@ function getInputPageData(store, ym, token) {
   return { ok: true, store: store, storeName: storeDisplayName_(store), ym: ym, items: items, metrics: metrics };
 }
 
+/** 入力ページ用・軽量: ロス項目だけを返す（1シート読取のみ＝速い）。初回表示を速くするため分割。 */
+function getInputItems(store, ym, token) {
+  store = resolveStoreKey_(store);
+  if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true };
+  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var sh = ss.getSheetByName(LOSS_SHEET);
+  var items = [];
+  if (sh && sh.getLastRow() > 1) {
+    var v = sh.getDataRange().getValues();
+    for (var i = 1; i < v.length; i++) {
+      var r = v[i];
+      if (ymStr_(r[1]) === ym && String(r[2]) === store) {
+        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || ''), name: String(r[8] || '') });
+      }
+    }
+  }
+  return { ok: true, items: items };
+}
+
+/** 入力ページ用・棚数値の土台だけを返す（キャッシュ有り）。一覧表示と並行で後追い取得する。 */
+function getInputMetricsOnly(store, ym, token) {
+  store = resolveStoreKey_(store);
+  if (!verifyInputToken_(store, ym, token)) return { ok: false, authError: true };
+  var metrics = null;
+  try { metrics = inputMetrics_(store, ym); } catch (er) { metrics = null; }
+  return { ok: true, metrics: metrics };
+}
+
 /** 委任入力からロス/理論原価を登録する。トークン必須（管理パスコード不要）。 */
 function saveInputLosses(store, ym, token, items) {
   store = resolveStoreKey_(store);
