@@ -218,7 +218,9 @@
 
     var chips=[];
     if(fd.sales) chips.push('<span class="sales">売上 '+yen(fd.sales)+'</span>');
-    if(fd.turnover!=null) chips.push('<span class="turn">在庫回転 '+fd.turnover.toFixed(1)+'日</span>');
+    if(fd.turnover!=null) chips.push('<span class="turn">回転 合計 '+fd.turnover.toFixed(1)+'日</span>');
+    if(f.turnover!=null) chips.push('<span class="turn">回転 フード '+f.turnover.toFixed(1)+'日</span>');
+    if(d.turnover!=null) chips.push('<span class="turn">回転 ドリンク '+d.turnover.toFixed(1)+'日</span>');
     chips.push('<span class="legend">数字の下＝総売上比</span>');
     el('sumChips').innerHTML=chips.join('');
 
