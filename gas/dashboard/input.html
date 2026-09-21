@@ -257,17 +257,17 @@
   // 下部：フード/ドリンクの登録詳細
   function renderDetail(){
     el('curCount').textContent = SAVED.length? ('計'+SAVED.length+'件') : '';
-    var ORDER=['廃棄ロス','必要ロス','理論原価'];   // 種別ごとにグループ表示（理論原価は最後）
+    var ORDER=['必要ロス','廃棄ロス','理論原価'];   // 必要→廃棄→理論原価。下の合計はロス2種のみ。
     ['フード','ドリンク'].forEach(function(cat){
       var box = el(cat==='フード'?'colF':'colD');
       var items = SAVED.filter(function(it){ return it.cat===cat; });
       if(!items.length){ box.innerHTML='<div class="empty">まだありません</div>'; return; }
-      var html=''; var grand=0;
+      var html=''; var lossTotal=0; var hasLoss=false;
       ORDER.forEach(function(kind){
         var g=items.filter(function(it){ return it.kind===kind; });
         if(!g.length) return;
-        var tag=KIND_TAG[kind]||''; var sub=0;
-        var rows=g.map(function(it){ sub+=Number(it.amount)||0; grand+=Number(it.amount)||0;
+        var tag=KIND_TAG[kind]||''; var sub=0; var isLoss=(kind!=='理論原価');
+        var rows=g.map(function(it){ var a=Number(it.amount)||0; sub+=a; if(isLoss){ lossTotal+=a; hasLoss=true; }
           var who=it.name?('<span class="who">・'+esc(it.name)+'</span>'):'';
           return '<div class="litem"><div class="top"><div class="memo">'+esc(it.memo)+who+'</div>'+
             '<div style="display:flex;align-items:center;gap:4px"><span class="amt">'+yen(it.amount)+'</span>'+
@@ -276,7 +276,8 @@
         html+='<div class="lgroup '+tag+'"><div class="ghead"><span class="ltag '+tag+'">'+esc(kind)+'</span>'+
           '<span class="gsub">'+yen(sub)+'</span></div>'+rows+'</div>';
       });
-      box.innerHTML = html + '<div class="lsub">合計 '+yen(grand)+'</div>';
+      // 下の合計は「ロス2種（必要＋廃棄）」のみ。理論原価はグループ小計だけ表示し合計に含めない。
+      box.innerHTML = html + (hasLoss ? '<div class="lsub">ロス合計 '+yen(lossTotal)+'</div>' : '');
     });
   }
 
