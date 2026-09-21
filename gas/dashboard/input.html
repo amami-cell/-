@@ -271,7 +271,7 @@
           var who=it.name?('<span class="who">・'+esc(it.name)+'</span>'):'';
           return '<div class="litem"><div class="top"><div class="memo">'+esc(it.memo)+who+'</div>'+
             '<div style="display:flex;align-items:center;gap:4px"><span class="amt">'+yen(it.amount)+'</span>'+
-            '<button class="edit" type="button" title="修正・削除" onclick="openEdit(\''+esc(it.id)+'\')">✎ 修正</button></div></div></div>';
+            '<button class="edit" type="button" title="修正・削除" onclick="openEdit(\''+esc(it.id)+'\')">✎</button></div></div></div>';
         }).join('');
         html+='<div class="lgroup '+tag+'"><div class="ghead"><span class="ltag '+tag+'">'+esc(kind)+'</span>'+
           '<span class="gsub">'+yen(sub)+'</span></div>'+rows+'</div>';
