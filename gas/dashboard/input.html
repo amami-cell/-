@@ -198,7 +198,8 @@
     ];
     function cell(x, mode, row){
       var v=x[row.k];
-      var rt=(v!=null && x.sales)?((v/x.sales*100).toFixed(1)+'%'):'';
+      // 売上比は全列とも「総売上(FD)」に対して（同じ金額なら同じ％）。
+      var rt=(v!=null && fd.sales)?((v/fd.sales*100).toFixed(1)+'%'):'';
       var body='<span class="amt">'+yen(v)+'</span>'+(rt?'<span class="r">'+rt+'</span>':'');
       if(row.loss && (mode==='F'||mode==='D')){
         var cat=mode==='F'?'フード':'ドリンク';
@@ -218,7 +219,7 @@
     var chips=[];
     if(fd.sales) chips.push('<span class="sales">売上 '+yen(fd.sales)+'</span>');
     if(fd.turnover!=null) chips.push('<span class="turn">在庫回転 '+fd.turnover.toFixed(1)+'日</span>');
-    chips.push('<span class="legend">数字の下＝売上比</span>');
+    chips.push('<span class="legend">数字の下＝総売上比</span>');
     el('sumChips').innerHTML=chips.join('');
 
     if(!M.hasData){ el('kpiNote').textContent='※ この月のデータ（売上・仕入・棚卸高）がまだ取り込まれていません。ロスの入力は先にできます。'; }
