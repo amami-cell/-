@@ -276,8 +276,8 @@
         html+='<div class="lgroup '+tag+'"><div class="ghead"><span class="ltag '+tag+'">'+esc(kind)+'</span>'+
           '<span class="gsub">'+yen(sub)+'</span></div>'+rows+'</div>';
       });
-      // 下の合計は「ロス2種（必要＋廃棄）」のみ。理論原価はグループ小計だけ表示し合計に含めない。
-      box.innerHTML = html + (hasLoss ? '<div class="lsub">ロス合計 '+yen(lossTotal)+'</div>' : '');
+      // 下のまとめ合計は無し（各グループの小計で足りるため）。
+      box.innerHTML = html;
     });
   }
 
