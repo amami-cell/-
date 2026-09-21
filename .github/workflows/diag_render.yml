@@ -1,0 +1,67 @@
+name: 診断 レンダリング
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Playwright(Chromium)導入
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm i playwright >/dev/null 2>&1
+          npx playwright install --with-deps chromium
+      - name: 追加操作を再現
+        run: |
+          cat > r.js <<'JS'
+          const { chromium } = require('playwright');
+          (async () => {
+            const url = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec?input=1&s=0001006&ym=2026-08&t=CItAtAllr832nybq7g7H3-mChMqMMhQauRU26M47c0M';
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            const errs = [];
+            page.on('console', m => { if (m.type()==='error') errs.push('[console.error] '+m.text()); });
+            page.on('pageerror', e => errs.push('[pageerror] '+(e && e.message)));
+            page.on('dialog', d => d.accept());   // confirm() を自動でOK
+            await page.goto(url, { waitUntil: 'networkidle', timeout: 60000 }).catch(e=>errs.push('[goto] '+e.message));
+            await page.waitForTimeout(6000);
+            // input.html が動いているフレームを特定
+            let fr = null;
+            for (const f of page.frames()) { try { if (await f.evaluate(()=>!!document.getElementById('sumtbl'))) { fr = f; break; } } catch(e){} }
+            if (!fr) { console.log('!! sumtbl フレームが見つからない'); console.log(errs.join('\n')); await browser.close(); return; }
+            const memo = 'zz診断'+Date.now();
+            console.log('--- 追加前 colF ---'); console.log(await fr.evaluate(()=>document.getElementById('colF').innerText));
+            // パネルを開いて値を入れて追加
+            await fr.evaluate(()=>openAdd('廃棄ロス','フード'));
+            await fr.evaluate((m)=>{ document.getElementById('pAmt').value='1'; document.getElementById('pMemo').value=m; }, memo);
+            await fr.evaluate(()=>doAdd());
+            await page.waitForTimeout(6000);
+            const pmsg = await fr.evaluate(()=>{ var e=document.getElementById('pmsg'); return e? (e.className+' | '+e.textContent):'(なし)'; });
+            const colF = await fr.evaluate(()=>document.getElementById('colF').innerText);
+            const wasteFD = await fr.evaluate(()=>{ var t=document.getElementById('sumtbl').innerText; return t; });
+            console.log('--- パネルmsg ---'); console.log(pmsg);
+            console.log('--- 追加後 colF ---'); console.log(colF);
+            console.log('--- 反映判定 ---'); console.log('colFにテストmemo含む? ' + colF.includes(memo));
+            // 後片付け: 追加したテスト項目を削除
+            try {
+              const delok = await fr.evaluate((m)=>{
+                var items = document.querySelectorAll('#colF .litem');
+                for (const it of items) { if (it.innerText.includes(m)) { var b=it.querySelector('.del'); if(b){ b.click(); return true; } } }
+                return false;
+              }, memo);
+              await page.waitForTimeout(4000);
+              console.log('後片付け削除: ' + delok);
+            } catch(e){ console.log('後片付けエラー: '+e.message); }
+            console.log('=== JSエラー ('+errs.length+') ==='); errs.forEach(e=>console.log(e));
+            await browser.close();
+          })().catch(e => { console.error('FATAL', e); process.exit(1); });
+          JS
+          node r.js
