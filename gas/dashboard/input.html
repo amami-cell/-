@@ -50,6 +50,9 @@
   .btn.primary{ background:var(--ok); color:#fff; flex:1; }
   .btn.ghost{ background:#eef2ff; color:var(--brand); }
   .btn.danger{ background:#fef2f2; color:var(--red); border:1px solid #fecaca; }
+  .tseg{ display:flex; gap:4px; background:#eef2f7; border-radius:9px; padding:3px; }
+  .tseg button{ flex:1; border:0; background:transparent; border-radius:7px; padding:7px 4px; font-size:13px; font-weight:700; color:var(--sub); cursor:pointer; }
+  .tseg button.on{ background:#fff; color:var(--brand); box-shadow:0 1px 2px rgba(0,0,0,.08); }
   .btn:disabled{ opacity:.55; }
   #pmsg{ margin-top:8px; font-size:13px; display:none; }
   #pmsg.ok{ color:var(--ok); display:block; } #pmsg.err{ color:var(--red); display:block; }
@@ -106,8 +109,15 @@
             <div><label>区分</label><select id="pCatSel" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:16px;background:#fff"></select></div>
           </div>
         </div>
-        <label>金額（円）</label>
-        <input id="pAmt" type="number" inputmode="numeric" min="1" step="1" placeholder="例: 3000">
+        <div id="pTheoryMode" style="display:none;margin:2px 0">
+          <div class="tseg">
+            <button type="button" id="mAdd" class="on" onclick="setTheoryMode('add')">＋ 加算</button>
+            <button type="button" id="mSet" onclick="setTheoryMode('set')">合計を訂正</button>
+          </div>
+        </div>
+        <label id="pAmtLbl">金額（円）</label>
+        <input id="pAmt" type="number" inputmode="numeric" step="1" placeholder="例: 3000">
+        <div id="pHint" class="muted" style="font-size:12px;margin-top:3px;display:none"></div>
         <label id="pMemoLbl">内容（メモ）</label>
         <input id="pMemo" type="text" maxlength="200" placeholder="例: キャベツ廃棄 / 賄い分 など">
         <div id="pNameWrap" style="display:none">
@@ -144,6 +154,7 @@
   var SAVED = [];    // 登録済みのロス/理論原価
   var PANEL = null;  // { kind, cat }
   var editId = null; // 修正中の項目ID（null=新規追加）
+  var theoryMode = 'add'; // 理論原価の入力方式 'add'=加算 / 'set'=合計を訂正
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function el(id){ return document.getElementById(id); }
   function yen(n){ return (n==null||isNaN(n))?'—':('¥'+Math.round(Number(n)).toLocaleString('ja-JP')); }
@@ -257,6 +268,33 @@
   // ── 追加/修正パネル ──
   function memoLabelFor(kind){ return (kind==='理論原価')?'変更理由（必須）':'内容（メモ）'; }
   function memoPhFor(kind){ return (kind==='理論原価')?'例: 急な宴会の仕入で理論原価を修正':'例: キャベツ廃棄 / 賄い分 など'; }
+  // 理論原価の入力方式トグル（加算 / 合計を訂正）
+  function setTheoryMode(m){
+    theoryMode=m;
+    el('mAdd').className = (m==='add')?'on':'';
+    el('mSet').className = (m==='set')?'on':'';
+    updateAmtUI();
+  }
+  function updateAmtUI(){
+    var isTheory = (PANEL && PANEL.kind==='理論原価');
+    if(isTheory && theoryMode==='set'){
+      el('pAmtLbl').textContent='訂正後の理論原価（この金額にする）';
+      el('pAmt').placeholder='例: 4300000';
+      var mode2=(PANEL.cat==='フード'?'F':'D');
+      var cur=(M? compute(mode2).theory : null);
+      el('pHint').style.display='block';
+      el('pHint').textContent='現在の'+PANEL.cat+'理論原価: '+(cur==null?'計算中…':yen(cur))+' → 入力額に訂正（差分を記録）';
+    } else if(isTheory){
+      el('pAmtLbl').textContent='加算する金額（円）';
+      el('pAmt').placeholder='例: 50000';
+      el('pHint').style.display='none';
+    } else {
+      el('pAmtLbl').textContent='金額（円）';
+      el('pAmt').placeholder='例: 3000';
+      el('pHint').style.display='none';
+    }
+  }
+  window.setTheoryMode=setTheoryMode;
   function opt(arr,sel){ return arr.map(function(v){ return '<option'+(v===sel?' selected':'')+'>'+v+'</option>'; }).join(''); }
 
   // 新規追加（セルタップ）: 種別・区分は固定
@@ -272,6 +310,10 @@
     el('pAmt').value=''; el('pMemo').value=''; el('pName').value='';
     el('pAdd').textContent='＋ 追加する';
     el('pDel').style.display='none';
+    theoryMode='add';
+    if(kind==='理論原価'){ el('pTheoryMode').style.display='block'; el('mAdd').className='on'; el('mSet').className=''; }
+    else { el('pTheoryMode').style.display='none'; }
+    updateAmtUI();
     setPMsg('');
     el('panel').classList.add('on');
     el('panel').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -292,6 +334,8 @@
     el('pAmt').value = it.amount; el('pMemo').value = it.memo||''; el('pName').value = it.name||'';
     el('pAdd').textContent='✓ 修正を保存';
     el('pDel').style.display='block';
+    el('pTheoryMode').style.display='none'; theoryMode='add';
+    el('pAmtLbl').textContent='金額（円）'; el('pAmt').placeholder='例: 3000'; el('pHint').style.display='none';
     setPMsg('');
     el('panel').classList.add('on');
     el('panel').scrollIntoView({ behavior:'smooth', block:'center' });
@@ -312,11 +356,27 @@
     var kind = isEdit ? el('pKindSel').value : (PANEL&&PANEL.kind);
     var cat  = isEdit ? el('pCatSel').value  : (PANEL&&PANEL.cat);
     if(!kind||!cat) return;
-    var amt=Number(el('pAmt').value), memo=el('pMemo').value.trim(), name=el('pName').value.trim();
-    if(!isFinite(amt)||amt<=0){ setPMsg('金額を1円以上で入力してください。','err'); el('pAmt').focus(); return; }
-    if(!memo){ setPMsg((kind==='理論原価'?'変更理由':'内容')+'を入力してください。','err'); el('pMemo').focus(); return; }
-    if(kind==='理論原価' && !name){ setPMsg('担当者名を入力してください。','err'); el('pName').focus(); return; }
-    var item={ kind:kind, cat:cat, amount:amt, memo:memo, name:name };
+    var amtIn=Number(el('pAmt').value), memo=el('pMemo').value.trim(), name=el('pName').value.trim();
+    if(!isFinite(amtIn)){ setPMsg('金額を入力してください。','err'); el('pAmt').focus(); return; }
+    var isTheory=(kind==='理論原価');
+    var storedAmt, noteSuffix='';
+    if(isTheory && !isEdit && theoryMode==='set'){
+      // 合計を訂正: 入力額を目標に、差分を記録する
+      if(amtIn<0){ setPMsg('訂正後の金額は0以上で入力してください。','err'); el('pAmt').focus(); return; }
+      var mode2=(cat==='フード'?'F':'D');
+      var cur=(M? compute(mode2).theory : null);
+      if(cur==null){ setPMsg('棚数値の計算待ちです。数秒後にもう一度お試しください。','err'); return; }
+      storedAmt=Math.round(amtIn-cur);
+      if(storedAmt===0){ setPMsg('現在（'+yen(cur)+'）と同じ金額です。','err'); return; }
+      noteSuffix='（→'+yen(amtIn)+'に訂正）';
+    } else {
+      storedAmt=Math.round(amtIn);
+      if(isTheory){ if(storedAmt===0){ setPMsg('金額を入力してください。','err'); el('pAmt').focus(); return; } }
+      else { if(storedAmt<=0){ setPMsg('金額を1円以上で入力してください。','err'); el('pAmt').focus(); return; } }
+    }
+    if(!memo){ setPMsg((isTheory?'変更理由':'内容')+'を入力してください。','err'); el('pMemo').focus(); return; }
+    if(isTheory && !name){ setPMsg('担当者名を入力してください。','err'); el('pName').focus(); return; }
+    var item={ kind:kind, cat:cat, amount:storedAmt, memo:memo+noteSuffix, name:name };
 
     if(isEdit){
       // 楽観更新: 先に反映して閉じ、裏で保存。失敗したら元に戻す。
@@ -329,7 +389,7 @@
         .updateInputLoss(STORE, YM, TOKEN, id, item);
     } else {
       // 楽観更新: 仮IDで即表示、裏で保存。成功したら本IDに差し替え、失敗したら取り消す。
-      var tmp={ id:'tmp_'+Date.now()+'_'+Math.random().toString(36).slice(2), kind:kind, cat:cat, amount:amt, memo:memo, name:name };
+      var tmp={ id:'tmp_'+Date.now()+'_'+Math.random().toString(36).slice(2), kind:item.kind, cat:item.cat, amount:item.amount, memo:item.memo, name:item.name };
       SAVED.push(tmp); render();
       setPMsg('✅ 追加しました。続けて入力できます。','ok'); el('pAmt').value=''; el('pMemo').value=''; el('pAmt').focus();
       google.script.run
