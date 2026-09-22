@@ -1,0 +1,131 @@
+name: isolation-test
+on:
+  push:
+    branches: [claude/june-bug-cloud-planning-npopsg]
+    paths: ['.github/workflows/isolation_test.yml']
+  workflow_dispatch: {}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm i playwright@1.48 >/dev/null 2>&1
+          npx playwright install --with-deps chromium
+      - name: Run isolation test
+        run: |
+          cat > test.mjs <<'SCRIPT'
+          import { chromium } from 'playwright';
+          const EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+          const YM = '2026-08';
+          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+
+          async function frameWhen(page, testFn, label){
+            const deadline = Date.now()+70000;
+            while(Date.now()<deadline){
+              for(const f of page.frames()){
+                try{ if(await f.evaluate(testFn)) return f; }catch(e){}
+              }
+              await sleep(500);
+            }
+            throw new Error('frame not ready: '+label);
+          }
+          function callRun(frame, fn, args){
+            return frame.evaluate(({fn,args})=> new Promise((res,rej)=>{
+              const to=setTimeout(()=>rej('timeout:'+fn),50000);
+              try{
+                const runner = google.script.run
+                  .withSuccessHandler(r=>{clearTimeout(to);res(r);})
+                  .withFailureHandler(e=>{clearTimeout(to);rej('fail:'+String(e&&e.message||e));});
+                runner[fn].apply(runner, args);
+              }catch(e){clearTimeout(to);rej('throw:'+String(e));}
+            }), {fn,args});
+          }
+          const execInput = (s)=> EXEC+'?input=1&s='+encodeURIComponent(s.s)+'&ym='+encodeURIComponent(s.ym)+'&t='+encodeURIComponent(s.t);
+
+          const browser = await chromium.launch({args:['--no-sandbox']});
+          const out = {};
+          try{
+            // 1) harvest signed URLs for all stores from the share page (rendered)
+            const pS = await (await browser.newContext()).newPage();
+            await pS.goto(EXEC+'?share=1&p=8888&ym='+YM, {waitUntil:'load', timeout:70000});
+            const fS = await frameWhen(pS, ()=>document.querySelectorAll('.url').length>0, 'share');
+            const cards = await fS.evaluate(()=>[...document.querySelectorAll('.card')].map(c=>({
+              name:(c.querySelector('.nm')||{}).textContent||'', url:(c.querySelector('.url')||{}).textContent||''})));
+            const stores = cards.map(c=>{ const u=new URL(c.url); return {name:c.name, s:u.searchParams.get('s'), ym:u.searchParams.get('ym'), t:u.searchParams.get('t')}; })
+                                .filter(x=>x.s && x.t);
+            out.storeCount = stores.length;
+            if(stores.length<2) throw new Error('need >=2 stores, got '+stores.length);
+            const A = stores[0], B = stores[1];
+            out.A = {name:A.name, s:A.s, ym:A.ym}; out.B = {name:B.name, s:B.s, ym:B.ym};
+
+            // 2) open store A URL, read baseline, write tagged test item, confirm it appears in A
+            const pA = await (await browser.newContext()).newPage();
+            await pA.goto(execInput(A), {waitUntil:'load', timeout:70000});
+            const fA = await frameWhen(pA, ()=> (typeof google!=='undefined'&&google.script&&google.script.run&&typeof STORE!=='undefined'&&typeof TOKEN!=='undefined'), 'A');
+            const Aid = await fA.evaluate(()=>({store:STORE, ym:YM, token:TOKEN, name:STORE_NAME}));
+            out.A.resolvedStore = Aid.store;
+            const marker = 'ISOTEST-'+Date.now();
+            out.marker = marker;
+            const a0 = await callRun(fA,'getInputItems',[Aid.store,Aid.ym,Aid.token]);
+            out.A.baselineCount = (a0.items||[]).length;
+            const save = await callRun(fA,'saveInputLosses',[Aid.store,Aid.ym,Aid.token,[{kind:'廃棄ロス',cat:'フード',memo:marker,amount:123,name:''}]]);
+            out.saveOk = !!(save&&save.ok);
+            const testId = save && save.recs && save.recs[0] && save.recs[0].id;
+            out.testId = testId||null;
+            const a1 = await callRun(fA,'getInputItems',[Aid.store,Aid.ym,Aid.token]);
+            out.A_hasMarker = (a1.items||[]).some(it=>it.memo===marker);
+
+            // 3) open store B URL (its own token). It must NOT see A's test item.
+            const pB = await (await browser.newContext()).newPage();
+            await pB.goto(execInput(B), {waitUntil:'load', timeout:70000});
+            const fB = await frameWhen(pB, ()=> (typeof google!=='undefined'&&google.script&&google.script.run&&typeof STORE!=='undefined'&&typeof TOKEN!=='undefined'), 'B');
+            const Bid = await fB.evaluate(()=>({store:STORE, ym:YM, token:TOKEN, name:STORE_NAME}));
+            out.B.resolvedStore = Bid.store;
+            const b0 = await callRun(fB,'getInputItems',[Bid.store,Bid.ym,Bid.token]);
+            out.B_itemCount = (b0.items||[]).length;
+            out.B_hasMarker = (b0.items||[]).some(it=>it.memo===marker);   // expect false
+
+            // 4) token binding: from B's tab, B's token against A's store must be rejected
+            let forge;
+            try{ forge = await callRun(fB,'getInputItems',[Aid.store,Aid.ym,Bid.token]); }
+            catch(e){ forge = {thrown:String(e)}; }
+            out.forge_Btoken_on_A = forge;                                 // expect ok:false, authError:true
+            // A's own token against A's store works from any tab (token binds to store, not person)
+            const aFromB = await callRun(fB,'getInputItems',[Aid.store,Aid.ym,Aid.token]);
+            out.Atoken_on_A_hasMarker = (aFromB.items||[]).some(it=>it.memo===marker); // expect true
+
+            // 5) cleanup: delete the test item from A, confirm gone
+            if(testId){
+              const del = await callRun(fA,'deleteInputLoss',[Aid.store,Aid.ym,Aid.token,testId]);
+              out.deleteOk = !!(del&&del.ok);
+              const a2 = await callRun(fA,'getInputItems',[Aid.store,Aid.ym,Aid.token]);
+              out.A_markerGone = !(a2.items||[]).some(it=>it.memo===marker);
+            }
+
+            // verdict
+            const isolation_pass = out.A_hasMarker===true && out.B_hasMarker===false;
+            const tokenbind_pass = out.forge_Btoken_on_A && out.forge_Btoken_on_A.ok===false && out.forge_Btoken_on_A.authError===true;
+            const atoken_pass    = out.Atoken_on_A_hasMarker===true;
+            const cleanup_pass   = out.A_markerGone===true;
+            out.verdict = { isolation_pass, tokenbind_pass, atoken_pass, cleanup_pass,
+                            ALL: isolation_pass && tokenbind_pass && atoken_pass && cleanup_pass };
+            console.log('RESULT_JSON_BEGIN');
+            console.log(JSON.stringify(out, null, 2));
+            console.log('RESULT_JSON_END');
+            await browser.close();
+            process.exit(out.verdict.ALL ? 0 : 1);
+          }catch(err){
+            out.error = String(err && err.stack || err);
+            console.log('RESULT_JSON_BEGIN');
+            console.log(JSON.stringify(out, null, 2));
+            console.log('RESULT_JSON_END');
+            try{ await browser.close(); }catch(e){}
+            process.exit(2);
+          }
+          SCRIPT
+          node test.mjs
