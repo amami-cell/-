@@ -190,6 +190,11 @@ function ymStr_(v) {
   if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM');
   return String(v == null ? '' : v).trim();
 }
+/** 登録日時セルを 'YYYY-MM-DD HH:mm' 文字列に正規化（Sheetsが日時を日付型に変換していても拾えるように）。 */
+function tsStr_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+  return String(v == null ? '' : v).trim();
+}
 
 /**
  * 入力ページ用: その店×月の「棚数値の土台」を F/D 別に返す。
@@ -274,7 +279,7 @@ function getInputPageData(store, ym, token) {
     for (var i = 1; i < v.length; i++) {
       var r = v[i];
       if (ymStr_(r[1]) === ym && String(r[2]) === store) {
-        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || ''), name: String(r[8] || '') });
+        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: tsStr_(r[7]), name: String(r[8] || '') });
       }
     }
   }
@@ -295,7 +300,7 @@ function getInputItems(store, ym, token) {
     for (var i = 1; i < v.length; i++) {
       var r = v[i];
       if (ymStr_(r[1]) === ym && String(r[2]) === store) {
-        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: String(r[7] || ''), name: String(r[8] || '') });
+        items.push({ id: String(r[0]), kind: String(r[3]), cat: String(r[4]), memo: String(r[5]), amount: Number(r[6]) || 0, ts: tsStr_(r[7]), name: String(r[8] || '') });
       }
     }
   }
@@ -371,6 +376,8 @@ function updateInputLoss(store, ym, token, id, item) {
         // 列: 4種別,5区分,6内容,7金額,8登録日時,9担当者
         // 項目ごとの日時は「入力 または 更新した時刻」を表す。修正時は登録日時(8列目)を更新時刻に更新する。
         var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+        // 登録日時(8列目)を日時に自動変換されないようテキスト書式にしてから書く。
+        try { sh.getRange(i + 1, 8).setNumberFormat('@'); } catch (e) {}
         sh.getRange(i + 1, 4, 1, 6).setValues([[kind, cat, memo, Math.round(amount), ts, name]]);
         CacheService.getScriptCache().remove('dash_v2');
         return { ok: true, ts: ts };
@@ -840,7 +847,7 @@ function getDashboardData(pass, forceRefresh) {
         cat: String(row[4] || ''),
         memo: String(row[5] || ''),
         amount: Number(row[6]) || 0,
-        ts: String(row[7] || ''),
+        ts: tsStr_(row[7]),
         name: String(row[8] || ''),
       });
     });
@@ -1091,8 +1098,9 @@ function writeLossItems_(storeKey, ym, items) {
     const rows = recs.map(function (r) { return [r.id, ym, storeKey, r.kind, r.cat, r.memo, r.amount, r.ts, r.name || '']; });
     const startRow = sh.getLastRow() + 1;
     const range = sh.getRange(startRow, 1, rows.length, 9);
-    // 年月(2列目)を日付に自動変換されないようテキスト書式にしてから書く（'2026-08'のまま保存）。
+    // 年月(2列目)・登録日時(8列目)を日付/時刻に自動変換されないようテキスト書式にしてから書く。
     try { sh.getRange(startRow, 2, rows.length, 1).setNumberFormat('@'); } catch (e) {}
+    try { sh.getRange(startRow, 8, rows.length, 1).setNumberFormat('@'); } catch (e) {}
     range.setValues(rows);
     CacheService.getScriptCache().remove('dash_v2');
     return { ok: true, recs: recs };

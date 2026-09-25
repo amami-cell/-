@@ -262,8 +262,14 @@
   function nowTs(){ var d=new Date(); function p(n){return (n<10?'0':'')+n;} return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
   // 登録日時 'YYYY-MM-DD HH:mm(:ss)' → 'M/D HH:mm'（当年は年を省略、他年は 'YY/M/D HH:mm'）
   function fmtTs(ts){
-    var m=String(ts||'').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
-    if(!m) return '';
+    var s=String(ts||'').trim(); if(!s) return '';
+    var m=s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if(!m){
+      // Date型の文字列（'Thu Sep 24 2026 15:53:00 GMT+0900...'）等はDateとして解釈して整形。
+      var d=new Date(s); if(isNaN(d.getTime())) return '';
+      function p(n){return (n<10?'0':'')+n;}
+      m=[null, String(d.getFullYear()), p(d.getMonth()+1), p(d.getDate()), p(d.getHours()), p(d.getMinutes())];
+    }
     var thisY=String(new Date().getFullYear());
     var head=(m[1]===thisY)?'':(m[1].slice(2)+'/');
     return head+(+m[2])+'/'+(+m[3])+' '+m[4]+':'+m[5];
