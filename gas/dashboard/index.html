@@ -304,6 +304,7 @@
   .loss-item .cat { color: var(--muted); flex: none; }
   .loss-item .memo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .loss-item .lts { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; }
+  .mlastmod { font-size: 11px; color: var(--muted); margin: 2px 0 6px; font-variant-numeric: tabular-nums; }
   .loss-item .amt { font-variant-numeric: tabular-nums; }
   .loss-item .del { color: var(--muted); background: none; border: none; padding: 2px 6px; font-size: 12px; }
   .loss-item .del:hover { color: var(--bad); }
@@ -3013,6 +3014,19 @@
     });
   }
 
+  // 登録/更新日時 'YYYY-MM-DD HH:mm(:ss)' → 'M/D HH:mm'（当年は年省略、他年は 'YY/M/D HH:mm'）
+  function fmtTs(ts) {
+    var m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) return '';
+    var y = String(new Date().getFullYear());
+    var head = (m[1] === y) ? '' : (m[1].slice(2) + '/');
+    return head + (+m[2]) + '/' + (+m[3]) + ' ' + m[4] + ':' + m[5];
+  }
+  // その店×月のロス/理論原価の最終更新日時（生のtsの最大＝辞書順で比較可）
+  function lastModOf(losses) {
+    return (losses || []).reduce(function (mx, l) { return (l.ts && l.ts > mx) ? l.ts : mx; }, '');
+  }
+
   function renderStore() {
     var name = '';
     DATA.stores.forEach(function (s) { if (s.key === curStore) name = s.name; });
@@ -3074,6 +3088,14 @@
       h.appendChild(salesEl);
       card.appendChild(h);
 
+      // ── 最終修正日時（この店×月のロス/理論原価の最新入力・更新）を表の先頭に ──
+      var lmTs = lastModOf(r.losses);
+      if (lmTs) {
+        var lmEl = document.createElement('div'); lmEl.className = 'mlastmod';
+        lmEl.textContent = '🕒 最終更新 ' + fmtTs(lmTs);
+        card.appendChild(lmEl);
+      }
+
       // ── 棚卸項目（かんたん=FDは5列/F・Dは3列 ／ 全表示=7列横スクロール）──
       if (storeWide) {
         card.appendChild(buildFdWide(rFD, calcM(curStore, ym, 'F'), calcM(curStore, ym, 'D'), ym));
@@ -3100,7 +3122,7 @@
           var c1 = document.createElement('span'); c1.className = 'cat'; c1.textContent = l.cat;
           var c2 = document.createElement('span'); c2.className = 'memo'; c2.textContent = l.memo + (l.name ? '（' + l.name + '）' : '');
           var c3 = document.createElement('span'); c3.className = 'amt'; c3.textContent = yen(l.amount);
-          var tsTxt = (function (ts) { var m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); if (!m) return ''; var y = String(new Date().getFullYear()); var head = (m[1] === y) ? '' : (m[1].slice(2) + '/'); return head + (+m[2]) + '/' + (+m[3]) + ' ' + m[4] + ':' + m[5]; })(l.ts);
+          var tsTxt = fmtTs(l.ts);
           var cts = document.createElement('span'); cts.className = 'lts'; cts.textContent = tsTxt ? ('🕒' + tsTxt) : '';
           var del = document.createElement('button'); del.className = 'del'; del.textContent = '✕';
           del.title = '削除';

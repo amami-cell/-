@@ -66,6 +66,7 @@
   .litem .amt{ font-variant-numeric:tabular-nums; font-weight:700; white-space:nowrap; }
   .litem .who{ font-size:11px; color:var(--sub); }
   .litem .tstamp{ font-size:11px; color:var(--sub); margin-top:2px; font-variant-numeric:tabular-nums; }
+  .lastmod{ display:inline-block; font-weight:600; font-size:12px; color:var(--brand); background:#eef2ff; border-radius:999px; padding:1px 8px; margin-left:4px; white-space:nowrap; font-variant-numeric:tabular-nums; }
   .litem .del{ border:0; background:transparent; color:var(--red); font-size:14px; cursor:pointer; padding:0 2px; }
   .litem .edit{ border:0; background:transparent; color:var(--brand); font-size:14px; cursor:pointer; padding:0 2px; }
   .ltag{ display:inline-block; font-size:10px; padding:0 6px; border-radius:999px; margin-right:4px; }
@@ -204,7 +205,9 @@
   }
 
   function render(){
-    el('sumTtl').innerHTML = mLabel()+' 棚数値 <span class="muted" id="liveTag" style="font-weight:400;font-size:12px"></span>';
+    var maxTs = SAVED.reduce(function(mx,it){ return (it.ts && it.ts>mx)? it.ts : mx; }, '');
+    var lm = maxTs ? (' <span class="lastmod">最終更新 🕒 '+fmtTs(maxTs)+'</span>') : '';
+    el('sumTtl').innerHTML = mLabel()+' 棚数値'+lm+' <span class="muted" id="liveTag" style="font-weight:400;font-size:12px"></span>';
     var fd=compute('FD'), f=compute('F'), d=compute('D');
     // 行: k=キー, loss=入力可能な種別（あれば F/D セルをタップ可能に）
     var ROWS=[
@@ -255,6 +258,8 @@
     renderDetail();
   }
 
+  // 現在時刻を 'YYYY-MM-DD HH:mm'（端末＝日本時間）で。楽観更新の即時表示用。
+  function nowTs(){ var d=new Date(); function p(n){return (n<10?'0':'')+n;} return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
   // 登録日時 'YYYY-MM-DD HH:mm(:ss)' → 'M/D HH:mm'（当年は年を省略、他年は 'YY/M/D HH:mm'）
   function fmtTs(ts){
     var m=String(ts||'').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
@@ -407,10 +412,10 @@
     if(isEdit){
       // 楽観更新: 先に反映して閉じ、裏で保存。失敗したら元に戻す。
       var id=editId, old=null;
-      for(var i=0;i<SAVED.length;i++){ if(String(SAVED[i].id)===String(id)){ old={kind:SAVED[i].kind,cat:SAVED[i].cat,amount:SAVED[i].amount,memo:SAVED[i].memo,name:SAVED[i].name}; SAVED[i].kind=item.kind; SAVED[i].cat=item.cat; SAVED[i].amount=item.amount; SAVED[i].memo=item.memo; SAVED[i].name=item.name; break; } }
+      for(var i=0;i<SAVED.length;i++){ if(String(SAVED[i].id)===String(id)){ old={kind:SAVED[i].kind,cat:SAVED[i].cat,amount:SAVED[i].amount,memo:SAVED[i].memo,name:SAVED[i].name,ts:SAVED[i].ts}; SAVED[i].kind=item.kind; SAVED[i].cat=item.cat; SAVED[i].amount=item.amount; SAVED[i].memo=item.memo; SAVED[i].name=item.name; SAVED[i].ts=nowTs(); break; } }
       render(); closePanel();
       google.script.run
-        .withSuccessHandler(function(res){ if(!(res&&res.ok)){ revertEdit(id,old); alert('修正できませんでした: '+((res&&res.message)||'')); } })
+        .withSuccessHandler(function(res){ if(!(res&&res.ok)){ revertEdit(id,old); alert('修正できませんでした: '+((res&&res.message)||'')); } else if(res.ts){ for(var j=0;j<SAVED.length;j++){ if(String(SAVED[j].id)===String(id)){ SAVED[j].ts=res.ts; break; } } render(); } })
         .withFailureHandler(function(e){ revertEdit(id,old); alert('通信エラーで修正できませんでした。もう一度お試しください。'); })
         .updateInputLoss(STORE, YM, TOKEN, id, item);
     } else {
@@ -426,7 +431,7 @@
         .saveInputLosses(STORE, YM, TOKEN, [item]);
     }
   }
-  function revertEdit(id,old){ if(!old)return; for(var i=0;i<SAVED.length;i++){ if(String(SAVED[i].id)===String(id)){ SAVED[i].kind=old.kind;SAVED[i].cat=old.cat;SAVED[i].amount=old.amount;SAVED[i].memo=old.memo;SAVED[i].name=old.name; break; } } render(); }
+  function revertEdit(id,old){ if(!old)return; for(var i=0;i<SAVED.length;i++){ if(String(SAVED[i].id)===String(id)){ SAVED[i].kind=old.kind;SAVED[i].cat=old.cat;SAVED[i].amount=old.amount;SAVED[i].memo=old.memo;SAVED[i].name=old.name;SAVED[i].ts=old.ts; break; } } render(); }
 
   // 削除は編集パネル内からのみ（誤タップ防止）。楽観更新で即反映、失敗したら戻す。
   function delFromPanel(){
