@@ -1,0 +1,83 @@
+name: render-check
+on:
+  push:
+    branches: [claude/june-bug-cloud-planning-npopsg]
+    paths: ['.github/workflows/render_check.yml']
+  workflow_dispatch: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm i playwright@1.48 >/dev/null 2>&1
+          npx playwright install --with-deps chromium
+      - name: Render check
+        run: |
+          cat > rc.mjs <<'SCRIPT'
+          import { chromium } from 'playwright';
+          const EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+          const YM = '2026-08';
+          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+          async function frameWhen(page, testFn, label){
+            const dl = Date.now()+70000;
+            while(Date.now()<dl){ for(const f of page.frames()){ try{ if(await f.evaluate(testFn)) return f; }catch(e){} } await sleep(500); }
+            throw new Error('frame not ready: '+label);
+          }
+          function callRun(frame, fn, args){
+            return frame.evaluate(({fn,args})=> new Promise((res,rej)=>{
+              const to=setTimeout(()=>rej('timeout:'+fn),60000);
+              try{ const r=google.script.run.withSuccessHandler(x=>{clearTimeout(to);res(x);}).withFailureHandler(e=>{clearTimeout(to);rej('fail:'+String(e&&e.message||e));}); r[fn].apply(r,args);}catch(e){clearTimeout(to);rej('throw:'+String(e));}
+            }), {fn,args});
+          }
+          const execInput = (s,t)=> EXEC+'?input=1&s='+encodeURIComponent(s)+'&ym='+encodeURIComponent(YM)+'&t='+encodeURIComponent(t);
+          const browser = await chromium.launch({args:['--no-sandbox']});
+          const out = {};
+          try{
+            // harvest stores
+            const pS = await (await browser.newContext()).newPage();
+            await pS.goto(EXEC+'?share=1&p=8888&ym='+YM, {waitUntil:'load', timeout:70000});
+            const fS = await frameWhen(pS, ()=>document.querySelectorAll('.url').length>0, 'share');
+            const cards = await fS.evaluate(()=>[...document.querySelectorAll('.card')].map(c=>({name:(c.querySelector('.nm')||{}).textContent||'', url:(c.querySelector('.url')||{}).textContent||''})));
+            const stores = cards.map(c=>{ const u=new URL(c.url); return {name:c.name, s:u.searchParams.get('s'), t:u.searchParams.get('t')}; }).filter(x=>x.s&&x.t);
+            // open first store page, then find the store that has items (query all via its google.script.run)
+            const p0 = await (await browser.newContext()).newPage();
+            await p0.goto(execInput(stores[0].s, stores[0].t), {waitUntil:'load', timeout:70000});
+            const f0 = await frameWhen(p0, ()=> (typeof google!=='undefined'&&google.script&&google.script.run), 's0');
+            let target=null, targetItems=null;
+            for(const st of stores){
+              const r = await callRun(f0,'getInputItems',[st.s, YM, st.t]);
+              if(r && r.ok && (r.items||[]).length){ target=st; targetItems=r.items; break; }
+            }
+            out.targetStore = target ? {name:target.name, s:target.s} : null;
+            out.itemsTs = (targetItems||[]).map(it=>({kind:it.kind, memo:String(it.memo).slice(0,16), ts:it.ts}));
+            if(target){
+              // open target store's own page and read rendered detail
+              const pT = await (await browser.newContext()).newPage();
+              await pT.goto(execInput(target.s, target.t), {waitUntil:'load', timeout:70000});
+              const fT = await frameWhen(pT, ()=> (typeof google!=='undefined'&&typeof SAVED!=='undefined'), 'sT');
+              await sleep(3500); // let loadItems->render run
+              const dump = await fT.evaluate(()=>({
+                savedTs: (window.SAVED||[]).map(x=>x.ts),
+                hasClock: (document.getElementById('colF')?document.getElementById('colF').innerHTML:'').indexOf('🕒')>=0 || (document.getElementById('colD')?document.getElementById('colD').innerHTML:'').indexOf('🕒')>=0,
+                colF: (document.getElementById('colF')||{}).innerHTML||'',
+                sumTtl: (document.getElementById('sumTtl')||{}).innerHTML||''
+              }));
+              out.savedTs = dump.savedTs;
+              out.hasClockInDetail = dump.hasClock;
+              out.sumTtlHasBadge = dump.sumTtl.indexOf('最終更新')>=0;
+              out.colF_snippet = dump.colF.slice(0, 900);
+            }
+            console.log('RESULT_JSON_BEGIN'); console.log(JSON.stringify(out,null,2)); console.log('RESULT_JSON_END');
+            await browser.close(); process.exit(0);
+          }catch(err){
+            out.error=String(err&&err.stack||err);
+            console.log('RESULT_JSON_BEGIN'); console.log(JSON.stringify(out,null,2)); console.log('RESULT_JSON_END');
+            try{ await browser.close(); }catch(e){} process.exit(2);
+          }
+          SCRIPT
+          node rc.mjs
