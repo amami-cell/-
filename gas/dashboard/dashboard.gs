@@ -368,11 +368,12 @@ function updateInputLoss(store, ym, token, id, item) {
     var v = sh.getDataRange().getValues();
     for (var i = v.length - 1; i >= 1; i--) {
       if (String(v[i][0]) === id && ymStr_(v[i][1]) === ym && String(v[i][2]) === store) {
-        var ts = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
         // 列: 4種別,5区分,6内容,7金額,8登録日時,9担当者
-        sh.getRange(i + 1, 4, 1, 6).setValues([[kind, cat, memo, Math.round(amount), ts, name]]);
+        // 「いつ入力したか」を残すため、修正しても登録日時(8列目)は上書きしない（初回入力時刻を保持）。
+        sh.getRange(i + 1, 4, 1, 4).setValues([[kind, cat, memo, Math.round(amount)]]);
+        sh.getRange(i + 1, 9).setValue(name);
         CacheService.getScriptCache().remove('dash_v2');
-        return { ok: true };
+        return { ok: true, ts: String(v[i][7] || '') };
       }
     }
     return { ok: false, message: '該当の項目が見つかりません（既に削除済みかも）' };

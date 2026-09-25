@@ -303,6 +303,7 @@
   }
   .loss-item .cat { color: var(--muted); flex: none; }
   .loss-item .memo { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .loss-item .lts { color: var(--muted); flex: none; font-variant-numeric: tabular-nums; font-size: 11px; white-space: nowrap; }
   .loss-item .amt { font-variant-numeric: tabular-nums; }
   .loss-item .del { color: var(--muted); background: none; border: none; padding: 2px 6px; font-size: 12px; }
   .loss-item .del:hover { color: var(--bad); }
@@ -3099,10 +3100,12 @@
           var c1 = document.createElement('span'); c1.className = 'cat'; c1.textContent = l.cat;
           var c2 = document.createElement('span'); c2.className = 'memo'; c2.textContent = l.memo + (l.name ? '（' + l.name + '）' : '');
           var c3 = document.createElement('span'); c3.className = 'amt'; c3.textContent = yen(l.amount);
+          var tsTxt = (function (ts) { var m = String(ts || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/); if (!m) return ''; var y = String(new Date().getFullYear()); var head = (m[1] === y) ? '' : (m[1].slice(2) + '/'); return head + (+m[2]) + '/' + (+m[3]) + ' ' + m[4] + ':' + m[5]; })(l.ts);
+          var cts = document.createElement('span'); cts.className = 'lts'; cts.textContent = tsTxt ? ('🕒' + tsTxt) : '';
           var del = document.createElement('button'); del.className = 'del'; del.textContent = '✕';
           del.title = '削除';
           del.onclick = function (ev) { ev.stopPropagation(); removeLoss(l, ym, del); };
-          it.appendChild(c1); it.appendChild(c2); it.appendChild(c3); it.appendChild(del);
+          it.appendChild(c1); it.appendChild(c2); it.appendChild(cts); it.appendChild(c3); it.appendChild(del);
           ll.appendChild(it);
         });
         card.appendChild(ll);
