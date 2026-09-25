@@ -1,0 +1,78 @@
+name: ts-audit
+on:
+  push:
+    branches: [claude/june-bug-cloud-planning-npopsg]
+    paths: ['.github/workflows/ts_audit.yml']
+  workflow_dispatch: {}
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm i playwright@1.48 >/dev/null 2>&1
+          npx playwright install --with-deps chromium
+      - name: Run ts audit
+        run: |
+          cat > audit.mjs <<'SCRIPT'
+          import { chromium } from 'playwright';
+          const EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+          const sleep = (ms)=>new Promise(r=>setTimeout(r,ms));
+          async function frameWhen(page, testFn, label){
+            const deadline = Date.now()+70000;
+            while(Date.now()<deadline){
+              for(const f of page.frames()){ try{ if(await f.evaluate(testFn)) return f; }catch(e){} }
+              await sleep(500);
+            }
+            throw new Error('frame not ready: '+label);
+          }
+          function callRun(frame, fn, args){
+            return frame.evaluate(({fn,args})=> new Promise((res,rej)=>{
+              const to=setTimeout(()=>rej('timeout:'+fn),60000);
+              try{
+                const runner = google.script.run.withSuccessHandler(r=>{clearTimeout(to);res(r);}).withFailureHandler(e=>{clearTimeout(to);rej('fail:'+String(e&&e.message||e));});
+                runner[fn].apply(runner, args);
+              }catch(e){clearTimeout(to);rej('throw:'+String(e));}
+            }), {fn,args});
+          }
+          const browser = await chromium.launch({args:['--no-sandbox']});
+          const out = {};
+          try{
+            const p = await (await browser.newContext()).newPage();
+            await p.goto(EXEC+'?p=8888', {waitUntil:'load', timeout:70000});
+            const f = await frameWhen(p, ()=> (typeof google!=='undefined'&&google.script&&google.script.run), 'main');
+            const data = await callRun(f, 'getDashboardData', ['8888', true]);
+            const losses = (data && data.losses) || {};
+            let total=0, withTs=0, blank=0; const perMonth={}; const blanks=[];
+            Object.keys(losses).sort().forEach(function(ym){
+              const stores = losses[ym]||{};
+              Object.keys(stores).forEach(function(st){
+                (stores[st]||[]).forEach(function(l){
+                  total++;
+                  perMonth[ym] = perMonth[ym] || {n:0, ts:0};
+                  perMonth[ym].n++;
+                  if(l.ts && String(l.ts).trim()){ withTs++; perMonth[ym].ts++; }
+                  else { blank++; if(blanks.length<20) blanks.push({ym:ym, store:st, kind:l.kind, memo:l.memo, amount:l.amount}); }
+                });
+              });
+            });
+            out.months = (data&&data.months)||null;
+            out.total = total; out.withTs = withTs; out.blank = blank;
+            out.perMonth = perMonth; out.blankSamples = blanks;
+            console.log('RESULT_JSON_BEGIN');
+            console.log(JSON.stringify(out, null, 2));
+            console.log('RESULT_JSON_END');
+            await browser.close();
+            process.exit(0);
+          }catch(err){
+            out.error = String(err && err.stack || err);
+            console.log('RESULT_JSON_BEGIN'); console.log(JSON.stringify(out,null,2)); console.log('RESULT_JSON_END');
+            try{ await browser.close(); }catch(e){}
+            process.exit(2);
+          }
+          SCRIPT
+          node audit.mjs
