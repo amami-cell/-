@@ -287,6 +287,39 @@
     var body=rows.map(function(r,i){ return '<tr onclick="openDrawer(\''+esc(r.key)+'\')"><td class="name"><span class="edge" style="background:'+barColor(r)+'"></span>'+(i+1)+'. '+esc(r.name)+'</td><td>'+fmt(r)+'</td><td class="muted">'+yen(r.sales)+'</td></tr>'; }).join('');
     return '<div class="card"><h2>'+esc(title)+' <span style="margin-left:auto">'+monthSeg()+'</span></h2><div class="twrap"><table><thead><tr><th class="l">店舗</th><th>'+(metric==='turnover'?'在庫回転日数':'不明ロス（売上比）')+'</th><th>売上</th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
   }
+  function pageLossInput(){
+    var stores=(RAW.stores||[]);
+    var body=stores.map(function(s){
+      var ls=((RAW.losses[curMonth]||{})[s.key])||[];
+      var tag=ls.length?('<span class="pill ok">入力 '+ls.length+'件</span>'):'<span class="pill grey">未入力</span>';
+      return '<tr><td class="name">'+esc(s.name)+'</td><td style="text-align:left">'+tag+'</td>'
+        +'<td style="text-align:left"><button class="btn sec" style="padding:5px 12px;font-size:12px" onclick="copyInputUrl(\''+esc(s.key)+'\',this)">入力URLをコピー</button></td></tr>';
+    }).join('');
+    return '<div class="card"><h2>✏ ロス入力（担当者URL）<span style="margin-left:auto">'+monthSeg()+'</span></h2>'
+      +'<div class="muted" style="font-size:13px;margin-bottom:10px">各店の「入力URLをコピー」を押して、担当者のLINE等に貼って送ってください。担当者はその店・その月のロス/理論原価を入力でき、このアプリに反映されます。</div>'
+      +'<div class="twrap"><table><thead><tr><th class="l">店舗</th><th class="l">'+curMonth+' 入力状況</th><th class="l">操作</th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+  }
+  function pagePending(){
+    var pend=rowsOf(curMonth).filter(function(r){return r.invCur==null&&r.sales;});
+    var y=+curMonth.slice(0,4), mo=+curMonth.slice(5,7);
+    var due=new Date(y,mo,3), last=new Date(y,mo,5);
+    function fmtD(d){ return (d.getMonth()+1)+'/'+d.getDate(); }
+    var head=curMonth+' ・ 期日 '+fmtD(due)+'（最終 '+fmtD(last)+'）';
+    if(!pend.length) return '<div class="card"><h2>⚠ 棚卸 未入力・締切 <span style="margin-left:auto">'+monthSeg()+'</span></h2><span class="pill ok" style="font-size:13px">全店 入力済み ✅</span><div class="muted" style="font-size:12px;margin-top:8px">'+head+'</div></div>';
+    var body=pend.map(function(r){ return '<tr><td class="name">'+esc(r.name)+'</td><td style="text-align:left"><span class="pill warn">棚卸金額 未入力</span></td>'
+      +'<td style="text-align:left"><button class="btn sec" style="padding:5px 12px;font-size:12px" onclick="copyInputUrl(\''+esc(r.key)+'\',this)">入力URLをコピー</button></td></tr>'; }).join('');
+    return '<div class="card"><h2>⚠ 棚卸 未入力・締切 <span class="muted" style="font-weight:400;font-size:12px">'+pend.length+'店</span><span style="margin-left:auto">'+monthSeg()+'</span></h2>'
+      +'<div class="muted" style="font-size:13px;margin-bottom:10px">'+head+'。売上があるのに棚卸金額が未入力の店舗です。</div>'
+      +'<div class="twrap"><table><thead><tr><th class="l">店舗</th><th class="l">状態</th><th class="l">操作</th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+  }
+  function pageSettings(){
+    return '<div class="card"><h2>⚙ 設定</h2>'
+      +'<div class="drow"><span class="k">データ更新</span><span class="v">'+esc((RAW.updatedAt||'').slice(0,16))+'</span></div>'
+      +'<div class="drow"><span class="k">対象月</span><span class="v" style="font-size:12px">'+esc(MONTHS.join(' / '))+'</span></div>'
+      +'<div class="drow"><span class="k">パスコード変更</span><span class="v"><a href="?p='+encodeURIComponent(PASS)+'" target="_blank" style="color:var(--primary);text-decoration:none">旧アプリの🔒から変更 ↗</a></span></div>'
+      +'<div class="drow" style="border-bottom:0"><span class="k">旧ダッシュボード</span><span class="v"><a href="?p='+encodeURIComponent(PASS)+'" target="_blank" style="color:var(--primary);text-decoration:none">開く ↗</a></span></div>'
+      +'<div class="muted" style="font-size:12px;margin-top:10px">このページ（?v2=1）は新デザインです。正式トップへの差し替えはご指示ください。</div></div>';
+  }
   function pageStub(title){ return '<div class="card"><h2>'+esc(title)+'</h2><div class="muted" style="font-size:13px">このページは準備中です。ご要望に合わせて作り込みます（既存アプリの該当機能を移植）。</div></div>'; }
 
   function render(){
@@ -298,6 +331,9 @@
     else if(cur==='stores') v.innerHTML=storeTableCard('🏬 店舗別 棚卸（'+curMonth+'）');
     else if(cur==='unknown') v.innerHTML=pageRank('unknown','❓ 不明ロス ランキング（'+curMonth+'）',function(r){return '<span class="'+(r.unknown>0?'pos':'neg')+'">'+yen(r.unknown)+'</span> <span class="muted">'+pct(r.unknownRate)+'</span>';});
     else if(cur==='turnover') v.innerHTML=pageRank('turnover','🔄 在庫回転 ランキング（'+curMonth+'）',function(r){return days1(r.turnover);});
+    else if(cur==='lossinput') v.innerHTML=pageLossInput();
+    else if(cur==='pending') v.innerHTML=pagePending();
+    else if(cur==='settings') v.innerHTML=pageSettings();
     else { var it=NAV.filter(function(x){return x.t===cur;})[0]; v.innerHTML=pageStub(it?it.l:cur); }
     window.scrollTo(0,0);
   }
@@ -333,6 +369,18 @@
     .getStoreInputLinks(PASS, curStoreKey, [curMonth]);
   };
   function legacyCopy(t){ var el=document.createElement('textarea'); el.value=t; el.style.position='fixed'; el.style.opacity='0'; document.body.appendChild(el); el.focus(); el.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(el); }
+  // 一覧の各店「入力URLをコピー」（その店×表示中の月 専用・署名トークン付き）
+  window.copyInputUrl=function(key, btn){
+    var old=btn.textContent; btn.textContent='取得中…'; btn.disabled=true;
+    google.script.run.withSuccessHandler(function(res){
+      btn.disabled=false; var url=res&&res.ok&&res.links&&res.links[curMonth];
+      if(!url){ btn.textContent='取得失敗'; setTimeout(function(){btn.textContent=old;},1500); return; }
+      var done=function(){ btn.textContent='コピー✓'; setTimeout(function(){btn.textContent=old;},1500); };
+      if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done,function(){legacyCopy(url);done();}); }
+      else { legacyCopy(url); done(); }
+    }).withFailureHandler(function(){ btn.disabled=false; btn.textContent='通信エラー'; setTimeout(function(){btn.textContent=old;},1500); })
+    .getStoreInputLinks(PASS, key, [curMonth]);
+  };
 
   window.go=function(t){ location.hash=t; closeNav(); };
   window.setMonth=function(m){ curMonth=m; render(); };
