@@ -348,8 +348,8 @@
     return '<div class="card"><h2>⚙ 設定</h2>'
       +'<div class="drow"><span class="k">データ更新</span><span class="v">'+esc((RAW.updatedAt||'').slice(0,16))+'</span></div>'
       +'<div class="drow"><span class="k">対象月</span><span class="v" style="font-size:12px">'+esc(MONTHS.join(' / '))+'</span></div>'
-      +'<div class="drow"><span class="k">パスコード変更</span><span class="v"><a href="?p='+encodeURIComponent(PASS)+'" target="_blank" style="color:var(--primary);text-decoration:none">旧アプリの🔒から変更 ↗</a></span></div>'
-      +'<div class="drow" style="border-bottom:0"><span class="k">旧ダッシュボード</span><span class="v"><a href="?p='+encodeURIComponent(PASS)+'" target="_blank" style="color:var(--primary);text-decoration:none">開く ↗</a></span></div>'
+      +'<div class="drow"><span class="k">パスコード変更</span><span class="v"><a href="?" target="_blank" style="color:var(--primary);text-decoration:none">旧アプリを開いて🔒から変更 ↗</a></span></div>'
+      +'<div class="drow" style="border-bottom:0"><span class="k">旧ダッシュボード</span><span class="v"><a href="?" target="_blank" style="color:var(--primary);text-decoration:none">開く ↗</a></span></div>'
       +'<div class="muted" style="font-size:12px;margin-top:10px">このページ（?v2=1）は新デザインです。正式トップへの差し替えはご指示ください。</div></div>';
   }
   function pageStub(title){ return '<div class="card"><h2>'+esc(title)+'</h2><div class="muted" style="font-size:13px">このページは準備中です。ご要望に合わせて作り込みます（既存アプリの該当機能を移植）。</div></div>'; }
@@ -470,16 +470,18 @@
     if(kind==='理論原価'){ if(!stored){ msg.textContent='金額（差分）が0です'; return; } if(!name){ msg.textContent='理論原価の変更には担当者名が必要です'; return; } }
     else { if(!(stored>0)){ msg.textContent='金額は1円以上で入力してください'; return; } }
     msg.textContent=editingId?'保存中…':'追加中…';
-    var item={cat:cat, memo:memoFinal, amount:stored, name:name};
-    var oldId=editingId;
-    google.script.run.withSuccessHandler(function(res){
-      if(!(res&&res.ok)){ msg.textContent='失敗: '+((res&&res.message)||''); return; }
-      if(oldId){ // 修正＝新規追加に成功した後、旧項目を削除
-        google.script.run.withSuccessHandler(function(){ editingId=null; reloadAndReopen(curStoreKey); })
-          .withFailureHandler(function(){ editingId=null; reloadAndReopen(curStoreKey); }).deleteLoss(PASS, oldId);
-      } else { reloadAndReopen(curStoreKey); }
-    }).withFailureHandler(function(){ msg.textContent='通信エラーで保存できませんでした'; })
-    .addLosses(PASS, curStoreKey, curMonth, kind, [item]);
+    if(editingId){
+      // 修正は専用の更新APIで1件だけ上書き（重複が出ない）
+      google.script.run.withSuccessHandler(function(res){
+        if(res&&res.ok){ editingId=null; reloadAndReopen(curStoreKey); } else { msg.textContent='失敗: '+((res&&res.message)||''); }
+      }).withFailureHandler(function(){ msg.textContent='通信エラーで保存できませんでした'; })
+      .updateLoss(PASS, editingId, {kind:kind, cat:cat, memo:memoFinal, amount:stored, name:name});
+    } else {
+      google.script.run.withSuccessHandler(function(res){
+        if(res&&res.ok){ reloadAndReopen(curStoreKey); } else { msg.textContent='失敗: '+((res&&res.message)||''); }
+      }).withFailureHandler(function(){ msg.textContent='通信エラーで保存できませんでした'; })
+      .addLosses(PASS, curStoreKey, curMonth, kind, [{cat:cat, memo:memoFinal, amount:stored, name:name}]);
+    }
   };
   window.delLoss=function(id){
     if(!confirm('この項目を削除しますか？')) return;
