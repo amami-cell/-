@@ -114,6 +114,17 @@
   .drow{ display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; border-bottom:1px solid #f1f5f9; font-size:13px; }
   .drow .k{ color:var(--ink-2); } .drow .v{ font-weight:700; font-variant-numeric:tabular-nums; } .drow .r{ color:var(--muted); font-size:11px; margin-left:6px; }
   .drow.big .v{ font-size:16px; }
+  .dsec{ margin-top:16px; font-size:12px; font-weight:700; color:var(--ink-2); }
+  .lrow{ display:flex; align-items:center; gap:6px; padding:6px 0; border-bottom:1px solid #f1f5f9; font-size:12px; }
+  .lrow .lk{ flex:none; color:#64748b; } .lrow .lm{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lrow .la{ flex:none; font-weight:700; font-variant-numeric:tabular-nums; } .lrow .ldel{ flex:none; border:0; background:transparent; color:#dc2626; cursor:pointer; font-size:13px; }
+  .addbox{ margin-top:10px; border:1px solid var(--line); border-radius:10px; padding:10px; background:#f8fafc; }
+  .addbox .arow{ display:flex; gap:6px; margin-bottom:6px; }
+  .addbox select,.addbox input{ width:100%; height:34px; border:1px solid #cbd5e1; border-radius:8px; padding:0 8px; font-size:13px; background:#fff; margin-bottom:6px; }
+  .addbox .arow select{ margin-bottom:0; }
+  .addbox .btn.pri{ width:100%; flex:none; }
+  .amsg{ font-size:12px; color:#dc2626; min-height:16px; margin-top:4px; }
+  .amsg.ok{ color:#059669; }
   .mbar{ display:none; position:sticky; top:0; z-index:30; align-items:center; justify-content:space-between; padding:8px 12px; color:#fff;
     background:linear-gradient(to right,#1e4b7a,#4b3fa0); border-bottom:1px solid rgba(67,56,202,.2); }
   .mbar button{ border:0; background:transparent; color:#fff; border-radius:8px; padding:6px; font-size:18px; cursor:pointer; }
@@ -343,17 +354,53 @@
     $('#dn').textContent=r.name; $('#ds').textContent=curMonth+'　棚卸内訳　'+(r.kind||'');
     var st=statusOf(r);
     function row(k,v,rate,big){ return '<div class="drow'+(big?' big':'')+'"><span class="k">'+k+'</span><span><span class="v">'+v+'</span>'+(rate?'<span class="r">'+rate+'</span>':'')+'</span></div>'; }
+    var ls=((RAW.losses[curMonth]||{})[key])||[];
+    var lsHtml = ls.length ? ls.map(function(l){
+      return '<div class="lrow"><span class="lk">'+esc(l.kind)+'・'+esc(l.cat)+'</span><span class="lm">'+esc(l.memo)+(l.name?'（'+esc(l.name)+'）':'')+'</span><span class="la">'+yen(l.amount)+'</span><button class="ldel" onclick="delLoss(\''+esc(l.id)+'\')" title="削除">🗑</button></div>';
+    }).join('') : '<div class="muted" style="font-size:12px">まだありません</div>';
     $('#dbody').innerHTML=''
       +'<div style="margin-bottom:10px"><span class="pill '+st.c+'">'+st.t+'</span> <span class="muted" style="font-size:12px">在庫回転 '+days1(r.turnover)+'</span></div>'
       +row('売上', yen(r.sales), '', true)
       +row('前月棚金', yen(r.invPrev))+row('当月仕入', yen(r.purchase), pct(r.purchaseRate))+row('当月棚金', yen(r.invCur))
       +row('当月実使用', yen(r.actual), r.sales&&r.actual!=null?pct(r.actual/r.sales):'')
       +row('理論原価', yen(r.theory), r.sales?pct(r.theory/r.sales):'')+row('必要ロス', yen(r.need))+row('廃棄ロス', yen(r.waste))
-      +'<div class="drow big" style="border-bottom:0"><span class="k" style="font-weight:700">不明ロス</span><span><span class="v '+(r.unknown>0?'pos':'neg')+'">'+yen(r.unknown)+'</span><span class="r">'+pct(r.unknownRate)+'</span></span></div>';
+      +'<div class="drow big" style="border-bottom:0"><span class="k" style="font-weight:700">不明ロス</span><span><span class="v '+(r.unknown>0?'pos':'neg')+'">'+yen(r.unknown)+'</span><span class="r">'+pct(r.unknownRate)+'</span></span></div>'
+      +'<div class="dsec">📝 登録済みのロス・理論原価</div>'+lsHtml
+      +'<div class="dsec">➕ 追加（本部から直接入力）</div>'
+      +'<div class="addbox">'
+        +'<div class="arow"><select id="aKind"><option>必要ロス</option><option>廃棄ロス</option><option>理論原価</option></select>'
+        +'<select id="aCat"><option>フード</option><option>ドリンク</option></select></div>'
+        +'<input id="aAmt" type="number" inputmode="numeric" placeholder="金額（円）／理論原価は差分・減額はマイナス">'
+        +'<input id="aMemo" placeholder="内容・メモ（理論原価は変更理由）">'
+        +'<input id="aName" placeholder="担当者名（理論原価の変更は必須）">'
+        +'<button class="btn pri" onclick="addLossFromDrawer()">追加する</button>'
+        +'<div class="amsg" id="aMsg"></div>'
+      +'</div>';
     $('#ovl').classList.add('show'); $('#drawer').classList.add('show'); document.body.style.overflow='hidden';
   };
   window.closeDrawer=function(){ $('#ovl').classList.remove('show'); $('#drawer').classList.remove('show'); document.body.style.overflow=''; };
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeDrawer(); });
+
+  // 本部から直接ロス・理論原価を入力/削除（既存の addLosses / deleteLoss を使用）
+  window.addLossFromDrawer=function(){
+    if(!curStoreKey) return;
+    var kind=$('#aKind').value, cat=$('#aCat').value;
+    var amt=Math.round(Number($('#aAmt').value)); var memo=($('#aMemo').value||'').trim(); var name=($('#aName').value||'').trim();
+    var msg=$('#aMsg'); msg.className='amsg';
+    if(!memo){ msg.textContent=(kind==='理論原価'?'変更理由':'内容')+'を入力してください'; return; }
+    if(kind==='理論原価'){ if(!amt){ msg.textContent='金額（差分）が0です'; return; } if(!name){ msg.textContent='理論原価の変更には担当者名が必要です'; return; } }
+    else { if(!(amt>0)){ msg.textContent='金額は1円以上で入力してください'; return; } }
+    msg.textContent='保存中…';
+    google.script.run.withSuccessHandler(function(res){
+      if(res&&res.ok){ reloadAndReopen(curStoreKey); } else { msg.textContent='失敗: '+((res&&res.message)||''); }
+    }).withFailureHandler(function(){ msg.textContent='通信エラーで保存できませんでした'; })
+    .addLosses(PASS, curStoreKey, curMonth, kind, [{cat:cat, memo:memo, amount:amt, name:name}]);
+  };
+  window.delLoss=function(id){
+    if(!confirm('この項目を削除しますか？')) return;
+    google.script.run.withSuccessHandler(function(res){ if(res&&res.ok){ reloadAndReopen(curStoreKey); } else { alert('削除できませんでした: '+((res&&res.message)||'')); } })
+    .withFailureHandler(function(){ alert('通信エラーで削除できませんでした'); }).deleteLoss(PASS, id);
+  };
 
   // 入力URLをコピー（担当者に送る、その店×その月専用）
   $('#dcopy').onclick=function(){
@@ -408,12 +455,17 @@
   };
   $('#pw')&&$('#pw').addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
 
+  var reopenAfterLoad=null, keepMonth=null;
+  function reloadAndReopen(key){ reopenAfterLoad=key; keepMonth=curMonth; loadData(true); }
   function onData(d){
     showLoading(false);
     if(!d || d.authError){ showLogin(true); return; }
-    RAW=d; ROWS={}; MONTHS=(d.months||[]).slice(); curMonth=MONTHS[MONTHS.length-1]||'';
+    RAW=d; ROWS={}; MONTHS=(d.months||[]).slice();
+    curMonth=(keepMonth&&MONTHS.indexOf(keepMonth)>=0)?keepMonth:(MONTHS[MONTHS.length-1]||'');
+    keepMonth=null;
     $('#upd').textContent=(d.updatedAt||'').slice(5,16);
     render();
+    if(reopenAfterLoad){ var k=reopenAfterLoad; reopenAfterLoad=null; openDrawer(k); }
   }
   function loadData(force){
     showLoading(true);
