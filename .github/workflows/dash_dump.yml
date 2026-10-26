@@ -1,0 +1,58 @@
+name: dash-dump
+on:
+  push:
+    branches: [claude/june-bug-cloud-planning-npopsg]
+    paths: ['.github/workflows/dash_dump.yml']
+  workflow_dispatch: {}
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm i playwright@1.48 >/dev/null 2>&1
+          npx playwright install --with-deps chromium
+      - name: dump
+        run: |
+          cat > d.mjs <<'SCRIPT'
+          import { chromium } from 'playwright';
+          const EXEC = 'https://script.google.com/macros/s/AKfycbyvVFWDpXDnjDP9r7PvzlCYSycCcKtDe6fpd_lykXywETy51Y-s3kF1YoryDmpnn3621Q/exec';
+          const sleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+          async function frameWhen(page, testFn){ const dl=Date.now()+70000; while(Date.now()<dl){ for(const f of page.frames()){ try{ if(await f.evaluate(testFn)) return f; }catch(e){} } await sleep(500);} throw new Error('frame'); }
+          const browser = await chromium.launch({args:['--no-sandbox']});
+          const out={};
+          try{
+            const p=await (await browser.newContext()).newPage();
+            await p.goto(EXEC+'?p=8888',{waitUntil:'load',timeout:70000});
+            // アプリ本体のJS(calcM/DATA)が使えるフレームを待つ
+            const f=await frameWhen(p, ()=> (typeof calcM==='function' && typeof DATA==='object' && DATA && DATA.stores));
+            // データロード完了を待つ（DATA.stores が埋まるまで）
+            await p.waitForTimeout(6000);
+            const dump = await f.evaluate(()=>{
+              var MS=['2026-08','2026-09'];
+              var stores=(DATA.stores||[]).map(function(s){return {key:s.key,name:s.name};});
+              var res={};
+              MS.forEach(function(ym){
+                res[ym]=[];
+                stores.forEach(function(s){
+                  var r=null; try{ r=calcM(s.key,ym,'FD'); }catch(e){}
+                  if(!r) return;
+                  res[ym].push({ name:s.name, key:s.key, kind:r.kind,
+                    sales:r.sales, purchase:r.purchase, theory:Math.round(r.theory),
+                    invPrev:r.invPrev, invCur:r.invCur, actual:r.actual,
+                    need:r.need, waste:r.waste, unknown:r.unknown,
+                    turnover:r.turnover, unknownRate:r.unknownRate, purchaseRate:r.purchaseRate });
+                });
+              });
+              return { months:MS, stores:stores, rows:res, updatedAt:(DATA.updatedAt||'') };
+            });
+            out.data=dump;
+            console.log('RESULT_JSON_BEGIN'); console.log(JSON.stringify(out)); console.log('RESULT_JSON_END');
+            await browser.close(); process.exit(0);
+          }catch(err){ out.error=String(err&&err.stack||err); console.log('RESULT_JSON_BEGIN'); console.log(JSON.stringify(out)); console.log('RESULT_JSON_END'); try{await browser.close();}catch(e){} process.exit(2); }
+          SCRIPT
+          node d.mjs
