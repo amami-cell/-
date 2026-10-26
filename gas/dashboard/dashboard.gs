@@ -87,6 +87,18 @@ function doGet(e) {
   if (e && e.parameter && e.parameter.setup === 'links') return setupPage_(e);
   // 配布用ページ（要パスコード）: 店舗ごとの入力URLを一覧＋コピーボタンで表示（担当者に手で送る用）。
   if (e && e.parameter && e.parameter.share) return sharePage_(e);
+  // 新デザインのダッシュボード（プレビュー）。?v2=1&p=パスコード。既存indexと並行提供。
+  if (e && e.parameter && e.parameter.v2) {
+    var t2 = HtmlService.createTemplateFromFile('dash2');
+    var p2 = (e.parameter.p != null) ? String(e.parameter.p) : '';
+    t2.AUTO_PASS = verifyPass_(p2) ? p2 : '';
+    var o2 = t2.evaluate()
+      .setTitle('棚卸管理')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    try { o2.setFaviconUrl(APP_FAVICON); } catch (e3) {}
+    return o2;
+  }
   // GASはコンテンツを別オリジンのiframe内で描画するため、iOSではiframe内の
   // localStorage（保存パスコード）が保持されず毎回ログインになる。対策として
   // URLに ?p=パスコード を付けておくと、それを画面に埋め込んで自動ログインする。
