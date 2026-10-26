@@ -123,8 +123,22 @@
   .addbox select,.addbox input{ width:100%; height:34px; border:1px solid #cbd5e1; border-radius:8px; padding:0 8px; font-size:13px; background:#fff; margin-bottom:6px; }
   .addbox .arow select{ margin-bottom:0; }
   .addbox .btn.pri{ width:100%; flex:none; }
+  .tseg{ display:flex; gap:4px; background:#eef2f7; border-radius:8px; padding:3px; margin-bottom:6px; }
+  .tseg button{ flex:1; border:0; background:transparent; border-radius:6px; padding:6px 4px; font-size:12px; font-weight:700; color:var(--ink-2); cursor:pointer; }
+  .tseg button.on{ background:#fff; color:var(--primary); box-shadow:0 1px 2px rgba(0,0,0,.08); }
   .amsg{ font-size:12px; color:#dc2626; min-height:16px; margin-top:4px; }
   .amsg.ok{ color:#059669; }
+  .dtwrap{ overflow-x:auto; border:1px solid var(--line); border-radius:10px; }
+  table.dtbl{ width:100%; border-collapse:collapse; font-size:12px; min-width:300px; }
+  table.dtbl thead td{ background:#f8fafc; color:#475569; font-weight:600; text-align:right; padding:7px 10px; white-space:nowrap; border-bottom:1px solid var(--line); }
+  table.dtbl thead td.l{ text-align:left; }
+  table.dtbl td{ text-align:right; padding:6px 10px; white-space:nowrap; border-bottom:1px solid #f1f5f9; font-variant-numeric:tabular-nums; }
+  table.dtbl td.l{ text-align:left; color:#64748b; }
+  table.dtbl tr:last-child td{ border-bottom:0; }
+  table.dtbl tr.unk td{ font-weight:700; background:#fafafa; }
+  .ledit{ flex:none; border:0; background:transparent; color:var(--primary); cursor:pointer; font-size:13px; }
+  #toast{ position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px); background:#1f2937; color:#fff; padding:10px 16px; border-radius:10px; font-size:13px; max-width:90%; text-align:center; opacity:0; pointer-events:none; transition:opacity .2s,transform .2s; z-index:70; box-shadow:0 6px 20px rgba(0,0,0,.2); }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
   .mbar{ display:none; position:sticky; top:0; z-index:30; align-items:center; justify-content:space-between; padding:8px 12px; color:#fff;
     background:linear-gradient(to right,#1e4b7a,#4b3fa0); border-bottom:1px solid rgba(67,56,202,.2); }
   .mbar button{ border:0; background:transparent; color:#fff; border-radius:8px; padding:6px; font-size:18px; cursor:pointer; }
@@ -175,7 +189,7 @@
 <aside class="drawer" id="drawer" role="dialog" aria-modal="true">
   <header><div><div class="dn" id="dn"></div><div class="ds" id="ds"></div></div><button class="x" onclick="closeDrawer()" aria-label="閉じる">✕</button></header>
   <div class="body" id="dbody"></div>
-  <footer><button class="btn sec" onclick="closeDrawer()">閉じる</button><button class="btn pri" id="dcopy">入力URLをコピー</button></footer>
+  <footer><button class="btn sec" onclick="closeDrawer()">閉じる</button><button class="btn sec" id="dcopy" style="flex:1">入力URL</button><button class="btn pri" onclick="copyCatchup(this)">催促メッセージ</button></footer>
 </aside>
 
 <script>
@@ -190,31 +204,35 @@
   var PASS='<?= AUTO_PASS ?>';
   var RAW=null, MONTHS=[], curMonth='', ROWS={}, curStoreKey=null;
   var sortKey='unknownAbs', sortDir=-1, query='';
+  var theoryMode='add', editingId=null;
 
   function daysInMonth(ym){var y=+ym.slice(0,4),m=+ym.slice(5,7);return new Date(y,m,0).getDate();}
   function prevYm(ym){var y=+ym.slice(0,4),m=+ym.slice(5,7)-1;var d=new Date(y,m-1,1);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
-  function invOf(ym,st){var iv=(RAW.inventory[ym]||{})[st];if(!iv)return null;if(((iv.food||0)+(iv.drink||0))===0)return null;return (iv.food||0)+(iv.drink||0);}
-  function calcFD(st,ym){
-    var m=(RAW.metrics[ym]||{})[st]; var invCur=invOf(ym,st);
+  function invOf(ym,st,mode){var iv=(RAW.inventory[ym]||{})[st];if(!iv)return null;if(((iv.food||0)+(iv.drink||0))===0)return null;return mode==='F'?(iv.food||0):mode==='D'?(iv.drink||0):(iv.food||0)+(iv.drink||0);}
+  function calc(st,ym,mode){
+    var m=(RAW.metrics[ym]||{})[st]; var invCur=invOf(ym,st,mode);
     if(!m && invCur===null) return null; m=m||{};
     var d=daysInMonth(ym); var sales=m.sales||0;
-    var purchase=(m.foodPurchase||0)+(m.drinkPurchase||0);
-    var theory=(m.foodTheory||0)+(m.drinkTheory||0);
-    var fs=m.foodSales||0, ds=m.drinkSales||0; var pct2=(fs+ds)*0.02;
+    var purchase=mode==='F'?(m.foodPurchase||0):mode==='D'?(m.drinkPurchase||0):(m.foodPurchase||0)+(m.drinkPurchase||0);
+    var theory=mode==='F'?(m.foodTheory||0):mode==='D'?(m.drinkTheory||0):(m.foodTheory||0)+(m.drinkTheory||0);
+    var fs=m.foodSales||0, ds=m.drinkSales||0;
+    var pct2=mode==='F'?fs*0.02:mode==='D'?ds*0.02:(fs+ds)*0.02;
     var inc2=!!((RAW.storeFlags||{})[st]); if(!inc2) theory+=pct2;
-    var invPrev=invOf(prevYm(ym),st);
-    var ls=((RAW.losses[ym]||{})[st])||[]; var need=0,waste=0,adj=0;
+    var invPrev=invOf(prevYm(ym),st,mode);
+    var all=((RAW.losses[ym]||{})[st])||[];
+    var ls= (mode==='FD')?all:all.filter(function(l){return l.cat===(mode==='F'?'フード':'ドリンク');});
+    var need=0,waste=0,adj=0;
     ls.forEach(function(l){ if(l.kind==='必要ロス')need+=l.amount; else if(l.kind==='廃棄ロス')waste+=l.amount; else if(l.kind==='理論原価')adj+=l.amount; });
     theory+=adj;
     var actual=(invPrev!==null&&invCur!==null)?invPrev+purchase-invCur:null;
     var unknown=actual!==null?actual-theory-need-waste:null;
     var td=(m.kind==='中間')?15:d;
     var turnover=(invCur!==null&&theory>0)?invCur/(theory/td):null;
-    return { kind:m.kind||'', sales:sales, purchase:purchase, theory:Math.round(theory), invPrev:invPrev, invCur:invCur, actual:actual, need:need, waste:waste, unknown:unknown, turnover:turnover, unknownRate:(sales&&unknown!==null)?unknown/sales:null, purchaseRate:sales?purchase/sales:null };
+    return { mode:mode, kind:m.kind||'', sales:sales, purchase:purchase, theory:Math.round(theory), invPrev:invPrev, invCur:invCur, actual:actual, need:need, waste:waste, unknown:unknown, turnover:turnover, unknownRate:(sales&&unknown!==null)?unknown/sales:null, purchaseRate:sales?purchase/sales:null };
   }
   function rowsOf(ym){
     if(ROWS[ym]) return ROWS[ym].slice();
-    var list=[]; (RAW.stores||[]).forEach(function(s){ var r=calcFD(s.key,ym); if(r){ r.name=s.name; r.key=s.key; list.push(r);} });
+    var list=[]; (RAW.stores||[]).forEach(function(s){ var r=calc(s.key,ym,'FD'); if(r){ r.name=s.name; r.key=s.key; list.push(r);} });
     ROWS[ym]=list; return list.slice();
   }
   function statusOf(r){
@@ -264,7 +282,10 @@
       +'<div class="kpi"><div class="l">要対応</div><div class="v" style="color:#c2410c">'+(pend+noTheory)+'</div><div class="sub">未入力'+pend+'・理論原価未取得'+noTheory+'</div></div>';
     return ''
       +'<div class="banner"><div class="h">全社サマリー（'+curMonth+'）</div><div class="s">店舗別の不明ロス・在庫回転を一覧で確認できます。行をタップで内訳。</div></div>'
-      +'<div class="card"><h2>📊 サマリー <span style="margin-left:auto">'+monthSeg()+'</span></h2><div class="kpis">'+kpi+'</div></div>'
+      +'<div class="card"><h2>📊 サマリー <span style="margin-left:auto;display:flex;gap:6px;align-items:center">'
+        +'<button class="btn sec" style="padding:5px 10px;font-size:12px" onclick="triggerFetch(\'fw\',this)" title="FW(Fooding Journal)の売上・仕入・理論原価を再取得">⟳ FW取込</button>'
+        +'<button class="btn sec" style="padding:5px 10px;font-size:12px" onclick="triggerFetch(\'infomart\',this)" title="インフォマートの棚卸高を再取得">⟳ インフォマート</button>'
+        +monthSeg()+'</span></h2><div class="kpis">'+kpi+'</div></div>'
       +storeTableCard('🏬 店舗別 棚卸（'+curMonth+'）');
   }
   function storeTableCard(title){
@@ -350,57 +371,163 @@
   }
 
   window.openDrawer=function(key){
-    var r=rowsOf(curMonth).filter(function(x){return x.key===key;})[0]; if(!r) return; curStoreKey=key;
-    $('#dn').textContent=r.name; $('#ds').textContent=curMonth+'　棚卸内訳　'+(r.kind||'');
-    var st=statusOf(r);
-    function row(k,v,rate,big){ return '<div class="drow'+(big?' big':'')+'"><span class="k">'+k+'</span><span><span class="v">'+v+'</span>'+(rate?'<span class="r">'+rate+'</span>':'')+'</span></div>'; }
+    curStoreKey=key;
+    var r=rowsOf(curMonth).filter(function(x){return x.key===key;})[0];
+    var cFD=calc(key,curMonth,'FD'), cF=calc(key,curMonth,'F'), cD=calc(key,curMonth,'D');
+    var m=(RAW.metrics[curMonth]||{})[key]||{};
+    var name=(r&&r.name)||(function(){var s=(RAW.stores||[]).filter(function(x){return x.key===key;})[0];return s?s.name:key;})();
+    $('#dn').textContent=name; $('#ds').textContent=curMonth+'　棚卸内訳　'+((cFD&&cFD.kind)||'');
+    var st=r?statusOf(r):{t:'データなし',c:'grey'};
+    var g=function(c,k){ return c?c[k]:null; };
+    function trow(lbl,fdv,fv,dv){ return '<tr><td class="l">'+lbl+'</td><td>'+yen(fdv)+'</td><td>'+yen(fv)+'</td><td>'+yen(dv)+'</td></tr>'; }
+    var tbl='<div class="dtwrap"><table class="dtbl"><thead><tr><td class="l">項目</td><td>FD</td><td>フード</td><td>ドリンク</td></tr></thead><tbody>'
+      +trow('売上', g(cFD,'sales'), m.foodSales||0, m.drinkSales||0)
+      +trow('前月棚金', g(cFD,'invPrev'), g(cF,'invPrev'), g(cD,'invPrev'))
+      +trow('当月仕入', g(cFD,'purchase'), g(cF,'purchase'), g(cD,'purchase'))
+      +trow('当月棚金', g(cFD,'invCur'), g(cF,'invCur'), g(cD,'invCur'))
+      +trow('当月実使用', g(cFD,'actual'), g(cF,'actual'), g(cD,'actual'))
+      +trow('理論原価', g(cFD,'theory'), g(cF,'theory'), g(cD,'theory'))
+      +trow('必要ロス', g(cFD,'need'), g(cF,'need'), g(cD,'need'))
+      +trow('廃棄ロス', g(cFD,'waste'), g(cF,'waste'), g(cD,'waste'))
+      +'<tr class="unk"><td class="l">不明ロス</td>'
+        +'<td class="'+((g(cFD,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cFD,'unknown'))+'<div class="sub2">'+pct(g(cFD,'unknownRate'))+'</div></td>'
+        +'<td class="'+((g(cF,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cF,'unknown'))+'</td>'
+        +'<td class="'+((g(cD,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cD,'unknown'))+'</td></tr>'
+      +'</tbody></table></div>';
     var ls=((RAW.losses[curMonth]||{})[key])||[];
     var lsHtml = ls.length ? ls.map(function(l){
-      return '<div class="lrow"><span class="lk">'+esc(l.kind)+'・'+esc(l.cat)+'</span><span class="lm">'+esc(l.memo)+(l.name?'（'+esc(l.name)+'）':'')+'</span><span class="la">'+yen(l.amount)+'</span><button class="ldel" onclick="delLoss(\''+esc(l.id)+'\')" title="削除">🗑</button></div>';
+      return '<div class="lrow"><span class="lk">'+esc(l.kind)+'・'+esc(l.cat)+'</span><span class="lm">'+esc(l.memo)+(l.name?'（'+esc(l.name)+'）':'')+'</span><span class="la">'+yen(l.amount)+'</span>'
+        +'<button class="ledit" onclick="editLoss(\''+esc(l.id)+'\')" title="修正">✎</button><button class="ldel" onclick="delLoss(\''+esc(l.id)+'\')" title="削除">🗑</button></div>';
     }).join('') : '<div class="muted" style="font-size:12px">まだありません</div>';
     $('#dbody').innerHTML=''
-      +'<div style="margin-bottom:10px"><span class="pill '+st.c+'">'+st.t+'</span> <span class="muted" style="font-size:12px">在庫回転 '+days1(r.turnover)+'</span></div>'
-      +row('売上', yen(r.sales), '', true)
-      +row('前月棚金', yen(r.invPrev))+row('当月仕入', yen(r.purchase), pct(r.purchaseRate))+row('当月棚金', yen(r.invCur))
-      +row('当月実使用', yen(r.actual), r.sales&&r.actual!=null?pct(r.actual/r.sales):'')
-      +row('理論原価', yen(r.theory), r.sales?pct(r.theory/r.sales):'')+row('必要ロス', yen(r.need))+row('廃棄ロス', yen(r.waste))
-      +'<div class="drow big" style="border-bottom:0"><span class="k" style="font-weight:700">不明ロス</span><span><span class="v '+(r.unknown>0?'pos':'neg')+'">'+yen(r.unknown)+'</span><span class="r">'+pct(r.unknownRate)+'</span></span></div>'
+      +'<div style="margin-bottom:10px"><span class="pill '+st.c+'">'+st.t+'</span> <span class="muted" style="font-size:12px">在庫回転 '+days1(r?r.turnover:null)+'　売上 '+yen(g(cFD,'sales'))+'</span></div>'
+      +tbl
       +'<div class="dsec">📝 登録済みのロス・理論原価</div>'+lsHtml
-      +'<div class="dsec">➕ 追加（本部から直接入力）</div>'
+      +'<div class="dsec" id="addTitle">➕ 追加（本部から直接入力）</div>'
       +'<div class="addbox">'
-        +'<div class="arow"><select id="aKind"><option>必要ロス</option><option>廃棄ロス</option><option>理論原価</option></select>'
+        +'<div class="arow"><select id="aKind" onchange="onKindChange()"><option>必要ロス</option><option>廃棄ロス</option><option>理論原価</option></select>'
         +'<select id="aCat"><option>フード</option><option>ドリンク</option></select></div>'
-        +'<input id="aAmt" type="number" inputmode="numeric" placeholder="金額（円）／理論原価は差分・減額はマイナス">'
-        +'<input id="aMemo" placeholder="内容・メモ（理論原価は変更理由）">'
-        +'<input id="aName" placeholder="担当者名（理論原価の変更は必須）">'
-        +'<button class="btn pri" onclick="addLossFromDrawer()">追加する</button>'
+        +'<div class="tseg" id="aThmode" style="display:none"><button type="button" id="aMAdd" class="on" onclick="setTheoryMode(\'add\')">加算</button><button type="button" id="aMSet" onclick="setTheoryMode(\'set\')">合計を訂正</button></div>'
+        +'<input id="aAmt" type="number" inputmode="numeric" placeholder="金額（円）">'
+        +'<input id="aMemo" placeholder="内容・メモ">'
+        +'<input id="aName" placeholder="担当者名（理論原価は必須）">'
+        +'<button class="btn pri" id="aSubmit" onclick="addLossFromDrawer()">追加する</button>'
+        +'<button class="btn sec" id="aCancel" style="display:none;margin-top:6px;width:100%" onclick="cancelEdit()">編集をやめる</button>'
         +'<div class="amsg" id="aMsg"></div>'
       +'</div>';
+    theoryMode='add'; editingId=null; onKindChange();
     $('#ovl').classList.add('show'); $('#drawer').classList.add('show'); document.body.style.overflow='hidden';
   };
   window.closeDrawer=function(){ $('#ovl').classList.remove('show'); $('#drawer').classList.remove('show'); document.body.style.overflow=''; };
   document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeDrawer(); });
 
   // 本部から直接ロス・理論原価を入力/削除（既存の addLosses / deleteLoss を使用）
+  window.onKindChange=function(){
+    var kind=$('#aKind').value;
+    var isTh=(kind==='理論原価');
+    $('#aThmode').style.display=isTh?'flex':'none';
+    $('#aName').style.display=isTh?'block':'none';
+    if(!isTh){ theoryMode='add'; }
+    updateAmtPh();
+  };
+  window.setTheoryMode=function(mode){ theoryMode=mode; $('#aMAdd').className=(mode==='add')?'on':''; $('#aMSet').className=(mode==='set')?'on':''; updateAmtPh(); };
+  function updateAmtPh(){
+    var kind=$('#aKind').value;
+    $('#aAmt').placeholder = (kind==='理論原価')
+      ? (theoryMode==='set' ? '訂正後の理論原価の合計（円）' : '加算する金額（減額はマイナス）')
+      : '金額（円）';
+    $('#aMemo').placeholder = (kind==='理論原価') ? '変更理由' : '内容・メモ';
+  }
+  window.editLoss=function(id){
+    var ls=((RAW.losses[curMonth]||{})[curStoreKey])||[];
+    var l=ls.filter(function(x){return String(x.id)===String(id);})[0]; if(!l) return;
+    editingId=id;
+    $('#aKind').value=l.kind; $('#aCat').value=l.cat;
+    $('#aMemo').value=String(l.memo||'').replace(/（→.*?に訂正）\s*$/,'');
+    $('#aName').value=l.name||''; $('#aAmt').value=l.amount;
+    theoryMode='add'; onKindChange();  // 編集は差分(加算)で扱う
+    $('#addTitle').textContent='✎ 修正';
+    $('#aSubmit').textContent='修正を保存'; $('#aCancel').style.display='block';
+    try{ $('#addTitle').scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
+  };
+  window.cancelEdit=function(){ editingId=null; $('#aAmt').value=''; $('#aMemo').value=''; $('#aName').value='';
+    $('#addTitle').textContent='➕ 追加（本部から直接入力）'; $('#aSubmit').textContent='追加する'; $('#aCancel').style.display='none'; $('#aMsg').textContent=''; };
+
   window.addLossFromDrawer=function(){
     if(!curStoreKey) return;
     var kind=$('#aKind').value, cat=$('#aCat').value;
-    var amt=Math.round(Number($('#aAmt').value)); var memo=($('#aMemo').value||'').trim(); var name=($('#aName').value||'').trim();
+    var amtIn=Number($('#aAmt').value); var memo=($('#aMemo').value||'').trim(); var name=($('#aName').value||'').trim();
     var msg=$('#aMsg'); msg.className='amsg';
+    if(isNaN(amtIn)){ msg.textContent='金額を入力してください'; return; }
+    var stored, memoFinal=memo;
+    if(kind==='理論原価' && theoryMode==='set'){
+      var cur=calc(curStoreKey, curMonth, cat==='フード'?'F':'D'); var curTheory=cur?cur.theory:0;
+      stored=Math.round(amtIn-curTheory);
+      if(stored===0){ msg.textContent='現在（'+yen(curTheory)+'）と同じ金額です'; return; }
+      memoFinal=memo+'（→'+yen(Math.round(amtIn))+' に訂正）';
+    } else { stored=Math.round(amtIn); }
     if(!memo){ msg.textContent=(kind==='理論原価'?'変更理由':'内容')+'を入力してください'; return; }
-    if(kind==='理論原価'){ if(!amt){ msg.textContent='金額（差分）が0です'; return; } if(!name){ msg.textContent='理論原価の変更には担当者名が必要です'; return; } }
-    else { if(!(amt>0)){ msg.textContent='金額は1円以上で入力してください'; return; } }
-    msg.textContent='保存中…';
+    if(kind==='理論原価'){ if(!stored){ msg.textContent='金額（差分）が0です'; return; } if(!name){ msg.textContent='理論原価の変更には担当者名が必要です'; return; } }
+    else { if(!(stored>0)){ msg.textContent='金額は1円以上で入力してください'; return; } }
+    msg.textContent=editingId?'保存中…':'追加中…';
+    var item={cat:cat, memo:memoFinal, amount:stored, name:name};
+    var oldId=editingId;
     google.script.run.withSuccessHandler(function(res){
-      if(res&&res.ok){ reloadAndReopen(curStoreKey); } else { msg.textContent='失敗: '+((res&&res.message)||''); }
+      if(!(res&&res.ok)){ msg.textContent='失敗: '+((res&&res.message)||''); return; }
+      if(oldId){ // 修正＝新規追加に成功した後、旧項目を削除
+        google.script.run.withSuccessHandler(function(){ editingId=null; reloadAndReopen(curStoreKey); })
+          .withFailureHandler(function(){ editingId=null; reloadAndReopen(curStoreKey); }).deleteLoss(PASS, oldId);
+      } else { reloadAndReopen(curStoreKey); }
     }).withFailureHandler(function(){ msg.textContent='通信エラーで保存できませんでした'; })
-    .addLosses(PASS, curStoreKey, curMonth, kind, [{cat:cat, memo:memo, amount:amt, name:name}]);
+    .addLosses(PASS, curStoreKey, curMonth, kind, [item]);
   };
   window.delLoss=function(id){
     if(!confirm('この項目を削除しますか？')) return;
     google.script.run.withSuccessHandler(function(res){ if(res&&res.ok){ reloadAndReopen(curStoreKey); } else { alert('削除できませんでした: '+((res&&res.message)||'')); } })
     .withFailureHandler(function(){ alert('通信エラーで削除できませんでした'); }).deleteLoss(PASS, id);
   };
+
+  // 催促メッセージ（棚数値入り）を組み立てる
+  function buildCatchup(key, ym, url){
+    var r=rowsOf(ym).filter(function(x){return x.key===key;})[0]; var name=r?r.name:key;
+    var cF=calc(key,ym,'F'),cD=calc(key,ym,'D'),cFD=calc(key,ym,'FD');
+    var mm=String(ym).match(/^(\d{4})-(\d{2})$/);
+    var L=['【'+name+'】', (mm?(mm[1]+'年'+(+mm[2])+'月'):ym)+' 棚卸項目'];
+    if(!cFD){ L.push('まだ棚卸データがありません。'); }
+    else { var line=function(lbl,rr){ if(!rr||rr.unknown==null) return lbl+'　—'; var pc=(rr.unknownRate!=null)?('　'+(rr.unknownRate*100).toFixed(1)+'%'):''; return lbl+'　'+yen(rr.unknown)+pc; };
+      L.push('不明ロス'); L.push(line('F',cF)); L.push(line('D',cD)); L.push(line('FD',cFD));
+      if(cFD.unknownRate!=null && Math.abs(cFD.unknownRate)*100>=1) L.push('⚠️ FDの不明ロスが±1%以上です。要確認。');
+    }
+    L.push('▼ロス・理論原価の入力/修正はこちら（この店・この月専用）'); L.push(url);
+    return L.join('\n');
+  }
+  window.copyCatchup=function(btn){
+    if(!curStoreKey) return; var old=btn.textContent; btn.textContent='取得中…'; btn.disabled=true;
+    google.script.run.withSuccessHandler(function(res){ btn.disabled=false;
+      var url=res&&res.ok&&res.links&&res.links[curMonth];
+      if(!url){ btn.textContent='取得失敗'; setTimeout(function(){btn.textContent=old;},1500); return; }
+      copyText(buildCatchup(curStoreKey, curMonth, url), btn, old);
+    }).withFailureHandler(function(){ btn.disabled=false; btn.textContent='通信エラー'; setTimeout(function(){btn.textContent=old;},1500); })
+    .getStoreInputLinks(PASS, curStoreKey, [curMonth]);
+  };
+  function copyText(text, btn, old){
+    var done=function(){ btn.textContent='コピー✓'; setTimeout(function(){btn.textContent=old;},1500); };
+    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(done,function(){legacyCopy(text);done();}); }
+    else { legacyCopy(text); done(); }
+  }
+
+  // クラウド再取得（fetch.yml を起動）
+  window.triggerFetch=function(target, btn){
+    var old=btn.textContent; btn.disabled=true; btn.textContent='起動中…';
+    google.script.run.withSuccessHandler(function(res){ btn.disabled=false; btn.textContent=old;
+      if(res&&res.ok){ toast('取込を起動しました。数十秒〜数分で反映→「⟳ データ再取得」で最新化してください'); }
+      else if(res&&res.needSetup){ alert('初回のみGitHubトークンの登録が必要です（旧アプリの設定から登録してください）。'); }
+      else { toast('起動できませんでした: '+((res&&res.message)||'')); }
+    }).withFailureHandler(function(){ btn.disabled=false; btn.textContent=old; toast('通信エラーで起動できませんでした'); })
+    .triggerCloudFetch(PASS, target, curMonth);
+  };
+  // トースト
+  function toast(t){ var el=document.getElementById('toast'); if(!el){ el=document.createElement('div'); el.id='toast'; document.body.appendChild(el);} el.textContent=t; el.className='show'; clearTimeout(toast._t); toast._t=setTimeout(function(){ el.className=''; },3500); }
 
   // 入力URLをコピー（担当者に送る、その店×その月専用）
   $('#dcopy').onclick=function(){
