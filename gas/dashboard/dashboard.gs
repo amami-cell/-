@@ -87,34 +87,31 @@ function doGet(e) {
   if (e && e.parameter && e.parameter.setup === 'links') return setupPage_(e);
   // 配布用ページ（要パスコード）: 店舗ごとの入力URLを一覧＋コピーボタンで表示（担当者に手で送る用）。
   if (e && e.parameter && e.parameter.share) return sharePage_(e);
-  // 新デザインのダッシュボード（プレビュー）。?v2=1&p=パスコード。既存indexと並行提供。
-  if (e && e.parameter && e.parameter.v2) {
-    var t2 = HtmlService.createTemplateFromFile('dash2');
-    var p2 = (e.parameter.p != null) ? String(e.parameter.p) : '';
-    t2.AUTO_PASS = verifyPass_(p2) ? p2 : '';
-    var o2 = t2.evaluate()
-      .setTitle('棚卸管理')
+  // 旧ダッシュボード（保険・未移植機能用）: ?v1=1&p=パスコード で従来版(index)を表示する。
+  // パスコード変更など新デザインに未移植の機能はこちらで操作できる。
+  if (e && e.parameter && e.parameter.v1) {
+    var tpl = HtmlService.createTemplateFromFile('index');
+    var p = (e.parameter.p != null) ? String(e.parameter.p) : '';
+    tpl.AUTO_PASS = verifyPass_(p) ? p : '';
+    var out = tpl.evaluate()
+      .setTitle('棚卸（旧）')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-    try { o2.setFaviconUrl(APP_FAVICON); } catch (e3) {}
-    return o2;
+    try { out.setFaviconUrl(APP_FAVICON); } catch (e2) {}
+    return out;
   }
-  // GASはコンテンツを別オリジンのiframe内で描画するため、iOSではiframe内の
-  // localStorage（保存パスコード）が保持されず毎回ログインになる。対策として
-  // URLに ?p=パスコード を付けておくと、それを画面に埋め込んで自動ログインする。
-  // （合致しないときは空を埋め込み、通常どおりログイン画面を出す）
-  var tpl = HtmlService.createTemplateFromFile('index');
-  var p = (e && e.parameter && e.parameter.p != null) ? String(e.parameter.p) : '';
-  tpl.AUTO_PASS = verifyPass_(p) ? p : '';
-  var out = tpl.evaluate()
-    .setTitle('棚卸')
+  // 正式トップ: 新デザインのダッシュボード(dash2)。既定でこれを表示（?v2=1 も同じ）。
+  // GASは別オリジンiframe内描画のため、?p=パスコード を付けておくと自動ログインする
+  // （合致しないときは空を埋め込み、ログイン画面を出す）。
+  var t2 = HtmlService.createTemplateFromFile('dash2');
+  var p2 = (e && e.parameter && e.parameter.p != null) ? String(e.parameter.p) : '';
+  t2.AUTO_PASS = verifyPass_(p2) ? p2 : '';
+  var o2 = t2.evaluate()
+    .setTitle('棚卸管理')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    // ホーム画面用のPWA入口ページ（GitHub Pages）から全画面iframeで表示できるように許可。
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  // ブラウザのタブ／ブックマークのアイコンを棚卸アイコンに。
-  // data URIが弾かれる環境でもアプリが落ちないよう try/catch で保護。
-  try { out.setFaviconUrl(APP_FAVICON); } catch (e2) {}
-  return out;
+  try { o2.setFaviconUrl(APP_FAVICON); } catch (e3) {}
+  return o2;
 }
 
 // ─── 委任入力（店舗×月の署名トークン付きリンク）─────────────────────────────────
