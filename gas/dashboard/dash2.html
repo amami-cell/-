@@ -66,6 +66,7 @@
   :root[data-nav="collapsed"] .sb-sec{ height:1px; padding:0; margin:8px 16px; background:var(--sb-line); }
   .main{ margin-left:240px; padding:16px 24px 40px; transition:margin-left .2s cubic-bezier(.4,0,.2,1); }
   :root[data-nav="collapsed"] .main{ margin-left:56px; }
+  .stack{ max-width:1180px; margin:0 auto; }
   .stack>*+*{ margin-top:12px; }
   .card{ border-radius:16px; border:1px solid var(--line); background:var(--card); padding:16px; box-shadow:0 1px 2px rgba(0,0,0,.05); }
   .card h2{ margin:0 0 10px; font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -299,7 +300,7 @@
         +monthSeg()+'</span></h2><div class="kpis">'+kpi+'</div></div>'
       +storeTableCard('🏬 店舗別 棚卸（'+curMonth+'）');
   }
-  function storeTableCard(title){
+  function storeFiltered(){
     var rows=rowsOf(curMonth);
     var q=query.trim(); if(q) rows=rows.filter(function(r){return r.name.indexOf(q)>=0;});
     rows.sort(function(a,b){ var av,bv;
@@ -307,7 +308,9 @@
       else if(sortKey==='unknownAbs'){ av=Math.abs(a.unknownRate||0); bv=Math.abs(b.unknownRate||0); }
       else { av=a[sortKey]; bv=b[sortKey]; av=(av==null?-1e18:av); bv=(bv==null?-1e18:bv); }
       return av<bv?-sortDir:av>bv?sortDir:0; });
-    function ar(k){ return sortKey===k?('<span class="ar">'+(sortDir>0?'▲':'▼')+'</span>'):''; }
+    return rows;
+  }
+  function storeRowsHtml(rows){
     var body=rows.map(function(r){ var st=statusOf(r);
       var uk=(r.unknown==null)?'—':('<span class="'+(r.unknown>0?'pos':'neg')+'">'+yen(r.unknown)+'</span><div class="sub2">'+(r.unknownRate==null?'':pct(r.unknownRate))+'</div>');
       return '<tr onclick="openDrawer(\''+esc(r.key)+'\')"><td class="name"><span class="edge" style="background:'+barColor(r)+'"></span>'+esc(r.name)+'</td>'
@@ -316,13 +319,25 @@
     var mc=rows.map(function(r){ var st=statusOf(r);
       return '<div class="mcard" onclick="openDrawer(\''+esc(r.key)+'\')"><div class="r1"><span class="nm">'+esc(r.name)+'</span><span class="pill '+st.c+'">'+st.t+'</span></div>'
         +'<div class="sub2" style="margin-top:4px">回転 '+days1(r.turnover)+' ・ 売上 '+yen(r.sales)+' ・ 不明 '+(r.unknown==null?'—':('<span class="'+(r.unknown>0?'pos':'neg')+'">'+yen(r.unknown)+' '+pct(r.unknownRate)+'</span>'))+'</div></div>'; }).join('');
-    return '<div class="card"><h2>'+esc(title)+' <span class="muted" style="font-weight:400;font-size:12px">'+rows.length+' 店</span></h2>'
-      +'<div class="toolbar"><div class="search"><span class="si">🔍</span><input id="q" placeholder="店名で検索" value="'+esc(query)+'" oninput="setQ(this.value)"></div>'+monthSeg()+'</div>'
+    return {body:body, mcards:mc};
+  }
+  // 検索ボックスは作り直さず、表の中身だけ差し替える（IME変換を壊さない）
+  function renderStoreRows(){
+    var rows=storeFiltered(); var h=storeRowsHtml(rows);
+    var b=$('#stBody'); if(b) b.innerHTML=h.body;
+    var m=$('#stMcards'); if(m) m.innerHTML=h.mcards;
+    var c=$('#stCount'); if(c) c.textContent=rows.length+' 店';
+  }
+  function storeTableCard(title){
+    var rows=storeFiltered(); var h=storeRowsHtml(rows);
+    function ar(k){ return sortKey===k?('<span class="ar">'+(sortDir>0?'▲':'▼')+'</span>'):''; }
+    return '<div class="card"><h2>'+esc(title)+' <span class="muted" id="stCount" style="font-weight:400;font-size:12px">'+rows.length+' 店</span></h2>'
+      +'<div class="toolbar"><div class="search"><span class="si">🔍</span><input id="q" type="search" placeholder="店名で検索" value="'+esc(query)+'" oninput="setQ(this.value)" oncompositionstart="imeStart()" oncompositionend="imeEnd(this.value)"></div>'+monthSeg()+'</div>'
       +'<div class="twrap"><table><thead><tr>'
         +'<th class="l" onclick="setSort(\'name\')">店舗 '+ar('name')+'</th><th onclick="setSort(\'turnover\')">在庫回転 '+ar('turnover')+'</th>'
         +'<th onclick="setSort(\'sales\')">売上 '+ar('sales')+'</th><th onclick="setSort(\'purchase\')">仕入 '+ar('purchase')+'</th>'
-        +'<th onclick="setSort(\'unknownAbs\')">不明ロス '+ar('unknownAbs')+'</th><th>状態</th></tr></thead><tbody>'+body+'</tbody></table></div>'
-      +'<div class="mcards">'+mc+'</div></div>';
+        +'<th onclick="setSort(\'unknownAbs\')">不明ロス '+ar('unknownAbs')+'</th><th>状態</th></tr></thead><tbody id="stBody">'+h.body+'</tbody></table></div>'
+      +'<div class="mcards" id="stMcards">'+h.mcards+'</div></div>';
   }
   function pageRank(metric,title,fmt){
     var rows=rowsOf(curMonth).filter(function(r){return r[metric]!=null;});
@@ -390,7 +405,9 @@
     $('#dn').textContent=name; $('#ds').textContent=curMonth+'　棚卸内訳　'+((cFD&&cFD.kind)||'');
     var st=r?statusOf(r):{t:'データなし',c:'grey'};
     var g=function(c,k){ return c?c[k]:null; };
-    function trow(lbl,fdv,fv,dv){ return '<tr><td class="l">'+lbl+'</td><td>'+yen(fdv)+'</td><td>'+yen(fv)+'</td><td>'+yen(dv)+'</td></tr>'; }
+    var salesFD=(cFD&&cFD.sales)||0;   // 売上比(売上構成比)は総売上(FD)に対して・全項目共通
+    function cv(v){ return yen(v)+((salesFD&&v!=null)?('<div class="sub2">'+pct(v/salesFD)+'</div>'):''); }
+    function trow(lbl,fdv,fv,dv){ return '<tr><td class="l">'+lbl+'</td><td>'+cv(fdv)+'</td><td>'+cv(fv)+'</td><td>'+cv(dv)+'</td></tr>'; }
     var tbl='<div class="dtwrap"><table class="dtbl"><thead><tr><td class="l">項目</td><td>FD</td><td>フード</td><td>ドリンク</td></tr></thead><tbody>'
       +trow('売上', g(cFD,'sales'), m.foodSales||0, m.drinkSales||0)
       +trow('前月棚金', g(cFD,'invPrev'), g(cF,'invPrev'), g(cD,'invPrev'))
@@ -402,8 +419,8 @@
       +trow('廃棄ロス', g(cFD,'waste'), g(cF,'waste'), g(cD,'waste'))
       +'<tr class="unk"><td class="l">不明ロス</td>'
         +'<td class="'+((g(cFD,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cFD,'unknown'))+'<div class="sub2">'+pct(g(cFD,'unknownRate'))+'</div></td>'
-        +'<td class="'+((g(cF,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cF,'unknown'))+'</td>'
-        +'<td class="'+((g(cD,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cD,'unknown'))+'</td></tr>'
+        +'<td class="'+((g(cF,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cF,'unknown'))+((salesFD&&g(cF,'unknown')!=null)?('<div class="sub2">'+pct(g(cF,'unknown')/salesFD)+'</div>'):'')+'</td>'
+        +'<td class="'+((g(cD,'unknown')||0)>0?'pos':'neg')+'">'+yen(g(cD,'unknown'))+((salesFD&&g(cD,'unknown')!=null)?('<div class="sub2">'+pct(g(cD,'unknown')/salesFD)+'</div>'):'')+'</td></tr>'
       +'</tbody></table></div>';
     var ls=((RAW.losses[curMonth]||{})[key])||[];
     var lsHtml = ls.length ? ls.map(function(l){
@@ -571,7 +588,11 @@
 
   window.go=function(t){ location.hash=t; closeNav(); };
   window.setMonth=function(m){ curMonth=m; render(); };
-  window.setQ=function(v){ query=v; var cur=location.hash.slice(1); $('#view').innerHTML=(cur==='stores'?storeTableCard('🏬 店舗別 棚卸（'+curMonth+'）'):pageDashboard()); var q=$('#q'); if(q){q.focus();q.setSelectionRange(q.value.length,q.value.length);} };
+  // 検索: 入力中は表の中身だけ更新（検索ボックスは維持）。IME変換(composition)中は確定まで再描画しない。
+  var imeComposing=false;
+  window.imeStart=function(){ imeComposing=true; };
+  window.imeEnd=function(v){ imeComposing=false; query=v; renderStoreRows(); };
+  window.setQ=function(v){ query=v; if(!imeComposing) renderStoreRows(); };
   window.setSort=function(k){ if(sortKey===k) sortDir=-sortDir; else { sortKey=k; sortDir=(k==='name'?1:-1); } render(); };
   window.toggleNav=function(){ var c=document.documentElement.getAttribute('data-nav')==='collapsed';
     if(c){document.documentElement.removeAttribute('data-nav');try{localStorage.setItem('nav-collapsed','0');}catch(e){}}
