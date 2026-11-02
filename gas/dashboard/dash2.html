@@ -374,8 +374,8 @@
     return '<div class="card"><h2>⚙ 設定</h2>'
       +'<div class="drow"><span class="k">データ更新</span><span class="v">'+esc((RAW.updatedAt||'').slice(0,16))+'</span></div>'
       +'<div class="drow"><span class="k">対象月</span><span class="v" style="font-size:12px">'+esc(MONTHS.join(' / '))+'</span></div>'
-      +'<div class="drow"><span class="k">パスコード変更</span><span class="v"><a href="?" target="_blank" style="color:var(--primary);text-decoration:none">旧アプリを開いて🔒から変更 ↗</a></span></div>'
-      +'<div class="drow" style="border-bottom:0"><span class="k">旧ダッシュボード</span><span class="v"><a href="?" target="_blank" style="color:var(--primary);text-decoration:none">開く ↗</a></span></div>'
+      +'<div class="drow"><span class="k">パスコード変更</span><span class="v"><a href="?v1=1" target="_blank" style="color:var(--primary);text-decoration:none">旧アプリを開いて🔒から変更 ↗</a></span></div>'
+      +'<div class="drow" style="border-bottom:0"><span class="k">旧ダッシュボード</span><span class="v"><a href="?v1=1" target="_blank" style="color:var(--primary);text-decoration:none">開く ↗</a></span></div>'
       +'<div class="muted" style="font-size:12px;margin-top:10px">このページ（?v2=1）は新デザインです。正式トップへの差し替えはご指示ください。</div></div>';
   }
   function pageStub(title){ return '<div class="card"><h2>'+esc(title)+'</h2><div class="muted" style="font-size:13px">このページは準備中です。ご要望に合わせて作り込みます（既存アプリの該当機能を移植）。</div></div>'; }
